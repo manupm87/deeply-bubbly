@@ -1,4 +1,4 @@
-import { TUNING } from '@deeply-bubbly/core';
+import { DEFAULT_TUNING } from '@deeply-bubbly/core';
 
 // Placeholder entry; replaced by the Phaser bootstrap.
-console.warn('Deeply Bubbly web shell bootstrapping', TUNING.CHUNK_W);
+console.warn('Deeply Bubbly web shell bootstrapping', DEFAULT_TUNING.CHUNK_W);

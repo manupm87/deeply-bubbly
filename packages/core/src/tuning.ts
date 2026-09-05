@@ -61,6 +61,8 @@ export const DEFAULT_TUNING = defineTuning({
   REST_STICKY_IMPULSE_MUL: 0.6,
   REST_RELEASE_PUSH: 90, // px/s DOWNWARD when rest time is exhausted
   LAUNCH_LOCK_MS: 250,
+  /** GDD §11.3 mentions lighter damping during LAUNCHED; kept at 1.0 so the §2.2 reach table stays exact. Tune in playtest. */
+  LAUNCH_DAMPING_MUL: 1.0,
 
   // --- Materials ---
   RESTITUTION_ROCK: 0.55,
