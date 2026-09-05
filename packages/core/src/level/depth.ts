@@ -24,20 +24,40 @@ export const ZONES: readonly ZoneSpec[] = Object.freeze([
 export const WORLD_BOTTOM_PX = 25920;
 export const WORLD_BOTTOM_M = 10935;
 
+/** The table is normative and never empty; this keeps the lookups total under noUncheckedIndexedAccess. */
+function zoneOrFirst(index: number): ZoneSpec {
+  const z = ZONES[index] ?? ZONES[0];
+  if (z === undefined) throw new Error('ZONES table is empty');
+  return z;
+}
+
 /** Zone containing worldY (clamped to the first/last zone outside the world). */
 export function zoneAt(worldY: number): ZoneSpec {
-  void worldY;
-  throw new Error('not implemented');
+  for (let i = 0; i < ZONES.length; i++) {
+    const z = zoneOrFirst(i);
+    // Borders belong to the DEEPER zone: worldY === z.endPx is the start of the next one.
+    if (worldY < z.endPx) return z;
+  }
+  return zoneOrFirst(ZONES.length - 1);
 }
 
 /** Piecewise-linear, strictly increasing and continuous at zone borders (§11.7.10). */
 export function pxToMeters(worldY: number): number {
-  void worldY;
-  throw new Error('not implemented');
+  const z = zoneAt(worldY);
+  return z.startM + (worldY - z.startPx) * z.metersPerPx;
+}
+
+/** Zone containing a depth in metres (clamped to the first/last zone outside the world). */
+function zoneAtMeters(m: number): ZoneSpec {
+  for (let i = 0; i < ZONES.length; i++) {
+    const z = zoneOrFirst(i);
+    if (m < z.endM) return z;
+  }
+  return zoneOrFirst(ZONES.length - 1);
 }
 
 /** Inverse of pxToMeters. */
 export function metersToPx(m: number): number {
-  void m;
-  throw new Error('not implemented');
+  const z = zoneAtMeters(m);
+  return z.startPx + (m - z.startM) / z.metersPerPx;
 }

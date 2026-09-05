@@ -28,6 +28,16 @@ export interface BubbleFlags {
   trapVentAt: number;
 }
 
+/**
+ * A solid Bur passes straight through until `until` (simulation ms). Two rules produce these:
+ * the trampoline cooldown (§2.2: a medusa deflates for 600 ms after a bounce) and the ceiling Bur has
+ * just left, ignored for LAUNCH_LOCK_MS so it cannot re-capture her on the way out (§11.3).
+ */
+export interface PassThrough {
+  id: EntityId;
+  until: number;
+}
+
 export interface Bubble {
   pos: Vec2;
   vel: Vec2;
@@ -58,6 +68,19 @@ export interface Bubble {
   overchargeDrained: number;
   /** Accumulator for the next overcharge drain tick. */
   overchargeTickMs: number;
+  /**
+   * True once the finger currently on the glass has had its hold. Press EDGES are derived from this
+   * latch, never from `state`: the auto-release (§2.2) ends the gesture at 2.500 ms with the finger
+   * still down, and a never-lifted finger must not start a second hold (nor a second overcharge
+   * budget). Cleared on the first step the pointer is up.
+   */
+  holdLatched?: boolean;
+  /**
+   * True once `overchargeStart` was emitted for the current hold. The threshold moves mid-hold
+   * (1.800 ms attached, 900 ms in the water, §2.3), so the tell is latched instead of being derived
+   * from a threshold crossing: §2.2 has no silent drain.
+   */
+  overchargeAnnounced?: boolean;
   restingOnId: EntityId | null;
   lastRestingCeilingId: EntityId | null;
   bounceChain: number;
@@ -65,6 +88,8 @@ export interface Bubble {
   bounceChainRewardedInChunk: string | null;
   /** Accumulator for passive pressure drain (Z5–Z6). */
   pressureDrainMs: number;
+  /** Solids collision skips this tick (absent = none); pruned every step by `stepBubble`. */
+  passThrough?: PassThrough[];
   flags: BubbleFlags;
 }
 
@@ -96,6 +121,13 @@ export interface Ceiling {
   dissolveMs?: number;
   /** Visual material hint for the renderer. */
   material: 'rock' | 'coral' | 'kelp' | 'jelly' | 'snow' | 'shell' | 'foam' | 'creature';
+  /**
+   * GDD §5 catalogue number 1-25 when this ceiling IS a catalogue creature (Medusa Farolillo nº 1,
+   * Alga Cinta nº 2, Tortuga Paseante nº 3 ...). Fauna that costs no Air is a `Ceiling`, not a
+   * `Hazard`, but §11.5.5 ("las dos primeras instancias de un catalogId") is didactic, not damage
+   * based: without this the rule cannot see three of Zone 1's four catalogue entries.
+   */
+  catalogId?: number;
 }
 
 /** Side walls and floors: solid both ways, never capturable. */

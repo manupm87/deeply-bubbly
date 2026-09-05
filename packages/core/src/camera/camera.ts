@@ -1,3 +1,4 @@
+import { clamp, smoothK } from '../math/vec';
 import type { Tuning } from '../tuning';
 import type { Camera, GameEvent, ZoneIndex } from '../types';
 
@@ -8,6 +9,11 @@ export interface CameraStepInput {
   ascenso: boolean;
   nowMs: number;
   dt: number;
+}
+
+/** Recall band width for the current ascenso state (§4.3). */
+function recallFor(ascenso: boolean, t: Tuning): number {
+  return ascenso ? t.CAM_RECALL_ASCENSO_PX : t.CAM_RECALL_PX;
 }
 
 /**
@@ -22,17 +28,67 @@ export interface CameraStepInput {
  * Returns events (zoomPunch).
  */
 export function stepCamera(cam: Camera, input: CameraStepInput, t: Tuning): GameEvent[] {
-  void cam; void input; void t;
-  throw new Error('not implemented');
+  const events: GameEvent[] = [];
+  const { burY, burVelY, zone, ascenso, nowMs, dt } = input;
+
+  // --- Follow, but only outside the dead zone -------------------------------------------------
+  const target = burY - cam.viewH * t.CAM_ANCHOR;
+  const [dzLo, dzHi] = t.CAM_DEADZONE;
+  const outsideDeadzone = burY < cam.y + cam.viewH * dzLo || burY > cam.y + cam.viewH * dzHi;
+  if (outsideDeadzone) {
+    const dist = Math.abs(target - cam.y);
+    const lambda = dist > t.CAM_FAST_DIST_PX ? t.CAM_LAMBDA_FAST : t.CAM_LAMBDA;
+    cam.y += (target - cam.y) * smoothK(lambda, dt);
+  }
+
+  // --- Ratchet + recall band ------------------------------------------------------------------
+  const recall = recallFor(ascenso, t);
+  cam.recallPx = recall;
+  cam.maxY = Math.max(cam.maxY, cam.y);
+  cam.y = clamp(cam.y, cam.maxY - recall, cam.maxY);
+
+  // --- Minimum current: constant downward pressure from Z3, suspended during ascenso (§4.3) ----
+  if (zone >= t.CAM_MIN_SCROLL_FROM_ZONE && !ascenso) {
+    cam.y += t.CAM_MIN_SCROLL * dt;
+    cam.maxY = Math.max(cam.maxY, cam.y);
+    cam.y = clamp(cam.y, cam.maxY - recall, cam.maxY);
+  }
+
+  // --- Zoom punch: extreme vertical speed in EITHER direction (§4.3) --------------------------
+  if (cam.zoomPunchUntil > 0 && nowMs >= cam.zoomPunchUntil) {
+    cam.zoomPunchUntil = 0;
+    cam.zoom = 1;
+  }
+  if (cam.zoomPunchUntil === 0 && Math.abs(burVelY) > t.CAM_ZOOM_PUNCH_SPEED) {
+    cam.zoomPunchUntil = nowMs + t.CAM_ZOOM_PUNCH_MS;
+    cam.zoom = 1 - t.CAM_ZOOM_PUNCH_PCT; // zoom OUT: more world visible
+    events.push({ type: 'zoomPunch', pct: t.CAM_ZOOM_PUNCH_PCT, ms: t.CAM_ZOOM_PUNCH_MS });
+  }
+
+  // --- Shake decays on its own clock; the trigger lives in GameWorld --------------------------
+  if (cam.shakeUntil > 0 && nowMs >= cam.shakeUntil) {
+    cam.shakeUntil = 0;
+    cam.shakePx = 0;
+  }
+
+  return events;
 }
 
 export function createCamera(burY: number, viewH: number, t: Tuning): Camera {
-  void burY; void viewH; void t;
-  throw new Error('not implemented');
+  const y = burY - viewH * t.CAM_ANCHOR;
+  return {
+    y,
+    maxY: y,
+    recallPx: t.CAM_RECALL_PX,
+    zoom: 1,
+    zoomPunchUntil: 0,
+    shakePx: 0,
+    shakeUntil: 0,
+    viewH,
+  };
 }
 
 /** True when Bur's circle is entirely above the top edge of the view (resaca condition, §2.4.2). */
 export function isAboveView(cam: Camera, burY: number, radius: number): boolean {
-  void cam; void burY; void radius;
-  throw new Error('not implemented');
+  return burY + radius < cam.y;
 }

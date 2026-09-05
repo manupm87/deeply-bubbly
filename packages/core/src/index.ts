@@ -5,6 +5,7 @@ export * from './math/vec';
 export * from './physics/forceFields';
 export * from './physics/collision';
 export * from './physics/integrator';
+export * from './physics/step';
 export * from './control/charge';
 export * from './control/aim';
 export * from './control/trajectory';

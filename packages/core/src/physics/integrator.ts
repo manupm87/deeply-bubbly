@@ -1,11 +1,19 @@
+/**
+ * Velocity integration and analytic reach (GDD §11.4, §2.2).
+ *
+ * Semi-implicit, fixed step. Damping is the EXACT exponential exp(-k·dt), never the Euler
+ * approximation (1 - k·dt): they agree at 1/60 s and diverge as soon as the step changes.
+ */
+import { terminalRise } from '../tuning';
 import type { Vec2 } from '../math/vec';
 import type { Tuning } from '../tuning';
 import type { BubbleState } from '../types';
-import type { PhysicsEnv } from './forceFields';
+import type { ReadonlyPhysicsEnv } from './forceFields';
 
 export interface IntegrateParams {
   state: BubbleState;
-  env: PhysicsEnv;
+  /** Sampled force-field environment; read-only (the shared NEUTRAL_ENV is a valid argument). */
+  env: ReadonlyPhysicsEnv;
   /** LAUNCHED lock window uses lighter damping (§11.3): multiply damping by this (1 = normal). */
   dampingMul: number;
 }
@@ -19,8 +27,21 @@ export interface IntegrateParams {
  * Buoyancy is skipped entirely while RESTING (velocity is forced to 0 by the state machine) and DEAD.
  */
 export function integrateVelocity(vel: Vec2, dt: number, p: IntegrateParams, t: Tuning): Vec2 {
-  void vel; void dt; void p; void t;
-  throw new Error('not implemented');
+  // RESTING pins Bur to the ceiling and DEAD is a cosmetic deflate: neither integrates.
+  if (p.state === 'RESTING' || p.state === 'DEAD') return { x: vel.x, y: vel.y };
+
+  const chargingMul = p.state === 'CHARGING' ? t.CHARGING_BUOYANCY_MUL : 1;
+  let x = vel.x;
+  let y = vel.y - t.BUOYANCY * dt * p.env.buoyancyMul * chargingMul;
+
+  const damping = Math.max(0, p.dampingMul);
+  x *= Math.exp(-t.DAMPING_X * dt * damping);
+  y *= Math.exp(-t.DAMPING_Y * dt * damping);
+
+  x += p.env.force.x * dt;
+  y += p.env.force.y * dt;
+
+  return { x, y: Math.min(y, t.MAX_FALL_SPEED) };
 }
 
 /**
@@ -29,6 +50,10 @@ export function integrateVelocity(vel: Vec2, dt: number, p: IntegrateParams, t: 
  * Used by the reach rule and by tests; must agree with the numeric integrator within 2 %.
  */
 export function descentDistance(v0: number, t: Tuning): number {
-  void v0; void t;
-  throw new Error('not implemented');
+  if (!(v0 > 0)) return 0;
+  const T = terminalRise(t);
+  const D = t.DAMPING_Y;
+  if (!(T > 0) || !(D > 0)) return 0;
+  const x = v0 / T;
+  return (T / D) * (x - Math.log1p(x));
 }
