@@ -9,3 +9,4 @@ coverage/
 !.env.example
 apps/web/test-results/
 apps/web/playwright-report/
+apps/web/test-results/
