@@ -1,0 +1,29 @@
+{
+  "name": "deeply-bubbly",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Deeply Bubbly - a bubble that wants to reach the bottom of the sea. Mobile-first pixel-art game, browser first.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@12.3.4",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm --filter @deeply-bubbly/web dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:watch": "pnpm --filter @deeply-bubbly/core test:watch",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "turbo run typecheck lint test build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "eslint": "^9.39.0",
+    "prettier": "^3.6.0",
+    "turbo": "^2.5.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.46.0"
+  }
+}
