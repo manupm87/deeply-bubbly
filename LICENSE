@@ -1,0 +1,43 @@
+Deeply Bubbly — Source-Available License (View Only)
+Copyright (c) 2026 Manuel Pérez. All rights reserved.
+
+1. Definitions
+   "Software" means the source code, assets, documentation, designs and any other
+   material in this repository, in any form.
+   "You" means any individual or legal entity accessing the Software.
+
+2. Permission granted
+   You may view and read the Software, and you may fork or clone this repository
+   solely for the purpose of viewing it or proposing changes back to this
+   repository (for example, through a pull request).
+
+3. Everything else is reserved
+   Except as stated in Section 2, no rights are granted. Without the prior written
+   permission of the copyright holder you may NOT, in whole or in part:
+   a) use, run, execute or deploy the Software, for any purpose, commercial or not;
+   b) copy, reproduce, modify, translate, adapt or create derivative works of it;
+   c) distribute, publish, sublicense, sell, rent, lend or otherwise make it
+      available to third parties;
+   d) use the Software, its design documents, its game mechanics descriptions or
+      its assets to train, fine-tune or evaluate machine-learning models;
+   e) use the name "Deeply Bubbly", the character names, logos or artwork.
+
+4. Contributions
+   If you submit a contribution (code, assets, text) to this repository, you grant
+   the copyright holder a perpetual, worldwide, irrevocable, royalty-free license
+   to use, modify, distribute and relicense that contribution as part of the
+   Software, and you represent that you have the right to grant that license.
+
+5. Termination
+   Any breach of this license automatically terminates the permission in Section 2.
+
+6. No warranty
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+   DAMAGES OR OTHER LIABILITY ARISING FROM OR IN CONNECTION WITH THE SOFTWARE.
+
+7. Third-party components
+   Third-party dependencies (e.g. Phaser, Vite) keep their own licenses and are
+   not covered by this license.
+
+For licensing inquiries, open an issue in this repository.

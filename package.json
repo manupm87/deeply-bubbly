@@ -4,7 +4,7 @@
   "type": "module",
   "version": "0.1.0",
   "description": "Deeply Bubbly - a bubble that wants to reach the bottom of the sea. Mobile-first pixel-art game, browser first.",
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "packageManager": "pnpm@12.3.4",
   "engines": { "node": ">=22" },
   "scripts": {
