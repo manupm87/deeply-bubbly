@@ -21,8 +21,10 @@ descansa *debajo* de las repisas y cada tiro es una decisión: ¿bajo qué techo
 **Sin castigo.** Nadie muere, nada sangra. Si te quedas sin aliento, Bur se deshincha con un suspiro y vuelve
 a formarse unos segundos más arriba. Pensado para todas las edades.
 
-> 🚧 El proyecto está en construcción. Todavía no hay una versión jugable publicada; cuando exista, aquí
-> habrá un enlace para probarla en el navegador.
+> 🎮 **Pruébalo en el navegador (mejor desde el móvil):** <https://manupm87.github.io/deeply-bubbly/>
+>
+> 🚧 Es un primer jugable en construcción: Zona 1 con arte procedural y Zona 2 en *greybox*. Sin sonido
+> definitivo, sin tienda, sin anuncios. Se despliega automáticamente con cada cambio en `main`.
 
 ## ¿Qué hay en este repositorio?
 
@@ -43,16 +45,23 @@ pnpm install
 pnpm dev        # abre http://localhost:5173 (mejor con el modo dispositivo móvil del navegador)
 pnpm test       # tests del núcleo
 pnpm check      # typecheck + lint + tests + build
+pnpm --filter @deeply-bubbly/web test:e2e   # Playwright en Chromium con perfil Pixel 7
 ```
+
+Trucos útiles en el navegador: `?tuning=1` abre el panel de ajuste en vivo (o tecla `T`), `?debug=1` expone
+`window.__db` con el mundo para inspeccionarlo, tecla `D` dibuja anclajes y cajas de colisión, espacio hace de
+dedo en escritorio.
 
 ## Hoja de ruta
 
 - [x] Investigación y documento de diseño
 - [x] Arquitectura y contratos del núcleo
-- [ ] Núcleo jugable (física, control, cámara, Zona 1)
-- [ ] Shell web con HUD, tutorial y panel de ajuste
+- [x] Núcleo jugable (física propia determinista, control, cámara, Zona 1) con 570+ tests
+- [x] Shell web con HUD, tutorial, pantallas, efectos, audio sintetizado y panel de ajuste (`?tuning=1`)
+- [x] Despliegue continuo en GitHub Pages y tests e2e en Chromium móvil
+- [ ] Zona 2 en *greybox* (en curso), Zona 3
 - [ ] Playtest y ajuste de la sensación de juego
-- [ ] Zonas 2 y 3, arte final, sonido
+- [ ] Arte final, sonido, jefes 2 a 6
 - [ ] Empaquetado móvil (Capacitor) y publicación en tiendas
 
 ## Licencia

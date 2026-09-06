@@ -15,7 +15,14 @@ Deudas conocidas y decisiones pendientes, con la sección del GDD que las gobier
 
 ## Shell (`apps/web`)
 
-Se rellena al cerrar el workflow del shell.
+| # | Tema | Detalle | Ref. GDD |
+|---|---|---|---|
+| S1 | **Zoom punch y zoom-out de carga eliminados** | Ambos multiplican el zoom de cámara por una fracción y rompen el muestreo entero del pixel art. Decidir: aceptar zoom fraccionario 100-200 ms, o sustituir por otro efecto (p. ej. desplazamiento de 1 px + destello). | §7 vs §8 |
+| S2 | **Zoom 1 en ventanas de escritorio bajas** | Con `zoom = min(floor(w/180), floor(h/320))`, una ventana de 900×600 da zoom 1 (180×420 css px). Es lo que dicta §8; valorar un modo escritorio con marco. | §8 |
+| S3 | Sonido | Todo es síntesis Web Audio; sin música. Muestras reales y capas musicales en H3. | §7 |
+| S4 | Tutorial | Mano fantasma implementada; falta validar con jugadores que no se confunde con "otra Bur". | §8 |
+| S5 | Idioma | Cadenas en `ui/strings.ts` (es/en por `navigator.language`). El navegador headless muestra inglés; en un móvil en español saldrá español. | §0 pilar 5 |
+| S6 | Puntos de trayectoria | El número lo dicta core (`TRAJECTORY_DOTS`); el espaciado a veces se ve escaso en arcos largos. Ajustar en playtest. | §2.7 |
 
 ## Producto
 
