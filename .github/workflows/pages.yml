@@ -1,12 +1,16 @@
 name: Deploy to GitHub Pages
 
-# Publishes `main` at the site root and the `v1.2` branch under /v1.2/ as a playable preview.
+# Publishes `main` at the site root and the PREVIEW_REF branch under /preview/ as a playable preview.
 # The github-pages environment only accepts deploys from main: refresh the preview with
 #   gh workflow run "Deploy to GitHub Pages" --ref main
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+env:
+  # Branch built under /preview/ (the owner's phone playtest of the next version).
+  PREVIEW_REF: v1.3
 
 permissions:
   contents: read
@@ -27,7 +31,7 @@ jobs:
           path: main
       - uses: actions/checkout@v4
         with:
-          ref: v1.2
+          ref: ${{ env.PREVIEW_REF }}
           path: preview
       - uses: pnpm/action-setup@v4
         with:
@@ -38,15 +42,15 @@ jobs:
       - name: Build main (site root)
         working-directory: main
         run: pnpm install --frozen-lockfile && pnpm --filter @deeply-bubbly/web build
-      - name: Build v1.2 preview
+      - name: Build preview
         working-directory: preview
         run: pnpm install --frozen-lockfile && pnpm --filter @deeply-bubbly/web build
       - name: Assemble site
         run: |
           mkdir -p site
           cp -r main/apps/web/dist/. site/
-          mkdir -p site/v1.2
-          cp -r preview/apps/web/dist/. site/v1.2/
+          mkdir -p site/preview
+          cp -r preview/apps/web/dist/. site/preview/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
