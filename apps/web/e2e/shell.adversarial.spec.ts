@@ -25,7 +25,7 @@ interface Db {
       timeMs: number;
       phase: string;
       bubble: { air: number; state: string; pos: { x: number; y: number }; vel: { x: number; y: number } };
-      camera: { y: number };
+      camera: { y: number; viewH: number };
     };
     restart(): void;
     restartImmersion(): void;
@@ -65,6 +65,13 @@ test('window blur pauses the simulation', async ({ page }) => {
  * 'dead'/'gameOver' (a contract pinned by `GameWorld.test.ts`, "ignores restart() while the run is
  * alive"). Restarting a LIVING immersion is a different rule and it was simply missing from core, so
  * it was added there as `restartImmersion()`; this test now calls what the button calls.
+ *
+ * It used to assert `camera.y` went UP, on the premise that "camera.y is a ratchet". That premise is
+ * false: `restartImmersion()` restarts from the LAST CHECKPOINT (GameWorld.respawnAtCheckpoint), and
+ * since 7fb6ea8 starts the campaign under the first entry anchor, a checkpoint can sit either side of
+ * where Bur got to — the assertion was reading a content decision, not the rule. What the rule really
+ * promises is checked instead: the whole restart is a TELEPORT inside one synchronous call, with no
+ * simulation step in between to explain it, and it leaves Bur inside her own camera.
  */
 test('the pause menu "restart dive" option restarts the run', async ({ page }) => {
   await bootGame(page);
@@ -73,17 +80,21 @@ test('the pause menu "restart dive" option restarts the run', async ({ page }) =
     await holdAndRelease(page, size.width / 2, size.height * 0.8, 500);
     await page.waitForTimeout(800);
   }
-  const before = await evalInPage(page, (h) => h().world.snapshot().camera.y);
-  const events = await evalInPage(page, (h) => {
-    const log: string[] = [];
-    const off = h().world.onEvent((e) => log.push(e.type));
+  const restart = await evalInPage(page, (h) => {
+    const events: string[] = [];
+    const before = h().world.snapshot();
+    const from = { burY: before.bubble.pos.y, camY: before.camera.y };
+    const off = h().world.onEvent((e) => events.push(e.type));
     h().world.restartImmersion();
     off();
-    return log;
+    const after = h().world.snapshot();
+    return { events, from, burY: after.bubble.pos.y, camY: after.camera.y, viewH: after.camera.viewH };
   });
-  expect(events).toContain('respawn');
-  // `camera.y` is a ratchet: only a restart can pull it back up.
-  expect(await evalInPage(page, (h) => h().world.snapshot().camera.y)).toBeLessThan(before);
+  expect(restart.events).toContain('respawn');
+  expect(Math.abs(restart.burY - restart.from.burY)).toBeGreaterThan(20);
+  expect(Math.abs(restart.camY - restart.from.camY)).toBeGreaterThan(20);
+  expect(restart.burY).toBeGreaterThanOrEqual(restart.camY);
+  expect(restart.burY).toBeLessThanOrEqual(restart.camY + restart.viewH);
 });
 
 /**

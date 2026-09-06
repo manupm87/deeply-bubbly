@@ -60,7 +60,8 @@ export class Trajectory {
       dot.setVisible(true);
       dot.setPosition(Math.round(point.x), Math.round(point.y));
       dot.setTint(colour);
-      dot.setAlpha(baseAlpha * (1 - (i / count) * 0.65));
+      // The first dot is the anchor of the read: full strength, then a steady fade down the arc.
+      dot.setAlpha(baseAlpha * (i === 0 ? 1 : 0.85 - (i / count) * 0.3));
     }
     this.hideFrom(count);
   }

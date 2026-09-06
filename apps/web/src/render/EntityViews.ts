@@ -7,7 +7,8 @@ import type * as Phaser from 'phaser';
 import { hazardActiveAt, hazardRectAt, solidRectAt } from '@deeply-bubbly/core';
 import type { Ceiling, ForceField, Hazard, Pickup, Wall, WorldEntity } from '@deeply-bubbly/core';
 import { DEPTH } from './depth';
-import { pxDither, type G } from './pixels';
+import { drawGlowLine, drawSolidBody, type SolidMaterial } from './solids';
+
 import { CREATURE_SIZE, TEXTURE_KEYS, boyaKey, creatureKey, paletteOf, pickupKey } from './textures';
 import type { ZonePalette } from '../palette';
 
@@ -20,73 +21,32 @@ export interface EntityView {
 
 const WORLD_W = 180;
 
-type Material = Ceiling['material'] | 'reef' | 'hadal';
-
-/** Fill pair + glow colour per material. The bottom face of a capturable ceiling always glows (§2.3). */
-function materialTones(m: Material, p: ZonePalette): [number, number, number] {
-  switch (m) {
-    case 'coral':
-      return [p.coral, p.rock, p.foam];
-    case 'kelp':
-      return [p.kelp, p.rockLight, p.foam];
-    case 'jelly':
-      return [p.jelly, p.foam, p.foam];
-    case 'snow':
-      return [p.foam, p.rockLight, p.foam];
-    case 'shell':
-    case 'foam':
-      return [p.foam, p.rockLight, p.foam];
-    case 'creature':
-      return [p.rockLight, p.kelp, p.foam];
-    case 'reef':
-      return [p.coral, p.rock, p.rockLight];
-    case 'hadal':
-      return [p.rock, p.rockLight, p.rockLight];
-    default:
-      return [p.rock, p.rockLight, p.foam];
-  }
-}
-
-/** Draws a solid in LOCAL coordinates (0,0 .. w,h). Silhouette + dithering + the bottom glow line. */
-function drawSolid(g: G, w: number, h: number, m: Material, capturable: boolean, p: ZonePalette): void {
-  const [a, b, glow] = materialTones(m, p);
-  g.clear();
-  const soft = m === 'jelly' || m === 'snow';
-  pxDither(g, 0, 0, w, h, a, b, soft ? 0.55 : 1);
-  if (m === 'kelp') {
-    g.fillStyle(a, 0.9);
-    for (let x = 1; x < w; x += 5) g.fillRect(x, h, 1, 3 + (x % 3));
-  }
-  if (m === 'creature') {
-    g.fillStyle(p.rock, 0.9);
-    for (let x = 6; x < w - 4; x += 8) g.fillRect(x, 1, 1, h - 2);
-    g.fillStyle(p.foam, 0.9);
-    g.fillRect(w, Math.max(0, h - 4), 2, 3); // head poking out to the right
-  }
-  if (m === 'jelly') {
-    g.fillStyle(a, 0.75);
-    for (let x = 2; x < w; x += 4) g.fillRect(x, h, 1, 4);
-  }
-  // Top shadow, then the capture cue: 1 px bright on the bottom face, dim when it cannot capture.
-  g.fillStyle(p.rock, 0.35);
-  g.fillRect(0, 0, w, 1);
-  g.fillStyle(capturable ? glow : p.rockLight, capturable ? 0.95 : 0.35);
-  g.fillRect(0, h - 1, w, 1);
-}
-
 function solidView(scene: Phaser.Scene, entity: Ceiling | Wall, p: ZonePalette): EntityView {
   const g = scene.add.graphics().setDepth(DEPTH.ledge);
+  const glow = scene.add.graphics().setDepth(DEPTH.ledge + 1);
   const capturable = entity.type === 'ceiling' && entity.capturable;
-  const material: Material = entity.material;
-  drawSolid(g, entity.rect.w, entity.rect.h, material, capturable, p);
+  const material: SolidMaterial = entity.material;
+  const { w, h } = entity.rect;
+  drawSolidBody(g, w, h, material, p);
+  drawGlowLine(glow, w, h, material, capturable, p);
+  const bright = capturable && material !== 'jelly';
   return {
     update(e, timeMs) {
       if (e.type !== 'ceiling' && e.type !== 'wall') return;
       const r = solidRectAt(e, timeMs);
-      g.setPosition(Math.round(r.x), Math.round(r.y));
-      if (material === 'jelly') g.setAlpha(0.7 + 0.25 * Math.sin(timeMs / 380));
+      const x = Math.round(r.x);
+      const y = Math.round(r.y);
+      g.setPosition(x, y);
+      glow.setPosition(x, y);
+      // The rest-line breathes so the eye finds it first; a jelly's underside never does.
+      if (bright) glow.setAlpha(0.82 + 0.18 * Math.sin(timeMs / 520));
+      // A shallow pulse: deeper than this and the jelly's pink washes out into the water's own hue.
+      if (material === 'jelly') g.setAlpha(0.88 + 0.12 * Math.sin(timeMs / 380));
     },
-    destroy: () => g.destroy(),
+    destroy: () => {
+      g.destroy();
+      glow.destroy();
+    },
   };
 }
 
@@ -110,7 +70,7 @@ function hazardView(scene: Phaser.Scene, entity: Hazard, zone: number, p: ZonePa
 
   if (!hasArt) {
     const g = scene.add.graphics().setDepth(DEPTH.hazard);
-    drawSolid(g, entity.shape.w, entity.shape.h, 'coral', false, p);
+    drawSolidBody(g, entity.shape.w, entity.shape.h, 'coral', p);
     return {
       update(e, timeMs) {
         if (e.type !== 'hazard') return;
@@ -144,8 +104,12 @@ function hazardView(scene: Phaser.Scene, entity: Hazard, zone: number, p: ZonePa
         sprite.setAlpha(0.7 + 0.3 * Math.abs(Math.sin(timeMs / 70)));
         sprite.y += Math.sin(timeMs / 55) > 0 ? Math.round(t) : 0;
       } else {
-        sprite.setTint(0x8e9aa8);
-        sprite.setAlpha(0.6);
+        // Dormant = RECEDED INTO THE WATER, not dead. NO tint: a multiply over a warm body is what
+        // turned Don Hinchón olive-khaki, and any tint does it — a tint can only darken. Alpha alone
+        // lets the water itself wash him out while his own hue survives. The state still reads in
+        // greyscale (§8): dormant is the deflated frame, spines in, and the tell flashes and jitters.
+        sprite.clearTint();
+        sprite.setAlpha(0.45);
       }
     },
     destroy: () => sprite.destroy(),
@@ -213,12 +177,21 @@ function pickupView(scene: Phaser.Scene, entity: Pickup, zone: number): EntityVi
     .image(entity.pos.x, entity.pos.y, pickupKey(entity.pickupType, zone))
     .setDepth(DEPTH.pickup);
   const seed = (entity.pos.x * 7 + entity.pos.y * 13) % 1000;
-  const blinks = entity.pickupType === 'aire' || entity.pickupType === 'aireGrande';
+  const breathes = entity.pickupType === 'aire' || entity.pickupType === 'aireGrande';
+  let frame = -1;
   return {
     update(_e, timeMs) {
       const t = (timeMs + seed) / 1000;
       sprite.y = Math.round(entity.pos.y + Math.sin(t * 2) * 1.5);
-      if (blinks) sprite.setAlpha(0.8 + 0.2 * Math.sin(t * 6));
+      if (!breathes) return;
+      // A bubble breathes at 1 Hz. Two integer-sized frames, never a fractional scale: the art is
+      // drawn at design resolution and resampling it would be the one thing this project forbids.
+      const next = Math.sin(t * Math.PI * 2) > 0 ? 1 : 0;
+      if (next !== frame) {
+        frame = next;
+        sprite.setTexture(pickupKey(entity.pickupType, zone, next));
+      }
+      sprite.setAlpha(0.88 + 0.12 * Math.sin(t * 6));
     },
     destroy: () => sprite.destroy(),
   };

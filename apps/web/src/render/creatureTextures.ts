@@ -6,7 +6,7 @@
  * nº 8 (Corriente de Arrecife) has no texture: a force field is drawn as a band with drifting dots.
  */
 import type * as Phaser from 'phaser';
-import { commit, gfx, pxDisc, pxDither, pxRing, pxSpikes, type G } from './pixels';
+import { commit, gfx, mixColor, pxDisc, pxDither, pxRing, pxSpikes, type G } from './pixels';
 import type { ZonePalette } from '../palette';
 
 /** Canonical size of every creature texture in design px. Content sizes hitboxes to match. */
@@ -71,21 +71,77 @@ const payaso: Draw = (g, p) => {
   g.fillRect(8, 3, 1, 1);
 };
 
-/** nº 5 Don Hinchón: 40x40, frame 0 deflated (safe window), frame 1 inflated with spikes out. */
+/** Integer-rastered ellipse: the only shape that lets a fish body break out of a circle. */
+function pxEllipse(g: G, cx: number, cy: number, rx: number, ry: number, colour: number, alpha = 1): void {
+  g.fillStyle(colour, alpha);
+  for (let y = -ry; y <= ry; y++) {
+    const dx = Math.floor(rx * Math.sqrt(Math.max(0, 1 - (y * y) / (ry * ry))));
+    g.fillRect(cx - dx, cy + y, dx * 2 + 1, 1);
+  }
+}
+
+/**
+ * nº 5 Don Hinchón: 40x40. Frame 0 is the deflated fish (the safe window), frame 1 the puffed ball.
+ *
+ * ART DIRECTION: as a saturated yellow disc with orange rays and a neutral human face he read as a
+ * cartoon SUN — friendly, and the single loudest thing on screen, louder than the rest lines that are
+ * supposed to be the clearest cue in the game. So: a muted sand body (never the raw zone accent), a
+ * tail and a fin that break the circle, spots for greyscale texture, and a scowl. Cross and puffed —
+ * a grumpy fish, not a menace. Nothing in him is brighter than the water's own foam tint.
+ */
 const hinchon: Draw = (g, p, frame) => {
   const inflated = frame === 1;
-  const r = inflated ? 17 : 12;
-  pxDisc(g, 20, 20, r, p.accent, 0.9);
-  pxRing(g, 20, 20, r, p.coral, 1);
-  if (inflated) pxSpikes(g, 20, 20, r + 1, 3, 20, p.coral);
+  const body = mixColor(mixColor(p.accent, p.coral, 0.45), p.rock, 0.14);
+  const belly = mixColor(body, p.foam, 0.4);
+  const spot = mixColor(body, 0x16202c, 0.45);
+  const fin = mixColor(p.coral, p.rock, 0.35);
+  const rx = inflated ? 15 : 14;
+  const ry = inflated ? 15 : 9;
+
+  // Caudal fin at the left, drawn first so the body overlaps its root.
+  g.fillStyle(fin, 1);
+  for (let i = 0; i < 6; i++) {
+    const spread = inflated ? 2 + i : 2 + Math.round(i * 1.8);
+    g.fillRect(20 - rx - 4 + i, 20 - spread, 1, spread * 2 + 1);
+  }
+  pxEllipse(g, 20, 20, rx, ry, 0x16202c, 0.7); // 1 px dark contour: he must hold up over pale water
+  pxEllipse(g, 20, 20, rx - 1, ry - 1, body, 1);
+  pxEllipse(g, 20, 20 + Math.round(ry * 0.6), rx - 7, Math.max(1, Math.round(ry * 0.26)), belly, 0.5);
+  if (inflated) {
+    // Spines, not sunrays: short, uneven, and rooted in the dark contour.
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + 0.2;
+      const len = 2 + (i % 3);
+      g.fillStyle(fin, 1);
+      for (let t = 0; t < len; t++) {
+        g.fillRect(Math.round(20 + Math.cos(a) * (rx + t)), Math.round(20 + Math.sin(a) * (ry + t)), 1, 1);
+      }
+    }
+  }
+  g.fillStyle(fin, 0.75); // pectoral fin, on his flank — at the very bottom it read as a red smear
+  const fx = 20 - Math.round(rx * 0.45);
+  const fy = 20 + Math.round(ry * 0.35);
+  g.fillRect(fx, fy, 5, 2);
+  g.fillRect(fx + 1, fy + 2, 3, 1);
+  g.fillStyle(spot, 0.85);
+  for (const [dx, dy] of [[-7, -4], [-2, -6], [4, -3], [1, 1], [-4, 2]] as const) {
+    g.fillRect(20 + dx, 20 + Math.round(dy * (ry / 12)), 2, 1);
+  }
+
+  const ex = 20 + Math.round(rx * 0.34);
+  const ey = 20 - Math.round(ry * 0.3);
   g.fillStyle(p.foam, 1);
-  g.fillRect(20 - Math.round(r * 0.5), 20 - 4, 3, 3);
-  g.fillRect(20 + Math.round(r * 0.5) - 3, 20 - 4, 3, 3);
+  g.fillRect(ex, ey, 4, 3);
   g.fillStyle(0x1e2a38, 1);
-  g.fillRect(20 - Math.round(r * 0.5) + 1, 20 - 3, 1, 1);
-  g.fillRect(20 + Math.round(r * 0.5) - 2, 20 - 3, 1, 1);
-  g.fillStyle(p.coral, 1);
-  g.fillRect(18, 20 + Math.round(r * 0.4), 4, inflated ? 1 : 2); // mouth: a line, or a smile
+  g.fillRect(ex + 2, ey + 1, 2, 2); // pupil forward: he is looking at whoever woke him up
+  g.fillRect(ex - 1, ey - 1, 4, 1); // brow sloping down over the eye: cross, never sad
+  g.fillRect(ex - 2, ey, 1, 1);
+  // Beak at the FRONT, level with the eye: a short frown with a 1 px underbite.
+  const mx = 20 + rx - 5;
+  const my = 20 + Math.round(ry * 0.12);
+  g.fillRect(mx, my, 4, 1);
+  g.fillRect(mx - 1, my - 1, 1, 1);
+  g.fillRect(mx + 2, my + 1, 2, 1);
 };
 
 /** nº 6 Erizo Coralino: static spiky ball. Its orange breaks the palette on purpose (§5). */

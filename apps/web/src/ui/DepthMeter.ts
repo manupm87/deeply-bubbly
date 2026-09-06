@@ -49,8 +49,13 @@ export class DepthMeter {
     this.layout(layout);
   }
 
+  /**
+   * Hard against the right edge, NOT at `layout.margin`: the ribbon and the world were fighting over
+   * the same 8 design px, and a ledge running under it lost its right quarter and its rest line. At
+   * the edge it only ever overlaps the reef haze, which reaches 20–28 px in from both sides anyway.
+   */
   private get ribbonX(): number {
-    return this.layoutRef.viewW - this.layoutRef.margin - RIBBON_W;
+    return this.layoutRef.viewW - RIBBON_W - 1;
   }
 
   /**
@@ -79,14 +84,15 @@ export class DepthMeter {
     const y = this.ribbonTop;
     const h = this.ribbonH;
     this.ribbon.clear();
-    this.ribbon.fillStyle(UI.panel, 0.55);
+    // A TRACK, not a bar: light enough that whatever swims behind it is still readable.
+    this.ribbon.fillStyle(UI.panel, 0.26);
     this.ribbon.fillRect(x, y, RIBBON_W, h);
-    this.ribbon.lineStyle(1, UI.cyan, 0.5);
+    this.ribbon.lineStyle(1, UI.cyan, 0.4);
     this.ribbon.strokeRect(x + 0.5, y + 0.5, RIBBON_W - 1, h - 1);
     for (const zone of ZONES) {
       if (zone.startPx <= 0) continue;
       const my = y + Math.round((zone.startPx / WORLD_BOTTOM_PX) * h);
-      this.ribbon.fillStyle(UI.cyan, 0.35);
+      this.ribbon.fillStyle(UI.cyan, 0.3);
       this.ribbon.fillRect(x, my, RIBBON_W, 1);
     }
   }

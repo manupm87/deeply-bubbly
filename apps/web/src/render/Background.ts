@@ -1,6 +1,7 @@
 /**
  * Zone backdrop (SHELL.md "Fondo"): an 8-band vertical gradient that crossfades on `zoneChange`, three
- * parallax silhouette layers (0.2 / 0.5 / 1.0), god rays in Zone 1 and a drift of rising micro-bubbles.
+ * parallax reef layers (0.2 / 0.5 / 1.0), god rays plus a caustic shimmer in the shallows of Z1, and a
+ * drift of rising micro-bubbles.
  *
  * Everything sits in ONE container pinned to the top of the view every frame. `scrollFactor` is not
  * used on purpose: at integer zoom a scrollFactor-0 object lands at `viewW * (zoom - 1) / 2`, not at
@@ -10,55 +11,18 @@ import * as Phaser from 'phaser';
 import type { ZoneIndex } from '@deeply-bubbly/core';
 import { DEPTH } from './depth';
 import { TEXTURE_KEYS, godrayKey, paletteOf } from './textures';
-import { commit, gfx } from './pixels';
-import type { ZonePalette } from '../palette';
+import { mixColor } from './pixels';
+import { CAUSTIC_SIZE, LAYER_ALPHA, buildCaustics, buildReefLayer } from './reef';
 
 const BANDS = 8;
-const LAYER_H = 240;
 const PARALLAX = [0.2, 0.5, 1.0] as const;
 const AMBIENT_BUBBLES = 20;
+/** World y at which the shallow caustics have completely faded out (top third of Z1: 2880 / 3). */
+const CAUSTIC_DEPTH_PX = 960;
+const CAUSTIC_ALPHA = 0.11;
 
-const layerKey = (zone: number, layer: number): string => `bg-l${layer}-z${zone}`;
-
-/** Deterministic per (zone, layer) so the silhouettes are stable across sessions. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const lerpChannel = (a: number, b: number, t: number, shift: number): number =>
-  Math.round(((a >> shift) & 0xff) + (((b >> shift) & 0xff) - ((a >> shift) & 0xff)) * t) << shift;
-
-const mixColor = (a: number, b: number, t: number): number =>
-  lerpChannel(a, b, t, 16) | lerpChannel(a, b, t, 8) | lerpChannel(a, b, t, 0);
-
-/** A wall of rock down both edges; the farther the layer, the darker and the flatter. */
-function buildLayerTexture(scene: Phaser.Scene, zone: number, layer: number, p: ZonePalette): void {
-  const key = layerKey(zone, layer);
-  if (scene.textures.exists(key)) return;
-  const g = gfx(scene);
-  const rand = mulberry32(zone * 97 + layer * 31 + 7);
-  const tone = mixColor(p.rock, p.waterBottom, 0.65 - layer * 0.25);
-  const shade = mixColor(tone, p.rockLight, 0.35);
-  const maxW = 14 + layer * 12;
-  g.fillStyle(tone, 1);
-  for (let y = 0; y < LAYER_H; y += 6) {
-    const left = Math.round(rand() * maxW);
-    const right = Math.round(rand() * maxW);
-    g.fillRect(0, y, left, 6);
-    g.fillRect(180 - right, y, right, 6);
-  }
-  g.fillStyle(shade, 0.7);
-  for (let i = 0; i < 10 + layer * 6; i++) {
-    g.fillRect(Math.round(rand() * 180), Math.round(rand() * LAYER_H), 1 + Math.round(rand() * 2), 1 + Math.round(rand() * 3));
-  }
-  commit(scene, g, key, 180, LAYER_H);
-}
+const layerKey = (zone: number, layer: number): string => `bg-reef-l${layer}-z${zone}`;
+const causticKey = (zone: number): string => `bg-caustic-z${zone}`;
 
 export class Background {
   private readonly scene: Phaser.Scene;
@@ -67,6 +31,7 @@ export class Background {
   private front: 0 | 1 = 0;
   private layers: Phaser.GameObjects.TileSprite[] = [];
   private rays: Phaser.GameObjects.Image[] = [];
+  private caustics: Phaser.GameObjects.TileSprite | null = null;
   private readonly bubbles: Phaser.GameObjects.Image[] = [];
   private readonly bubbleSpeed: number[] = [];
   private zone: ZoneIndex;
@@ -105,22 +70,25 @@ export class Background {
     this.layers = [];
     const p = paletteOf(zone);
     for (let i = 0; i < PARALLAX.length; i++) {
-      buildLayerTexture(this.scene, zone, i, p);
+      buildReefLayer(this.scene, layerKey(zone, i), zone, i, p);
       const ts = this.scene.make
         .tileSprite({ x: 0, y: 0, width: this.viewW, height: this.viewH, key: layerKey(zone, i) }, false)
         .setOrigin(0, 0)
         .setDepth(1 + i)
-        .setAlpha(0.45 + i * 0.2);
+        .setAlpha(LAYER_ALPHA[i] ?? 0.3);
       this.layers.push(ts);
       this.root.add(ts);
     }
     this.root.sort('depth');
   }
 
+  /** God rays and the caustic net both belong to the Superficie (GDD §3.2); nothing else has light. */
   private buildRays(zone: number): void {
     for (const r of this.rays) r.destroy();
     this.rays = [];
-    if (zone !== 0) return; // GDD §3.2: god rays belong to the Superficie
+    this.caustics?.destroy();
+    this.caustics = null;
+    if (zone !== 0) return;
     const key = godrayKey(zone);
     if (!this.scene.textures.exists(key)) return;
     for (let i = 0; i < 3; i++) {
@@ -133,6 +101,14 @@ export class Background {
       this.rays.push(ray);
       this.root.add(ray);
     }
+    buildCaustics(this.scene, causticKey(zone), paletteOf(zone));
+    this.caustics = this.scene.make
+      .tileSprite({ x: 0, y: 0, width: this.viewW, height: this.viewH, key: causticKey(zone) }, false)
+      .setOrigin(0, 0)
+      .setDepth(4)
+      .setAlpha(0)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.root.add(this.caustics);
     this.root.sort('depth');
   }
 
@@ -148,7 +124,7 @@ export class Background {
     }
   }
 
-  /** Crossfades to the palette of `zone` (600 ms per SHELL.md) and rebuilds the parallax silhouettes. */
+  /** Crossfades to the palette of `zone` (600 ms per SHELL.md) and rebuilds the parallax reef. */
   setZone(zone: ZoneIndex, crossfadeMs = 600): void {
     if (zone === this.zone) return;
     this.zone = zone;
@@ -167,6 +143,7 @@ export class Background {
     this.viewH = viewH;
     this.paintGradient(this.gradients[this.front], this.zone);
     for (const l of this.layers) l.setSize(viewW, viewH);
+    this.caustics?.setSize(viewW, viewH);
   }
 
   /** `cameraY` is the world y of the top of the view; `dtMs` the real frame time (ambient life). */
@@ -179,6 +156,7 @@ export class Background {
     for (let i = 0; i < this.rays.length; i++) {
       this.rays[i]?.setAlpha(0.06 + 0.06 * (0.5 + 0.5 * Math.sin(timeMs / 1400 + i * 1.7)));
     }
+    this.updateCaustics(timeMs, cameraY);
     const dt = Math.min(0.05, dtMs / 1000);
     for (let i = 0; i < this.bubbles.length; i++) {
       const b = this.bubbles[i];
@@ -190,6 +168,21 @@ export class Background {
         b.x = Math.random() * this.viewW;
       }
     }
+  }
+
+  /**
+   * Sunlight on the water: the net drifts sideways much faster than it sinks, and it dies out over the
+   * top third of Z1 so the shimmer is a property of the shallows, not a permanent overlay.
+   */
+  private updateCaustics(timeMs: number, cameraY: number): void {
+    const c = this.caustics;
+    if (!c) return;
+    const shallow = Math.max(0, 1 - Math.max(0, cameraY) / CAUSTIC_DEPTH_PX);
+    c.setAlpha(CAUSTIC_ALPHA * shallow * shallow * shallow * (0.7 + 0.3 * Math.sin(timeMs / 2600)));
+    // Wrap on the CAUSTIC tile, not on the reef layer height: 240 % 96 = 48, so the old constant
+    // teleported the whole field half a tile sideways every ~62 s.
+    c.tilePositionX = (timeMs / 260) % CAUSTIC_SIZE;
+    c.tilePositionY = (cameraY * 0.75 + timeMs / 900) % CAUSTIC_SIZE;
   }
 
   destroy(): void {
