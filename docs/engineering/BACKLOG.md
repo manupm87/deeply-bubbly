@@ -40,3 +40,4 @@ Deudas conocidas y decisiones pendientes, con la sección del GDD que las gobier
 - Arte final Z1 y pipeline de generación (ver conversación 2026-09-05: ComfyUI/FLUX local en la RTX 5090, aplazado hasta que sea necesario).
 - Playtest con jugadores (criterios §12.3) tras el primer jugable.
 - **Ranura de valoración de tienda en el mapa** (GDD §3.3): el mapa v1.3 es ahora el menú principal donde debe vivir, pero la petición en sí (puerta parental, una sola vez tras Z3) sigue sin implementarse.
+- **App iOS** (siguiente bloque, `docs/engineering/IOS.md`): `apps/mobile` con Capacitor, iconos, ajustes de WebView, háptica y estado de app; primero firma gratuita desde Xcode, TestFlight después.
