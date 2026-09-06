@@ -28,8 +28,6 @@ function makeChunk(id: string, role: Chunk['role'], entities: WorldEntity[]): Ch
     zone: 0 as ZoneIndex,
     difficulty: 1,
     verbs: [],
-    entry: 'C',
-    exit: 'C',
     entryAnchorId: 'a-in',
     exitAnchorId: 'a-out',
     airBudget: 1,

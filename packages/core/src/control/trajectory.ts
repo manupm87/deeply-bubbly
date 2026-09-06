@@ -73,15 +73,28 @@ export function predictTrajectory(input: TrajectoryInput, t: Tuning): Vec2[] {
   return points;
 }
 
-/** Picks `n` evenly spaced points (by index) from a dense polyline, always including the first point. */
-export function sampleDots(points: readonly Vec2[], n: number): Vec2[] {
+/**
+ * Picks `n` dots off a dense polyline, always including the first point.
+ *
+ * The spacing is set by `ofMax`, not by `n`, and that is what makes §2.7's dot ramp a ramp. Dots sit
+ * one `ofMax`-th of the arc apart, so a zone drawing all `ofMax` of them shows the whole arc — last
+ * dot ON the landing point — and a zone drawing fewer shows a PREFIX of it: the shape of the shot for
+ * as far as the scaffold reaches, and then open water. Scaling the spacing with `n` instead (which is
+ * what "n evenly spaced points" means) keeps the landing point in every zone, so 2 dots answer the
+ * question exactly as well as 6 and the ramp retires nothing. `ofMax` defaults to `n`, which is the
+ * "draw me the whole arc in n dots" case the guide's own tests and the tuning panel want.
+ */
+export function sampleDots(points: readonly Vec2[], n: number, ofMax = n): Vec2[] {
   if (points.length === 0 || n <= 0) return [];
   // Never return the same point twice: with fewer points than dots the polyline itself is the answer.
   const count = Math.min(Math.floor(n), points.length);
   const last = points.length - 1;
+  // A polyline shorter than the dot budget (a shot that hits something immediately) is its own answer:
+  // the spacing collapses onto it instead of piling every dot on the first point.
+  const span = Math.max(1, Math.min(Math.floor(ofMax), points.length) - 1);
   const out: Vec2[] = [];
   for (let i = 0; i < count; i++) {
-    const p = points[count === 1 ? 0 : Math.round((i * last) / (count - 1))];
+    const p = points[count === 1 ? 0 : Math.min(last, Math.round((i * last) / span))];
     if (p !== undefined) out.push({ x: p.x, y: p.y });
   }
   return out;

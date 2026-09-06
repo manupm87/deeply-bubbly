@@ -97,15 +97,16 @@ describe('physicsStep (§11.4, §10.3 "no hay dos físicas")', () => {
     }
   });
 
-  it('anchors the charge: buoyancy at CHARGING_BUOYANCY_MUL (§2.1)', () => {
+  it('AIMING drifts UP more slowly than IDLE: §2.1 "apuntar ancla" is part of the one physics', () => {
     const idle = physicsStep({ pos: START, vel: { x: 0, y: 0 }, radius: 7, state: 'IDLE' }, { solids: [], fields: [] }, base, t);
-    const charging = physicsStep(
-      { pos: START, vel: { x: 0, y: 0 }, radius: 7, state: 'CHARGING' },
+    const aiming = physicsStep(
+      { pos: START, vel: { x: 0, y: 0 }, radius: 7, state: 'AIMING' },
       { solids: [], fields: [] },
       base,
       t,
     );
-    expect(charging.vel.y / idle.vel.y).toBeCloseTo(t.CHARGING_BUOYANCY_MUL, 9);
+    expect(aiming.vel.y).toBeCloseTo(idle.vel.y * t.AIM_BUOYANCY_MUL, 12);
+    expect(aiming.pos.y).toBeGreaterThan(idle.pos.y); // less rise = still lower in the water
   });
 
   it('resolves collisions and reports contacts', () => {

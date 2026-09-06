@@ -12,7 +12,9 @@ import { ChunkLibrary } from '../level/library';
 import { buildCampaign } from '../level/campaign';
 import { Z1_CHUNKS, Z1_SEQUENCES, perch } from '../level/content/z1';
 import { GameWorld } from './GameWorld';
-import { HARNESS_VIEW_H, ScriptedFinger, buildZ1Campaign, createTestWorld } from './testHarness';
+import { HARNESS_VIEW_H, ScriptedFinger, buildZ1Campaign, createTestWorld, pullGesture } from './testHarness';
+import { GuidedFinger } from './autoPlayer';
+import type { FingerSample } from './testHarness';
 import type { Campaign } from '../level/campaign';
 import type { Chunk, GameEvent, PointerInput, WorldSnapshot, ZoneIndex } from '../types';
 import type { SaveData } from '../run/save';
@@ -27,10 +29,16 @@ if (IMMERSION_0 === undefined) throw new Error('Z1 campaign has no first immersi
 
 /**
  * Where the Z1 campaign starts (§8 step 1, §2.3): SPAWN_BELOW_ANCHOR_PX under the declared rest point of
- * the foam raft of `z1-open-1` — the raft is at y = 188 and 10 px thick, so with Bur's 7 px Z1 radius the
- * anchor is (40, 205). Bur is born just below it and rises into it on her own, without crossing the surface.
+ * the foam raft of `z1-open-1`. Bur is born just below it and rises into it on her own, without crossing
+ * the surface. It is READ from the content rather than written out, because D3 moved the raft into a
+ * 540 px world and a spawn point spelled as a literal is a spawn point that silently stops being one.
  */
-const Z1_START = { x: 40, y: 205 + SPAWN_BELOW_ANCHOR_PX };
+const Z1_RAFT = CAMPAIGN.placed[0]?.chunk.entities.find(
+  (e): e is Extract<typeof e, { type: 'anchor' }> =>
+    e.type === 'anchor' && e.id === CAMPAIGN.placed[0]?.chunk.entryAnchorId,
+);
+if (Z1_RAFT === undefined) throw new Error('z1-open-1 declares no entry anchor');
+const Z1_START = { x: Z1_RAFT.pos.x, y: Z1_RAFT.pos.y + SPAWN_BELOW_ANCHOR_PX };
 
 /** Falling free: nothing is holding her and she is fast enough that the camera has to chase her. */
 function falling(snap: WorldSnapshot): boolean {
@@ -44,9 +52,21 @@ function falling(snap: WorldSnapshot): boolean {
  */
 function fallFromTheRaft(world: GameWorld): WorldSnapshot {
   let snap = world.snapshot();
-  for (let round = 0; round < 8 && !falling(snap); round++) {
+  const pull = pullGesture(1, 0, T); // full stretch, straight-down shot: the finger travels UP (D2)
+  for (let round = 0; round < 12 && !falling(snap); round++) {
+    // Wait for a ledge first. D1 launches come from REST, and a press in open water would spend the one
+    // double jump of the fall — which is exactly what the tests below are about to ask for.
+    for (let i = 0; i < 600 && snap.bubble.state !== 'RESTING' && !falling(snap); i++) {
+      world.update(STEP_MS, UP);
+      snap = world.snapshot();
+    }
+    if (falling(snap)) break;
+    // The press freezes the origin at the finger, so the anchor is latched on the first frame and
+    // every later sample is written against it — the same shape as `ScriptedFinger`.
+    const anchor = { x: snap.bubble.pos.x - snap.camera.x, y: snap.bubble.pos.y - snap.camera.y };
     for (let i = 0; i < 34; i++) {
-      world.update(STEP_MS, { down: true, x: snap.bubble.pos.x, y: snap.bubble.pos.y - snap.camera.y + 45 });
+      const stretch = Math.min(1, i / 6);
+      world.update(STEP_MS, { down: true, x: anchor.x + pull.x * stretch, y: anchor.y + pull.y * stretch });
       snap = world.snapshot();
     }
     for (let i = 0; i < 19; i++) {
@@ -88,8 +108,6 @@ function openWaterCampaign(): Campaign {
       zone: 0 as ZoneIndex,
       difficulty: 1,
       verbs: ['cargar', 'soltar', 'reposar'],
-      entry: 'R',
-      exit: 'R',
       entryAnchorId: OPEN_REST.id,
       exitAnchorId: OPEN_REST.id,
       airBudget: 0,
@@ -105,7 +123,7 @@ function openWaterCampaign(): Campaign {
 }
 
 /**
- * Bur off her ledge and into the open column: let her rise into the ledge and rest, then a hold aimed
+ * Bur off her ledge and into the open column: let her rise into the ledge and rest, then a shot aimed
  * down and to the left, released. Chunk 0 sits at worldY 0, so its local anchor IS the world anchor.
  */
 function shootIntoTheOpen(world: GameWorld): void {
@@ -115,8 +133,13 @@ function shootIntoTheOpen(world: GameWorld): void {
     snap = world.snapshot();
   }
   expect(snap.bubble.restingOnId).toBe(`0:${OPEN_LEDGE.id}`);
-  for (let i = 0; i < 40; i++) {
-    world.update(STEP_MS, { down: true, x: snap.bubble.pos.x - 80, y: snap.bubble.pos.y - snap.camera.y + 45 });
+  // D2: press, then draw the sling UP and to the RIGHT for a shot down and to the LEFT.
+  const anchor = { x: snap.bubble.pos.x - snap.camera.x, y: snap.bubble.pos.y - snap.camera.y };
+  const pull = pullGesture(1, -70, T);
+  world.update(STEP_MS, { down: true, ...anchor });
+  for (let i = 1; i < 40; i++) {
+    const stretch = Math.min(1, i / 6);
+    world.update(STEP_MS, { down: true, x: anchor.x + pull.x * stretch, y: anchor.y + pull.y * stretch });
     snap = world.snapshot();
   }
   for (let i = 0; i < 5; i++) {
@@ -130,12 +153,46 @@ function shootIntoTheOpen(world: GameWorld): void {
  * Runs the "charge, release, repeat" bot of §11.7.14 for `seconds`, answering the two prompts a player
  * would ("Seguir bajando", "Otra vez"), and reports everything the assertions below need.
  */
+/**
+ * What `ScriptedFinger` needs from a snapshot. `canAim` is the D1 rule the bot plays by: since a touch
+ * in open water is either the one metered double jump or nothing, a naive bot presses from the ledges.
+ */
+function sample(snap: WorldSnapshot): FingerSample {
+  return {
+    burX: snap.bubble.pos.x,
+    burY: snap.bubble.pos.y,
+    camX: snap.camera.x,
+    camY: snap.camera.y,
+    canAim: snap.bubble.state === 'RESTING',
+  };
+}
+
+/**
+ * Tuning that vents the whole bar on its own: the only deterministic way to die on a hazard-free Z1
+ * now that DECISIONS-v1.2 D1 has removed the overcharge. It runs the §2.4.4 pressure clock in every
+ * zone at a 50 ms period, and shortens every rest window so the ledge Bur floats into cannot freeze
+ * that clock for long (§2.3 freezes the drain while she hangs).
+ */
+const LETHAL = createTuning({
+  PRESSURE_DRAIN_FROM_ZONE: 0,
+  PRESSURE_DRAIN_S: 0.05,
+  REST_MAX_MS: { posadero: 50, impaciente: 50, pegajosa: 50 },
+});
+
+/**
+ * Plays the world with the aiming autoplayer of `game/autoPlayer.ts`.
+ *
+ * It used to be a metronome, and since DECISIONS-v1.2 that measures nothing: D1 made the reward be for
+ * CALCULATING the shot and D3/D4 replaced the 180 px chute with 540 px of open water, so a fixed cadence
+ * misses every hop by design and a test built on one only ever proves that. `GuidedFinger` picks each
+ * shot with the validator's own reach search and stays naive in every other way.
+ */
 function playBot(
   world: GameWorld,
   seconds: number,
   options: { stopAt?: (s: WorldSnapshot) => boolean; restart?: boolean } = {},
 ): { snap: WorldSnapshot; events: GameEvent[]; monotonic: boolean; frames: number; xInsideColumn: boolean } {
-  const finger = new ScriptedFinger(400, 140, 45, 16);
+  const finger = new GuidedFinger(T);
   const events: GameEvent[] = [];
   let snap = world.snapshot();
   let monotonic = true;
@@ -144,8 +201,7 @@ function playBot(
   let frames = 0;
 
   for (; frames < Math.round(seconds * 60); frames++) {
-    const pointer = finger.next(STEP_MS, snap.bubble.pos.x, snap.bubble.pos.y, snap.camera.y);
-    world.update(STEP_MS, pointer);
+    world.update(STEP_MS, finger.next(STEP_MS, snap));
     snap = world.snapshot();
     events.push(...snap.events);
     if (snap.run.maxProgressY < previous) monotonic = false;
@@ -256,7 +312,7 @@ describe('the first immersion is playable (§12.1, §12.3.2)', () => {
 
   it('ends the campaign past the bottom of the last chunk', () => {
     const world = createTestWorld();
-    const run = playBot(world, 120, { stopAt: (s) => s.phase === 'campaignComplete' });
+    const run = playBot(world, 240, { stopAt: (s) => s.phase === 'campaignComplete' });
     expect(run.snap.phase).toBe('campaignComplete');
     expect(run.snap.bubble.pos.y).toBeGreaterThanOrEqual(CAMPAIGN.bottomY);
   });
@@ -295,14 +351,14 @@ describe('determinism (§11.7.14)', () => {
   it('two worlds with the same seed and the same input are identical after 10 000 steps', () => {
     const a = createTestWorld({ seed: 42 });
     const b = createTestWorld({ seed: 42 });
-    const fingerA = new ScriptedFinger(300, 200, 45, 16);
-    const fingerB = new ScriptedFinger(300, 200, 45, 16);
+    const fingerA = new ScriptedFinger(1, 16, 300, 200, T);
+    const fingerB = new ScriptedFinger(1, 16, 300, 200, T);
     let snapA = a.snapshot();
     let snapB = b.snapshot();
 
     for (let i = 0; i < 10_000; i++) {
-      a.update(STEP_MS, fingerA.next(STEP_MS, snapA.bubble.pos.x, snapA.bubble.pos.y, snapA.camera.y));
-      b.update(STEP_MS, fingerB.next(STEP_MS, snapB.bubble.pos.x, snapB.bubble.pos.y, snapB.camera.y));
+      a.update(STEP_MS, fingerA.next(STEP_MS, sample(snapA)));
+      b.update(STEP_MS, fingerB.next(STEP_MS, sample(snapB)));
       snapA = a.snapshot();
       snapB = b.snapshot();
       if (snapA.phase === 'station') a.continueDescent();
@@ -337,23 +393,11 @@ describe('determinism (§11.7.14)', () => {
 });
 
 describe('death flow (§2.4, §11.7.6)', () => {
-  /** Tuning that makes a hold vent the whole bar: the only deterministic way to die on hazard-free Z1. */
-  const LETHAL = createTuning({
-    OVERCHARGE_MS: 60,
-    OVERCHARGE_MS_RESTING: 60,
-    OVERCHARGE_DRAIN_MS: 60,
-    OVERCHARGE_MIN_AIR: 0,
-    OVERCHARGE_MAX_DRAIN: 32,
-    AUTO_RELEASE_MS: 60_000,
-  });
-
   function drown(world: GameWorld): WorldSnapshot {
     world.setTuning(LETHAL);
-    for (let i = 0; i < 10; i++) world.update(STEP_MS, UP); // let go, so the next press is a new hold
-    const held: PointerInput = { down: true, x: 90, y: 200 };
     let snap = world.snapshot();
     for (let i = 0; i < 60 * 20 && snap.phase !== 'dead'; i++) {
-      world.update(STEP_MS, held);
+      world.update(STEP_MS, UP);
       snap = world.snapshot();
     }
     return snap;
@@ -459,6 +503,76 @@ describe('death flow (§2.4, §11.7.6)', () => {
   });
 });
 
+describe('the slingshot carries a run (D1, D2, D4)', () => {
+  /**
+   * The headline number of D4, measured through the whole stack: a FULL pull from a rest surface
+   * descends about 195 px in Zone 1. It is the one figure the level geometry is being rebuilt around
+   * ("un tiro a plena potencia desciende ≈ 195 px en Z1"), and it is the product of the pull, the
+   * impulse table, the pressure exponent and the integrator agreeing — which is exactly the set of
+   * things this whole change touched.
+   */
+  it('a full pull from a ledge descends the ≈195 px of the D4 reach table, spending no Air', () => {
+    const world = createWorldOn(openWaterCampaign());
+    let snap = world.snapshot();
+    for (let i = 0; i < 90; i++) {
+      world.update(STEP_MS, UP);
+      snap = world.snapshot();
+    }
+    expect(snap.bubble.state).toBe('RESTING');
+    const from = snap.bubble.pos.y;
+
+    // Press, draw the sling straight UP to full stretch, lift: a full-power straight-down shot.
+    const anchor = { x: snap.bubble.pos.x - snap.camera.x, y: snap.bubble.pos.y - snap.camera.y };
+    world.update(STEP_MS, { down: true, ...anchor });
+    for (let i = 1; i <= 12; i++) {
+      world.update(STEP_MS, { down: true, x: anchor.x, y: anchor.y - T.PULL_MAX_PX * Math.min(1, i / 6) });
+    }
+    const events: GameEvent[] = [];
+    world.update(STEP_MS, UP);
+    events.push(...world.snapshot().events);
+
+    const launch = events.find((e) => e.type === 'launch');
+    expect(launch?.power).toBe(1);
+    expect(launch?.airLaunch).toBe(false);
+    expect(Math.hypot(launch?.vel.x ?? 0, launch?.vel.y ?? 0)).toBeCloseTo(T.IMPULSE_MAX, 6);
+
+    let deepest = from;
+    for (let i = 0; i < 60 * 4; i++) {
+      world.update(STEP_MS, UP);
+      deepest = Math.max(deepest, world.snapshot().bubble.pos.y);
+    }
+    // ±10 % of the 195 px D4 quotes; the exact figure is `descentDistance`'s, tested in `integrator`.
+    expect(deepest - from).toBeGreaterThan(175);
+    expect(deepest - from).toBeLessThan(215);
+    expect(world.snapshot().bubble.air).toBe(T.AIR_START); // a shot from rest is free (D1)
+  });
+
+  /** And the same pull in the water costs exactly one pip, once, and then nothing (D1). */
+  it('the mid-air launch is the only shot that costs Air, and only once per fall', () => {
+    const world = createWorldOn(openWaterCampaign());
+    shootIntoTheOpen(world); // Bur is airborne with nothing above her
+    const before = world.snapshot().bubble.air;
+    const events: GameEvent[] = [];
+
+    for (let round = 0; round < 3; round++) {
+      const snap = world.snapshot();
+      const anchor = { x: snap.bubble.pos.x - snap.camera.x, y: snap.bubble.pos.y - snap.camera.y };
+      world.update(STEP_MS, { down: true, ...anchor });
+      for (let i = 1; i <= 12; i++) {
+        world.update(STEP_MS, { down: true, x: anchor.x, y: anchor.y - T.PULL_MAX_PX * Math.min(1, i / 6) });
+      }
+      world.update(STEP_MS, UP);
+      for (let i = 0; i < 30; i++) world.update(STEP_MS, UP);
+      events.push(...world.snapshot().events);
+    }
+
+    const launches = events.filter((e) => e.type === 'launch');
+    expect(launches).toHaveLength(T.AIR_LAUNCHES_MAX);
+    expect(launches.every((e) => e.type === 'launch' && e.airLaunch)).toBe(true);
+    expect(world.snapshot().bubble.air).toBe(before - T.AIR_LAUNCH_COST);
+  });
+});
+
 describe('resaca (§2.4.2, §4.3)', () => {
   it('warns, charges one pip and puts Bur back on an anchor, never above her progress', () => {
     const world = createWorldOn(openWaterCampaign());
@@ -523,7 +637,7 @@ describe('resaca (§2.4.2, §4.3)', () => {
     // §8 step 1: "Bur sube sola y se queda quieta bajo un techo de espuma" — the raft of `z1-open-1`,
     // which she is still hanging from 6 s in (the 3 s anti-camping clock drops her and she rises back).
     expect(snap.bubble.state).toBe('RESTING');
-    expect(snap.bubble.restingOnId).toContain('o1-foam');
+    expect(snap.bubble.restingOnId).toContain(CAMPAIGN.placed[0]?.chunk.entities.find((e) => e.type === 'ceiling')?.id ?? 'raft');
   });
 });
 
@@ -533,11 +647,11 @@ describe('snapshot and events', () => {
     const heard: GameEvent[] = [];
     const off = world.onEvent((e) => heard.push(e));
 
-    const finger = new ScriptedFinger(400, 140, 45, 16);
+    const finger = new ScriptedFinger(1, 16, 400, 140, T);
     const seen: GameEvent[] = [];
     let snap = world.snapshot();
     for (let i = 0; i < 300; i++) {
-      world.update(STEP_MS, finger.next(STEP_MS, snap.bubble.pos.x, snap.bubble.pos.y, snap.camera.y));
+      world.update(STEP_MS, finger.next(STEP_MS, sample(snap)));
       snap = world.snapshot();
       seen.push(...snap.events);
     }
@@ -551,28 +665,44 @@ describe('snapshot and events', () => {
     expect(heard).toHaveLength(before);
   });
 
-  it('reports the HUD of §8: depth, capacity, charge and fine tune', () => {
+  it('reports the HUD of §8: depth, capacity, pull power and the two D1/D2 flags', () => {
     const world = createTestWorld();
-    const held: PointerInput = { down: true, x: 110, y: 240 };
-    for (let i = 0; i < 20; i++) world.update(STEP_MS, held);
-    const snap = world.snapshot();
+    const anchor: PointerInput = { down: true, x: 110, y: 240 };
+    world.update(STEP_MS, anchor);
+    // Inside the cancel radius first: the ring must say "here there is no shot" and draw no guide.
+    for (let i = 0; i < 3; i++) world.update(STEP_MS, { down: true, x: 110, y: 240 - 4 });
+    let snap = world.snapshot();
+    expect(snap.bubble.state).toBe('AIMING');
+    expect(snap.hud.cancelZone).toBe(true);
+    expect(snap.hud.power).toBeLessThan(1);
+    expect(snap.trajectory).toHaveLength(0);
+
+    for (let i = 0; i < 16; i++) world.update(STEP_MS, { down: true, x: 110, y: 240 - T.PULL_MAX_PX });
+    snap = world.snapshot();
 
     expect(snap.hud.zone).toBe(0);
     expect(snap.hud.airMaxBase).toBe(T.AIR_MAX_BASE);
     expect(snap.hud.air).toBe(snap.bubble.air);
     expect(snap.hud.depthM).toBeGreaterThan(0);
-    expect(snap.bubble.state).toBe('CHARGING');
-    expect(snap.hud.chargePower).toBeGreaterThan(0);
-    expect(snap.hud.fineTune).toBeGreaterThanOrEqual(-1);
-    expect(snap.hud.fineTune).toBeLessThanOrEqual(1);
+    expect(snap.bubble.state).toBe('AIMING');
+    expect(snap.hud.power).toBe(1);
+    expect(snap.hud.cancelZone).toBe(false);
+    expect(snap.hud.airLaunchAvailable).toBe(true);
     expect(snap.trajectoryDots).toBe(T.TRAJECTORY_DOTS[0]);
     expect(snap.trajectory).toHaveLength(T.TRAJECTORY_DOTS[0] ?? 0);
   });
 
-  it('draws no guide when there is no hold (§2.7)', () => {
+  it('draws no guide when there is no aim (§2.7)', () => {
     const world = createTestWorld();
     world.update(STEP_MS, UP);
     expect(world.snapshot().trajectory).toHaveLength(0);
+    expect(world.snapshot().hud.power).toBe(0);
+  });
+
+  it('reports the double jump as spent once air runs to the last pip (D1)', () => {
+    const world = createTestWorld();
+    for (let i = 0; i < 5; i++) world.update(STEP_MS, UP);
+    expect(world.snapshot().hud.airLaunchAvailable).toBe(true);
   });
 
   it('follows a live resize and a live tuning swap', () => {
@@ -596,40 +726,43 @@ describe('the pointer the simulation sees (§2.1, §3.3, §2.2)', () => {
    */
   it('freezes the viewport→world conversion for the whole contact', () => {
     const world = createTestWorld();
-    // Charges released straight down until she is falling, so the camera is chasing a descending Bur.
+    // Shots released straight down until she is falling, so the camera is chasing a descending Bur.
     let snap = fallFromTheRaft(world);
     expect(snap.bubble.vel.y).toBeGreaterThan(200);
     expect(snap.bubble.restingOnId).toBeNull();
     const camBefore = snap.camera.y;
 
-    const still: PointerInput = { down: true, x: snap.bubble.pos.x + 10, y: snap.bubble.pos.y - snap.camera.y + 45 };
+    // One fixed viewport point for the whole gesture: press, then hold the sling exactly there.
+    const anchor = { x: snap.bubble.pos.x - snap.camera.x + 10, y: snap.bubble.pos.y - snap.camera.y + 20 };
+    world.update(STEP_MS, { down: true, ...anchor });
+    const still: PointerInput = { down: true, x: anchor.x + 20, y: anchor.y - 50 };
     const thetas: number[] = [];
-    const drags: number[] = [];
+    const pulls: number[] = [];
     for (let i = 0; i < 30; i++) {
       world.update(STEP_MS, still);
       snap = world.snapshot();
-      thetas.push(snap.bubble.aimTheta);
-      drags.push(snap.bubble.dragDist);
+      thetas.push(snap.bubble.pullTheta);
+      pulls.push(snap.bubble.pullDist);
     }
 
-    expect(snap.bubble.state).toBe('CHARGING');
+    expect(snap.bubble.state).toBe('AIMING');
     expect(Math.abs(snap.camera.y - camBefore)).toBeGreaterThan(20); // the world really did scroll
     for (const theta of thetas) expect(theta).toBeCloseTo(thetas[0] ?? 0, 12);
-    for (const drag of drags) expect(drag).toBeCloseTo(drags[0] ?? 0, 12);
+    for (const pull of pulls) expect(pull).toBeCloseTo(pulls[0] ?? 0, 12);
   });
 
-  it('a finger held through the station summary must lift before it charges again (§2.2, §3.3)', () => {
+  it('a finger held through the station summary must lift before it aims again (D2, §3.3)', () => {
     const world = createTestWorld();
     playBot(world, 90, { stopAt: (s) => s.phase === 'station' });
 
-    // The glass is never released: the summary is a pause, and §2.2 gives one hold per CONTACT.
+    // The glass is never released: the summary is a pause, and D2 gives one gesture per CONTACT.
     const held: PointerInput = { down: true, x: 90, y: 200 };
     const events: GameEvent[] = [];
     for (let i = 0; i < 120; i++) {
       world.update(STEP_MS, held);
       events.push(...world.snapshot().events);
     }
-    expect(events.some((e) => e.type === 'chargeStart')).toBe(false);
+    expect(events.some((e) => e.type === 'aimStart')).toBe(false);
     expect(events.some((e) => e.type === 'launch')).toBe(false);
 
     world.continueDescent();
@@ -637,14 +770,105 @@ describe('the pointer the simulation sees (§2.1, §3.3, §2.2)', () => {
       world.update(STEP_MS, held);
       events.push(...world.snapshot().events);
     }
-    expect(world.snapshot().bubble.state).not.toBe('CHARGING');
-    expect(events.some((e) => e.type === 'chargeStart')).toBe(false);
+    expect(world.snapshot().bubble.state).not.toBe('AIMING');
+    expect(events.some((e) => e.type === 'aimStart')).toBe(false);
 
-    // Lifting the finger is what arms the next hold.
+    // Lifting the finger is what arms the next gesture.
     world.update(STEP_MS, UP);
     world.snapshot();
     world.update(STEP_MS, held);
-    expect(world.snapshot().events.some((e) => e.type === 'chargeStart')).toBe(true);
+    expect(world.snapshot().events.some((e) => e.type === 'aimStart')).toBe(true);
+  });
+
+  /**
+   * The other half of the same suppression: a gesture the world takes away must END, and end the one
+   * way D2 allows a gesture to end without a shot. Firing it instead would launch Bur out of a phase
+   * that is not 'playing' with a pull the player never released.
+   *
+   * The run is ended UNDER the gesture (the §2.4.4 pressure clock, sped up) rather than by crossing a
+   * station seam, so what is under test is the suppression and not how far a bot can get.
+   */
+  it('cancels a live aim when the world takes the input away, and never fires it', () => {
+    const world = createTestWorld();
+    world.setTuning(LETHAL);
+    const anchor = world.snapshot();
+    const origin = { x: anchor.bubble.pos.x - anchor.camera.x, y: anchor.bubble.pos.y - anchor.camera.y + 30 };
+    const held: PointerInput = { down: true, x: origin.x, y: origin.y - T.PULL_MAX_PX };
+
+    world.update(STEP_MS, { down: true, ...origin });
+    for (let i = 0; i < 6; i++) world.update(STEP_MS, held);
+    expect(world.snapshot().bubble.state).toBe('AIMING');
+
+    const events: GameEvent[] = [];
+    for (let i = 0; i < 60 * 20 && world.snapshot().phase === 'playing'; i++) {
+      world.update(STEP_MS, held);
+      events.push(...world.snapshot().events);
+    }
+    expect(world.snapshot().phase).not.toBe('playing');
+
+    // A few more steps with the finger still down: the suppression must end the gesture, once.
+    for (let i = 0; i < 30; i++) {
+      world.update(STEP_MS, held);
+      events.push(...world.snapshot().events);
+    }
+    expect(events.filter((e) => e.type === 'aimCancel')).toHaveLength(1);
+    expect(events.some((e) => e.type === 'launch')).toBe(false);
+    expect(world.snapshot().bubble.aimOrigin).toBeNull();
+  });
+
+  /**
+   * The SHELL's half of the same rule, and the reason `cancelAim` is public. Every forced end of a
+   * finger contact that is not a deliberate release — an automatic pause on blur or a hidden tab, a
+   * `pointercancel`, a drag that walks off the canvas — reaches core as `pointer.down = false`, which
+   * is a release and fires the shot. A player who takes a phone call mid-pull must not come back to a
+   * shot she never let go of, and the shell has no other way to say so: its own pause does not change
+   * `phase`, so the suppression above never sees it.
+   */
+  it('lets the shell cancel a gesture without firing it', () => {
+    const world = createTestWorld();
+    const anchor = world.snapshot();
+    const origin = { x: anchor.bubble.pos.x - anchor.camera.x, y: anchor.bubble.pos.y - anchor.camera.y + 30 };
+    const held: PointerInput = { down: true, x: origin.x, y: origin.y - T.PULL_MAX_PX };
+
+    world.update(STEP_MS, { down: true, ...origin });
+    for (let i = 0; i < 6; i++) world.update(STEP_MS, held);
+    expect(world.snapshot().bubble.state).toBe('AIMING');
+    expect(world.snapshot().hud.power).toBeGreaterThan(0.9);
+
+    world.cancelAim();
+    const afterCancel = world.snapshot();
+    expect(afterCancel.events.filter((e) => e.type === 'aimCancel')).toHaveLength(1);
+    expect(afterCancel.bubble.aimOrigin).toBeNull();
+
+    // ...and the synthetic pointer-up that follows a pause finds nothing left to fire.
+    const events: GameEvent[] = [];
+    for (let i = 0; i < 10; i++) {
+      world.update(STEP_MS, UP);
+      events.push(...world.snapshot().events);
+    }
+    expect(events.some((e) => e.type === 'launch')).toBe(false);
+    expect(world.snapshot().bubble.state).not.toBe('LAUNCHED');
+  });
+
+  it('is a no-op with no gesture running', () => {
+    const world = createTestWorld();
+    world.update(STEP_MS, UP);
+    world.snapshot();
+    world.cancelAim();
+    expect(world.snapshot().events).toHaveLength(0);
+  });
+
+  /**
+   * D3 clamps the camera to `[0, WORLD_W - viewW]`. A resize changes the right edge of that range, and
+   * the shell places `camera.x` verbatim: leaving the clamp to the next step lets one `snapshot()`
+   * report a view whose right edge is past the end of the world.
+   */
+  it('re-clamps the camera when the view widens under it', () => {
+    const world = createTestWorld();
+    for (let i = 0; i < 30; i++) world.update(STEP_MS, UP);
+    world.setViewWidth(T.WORLD_W); // the whole world visible: the only legal camera x is 0
+    expect(world.snapshot().camera.x).toBe(0);
+    expect(world.snapshot().camera.viewW).toBe(T.WORLD_W);
   });
 });
 
@@ -654,7 +878,7 @@ describe('the save is meta-progression, not a run report (§6.1, §12.1)', () =>
     store.set(SAVE_KEY, JSON.stringify({ ...defaultSave(), pearls: 500, bestDepthM: 120 }));
 
     const world = createTestWorld({ store });
-    const run = playBot(world, 120, { stopAt: (s) => s.phase === 'campaignComplete' });
+    const run = playBot(world, 240, { stopAt: (s) => s.phase === 'campaignComplete' });
     const saved = JSON.parse(store.get(SAVE_KEY) ?? '{}') as SaveData;
 
     expect(run.snap.run.lastStationIndex).toBeGreaterThanOrEqual(0); // `persist` really ran

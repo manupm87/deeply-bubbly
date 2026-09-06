@@ -30,7 +30,6 @@ const png = await page.evaluate(async () => {
     if (scene.textures.exists(key)) scene.textures.remove(key);
     const rt = scene.make.renderTexture({ width: w + pad * 2, height: h + pad * 2 }, false);
     rt.draw(g, pad, pad); rt.draw(glow, pad, pad);
-    const src = rt.canvas ?? null;
     // snapshot pixels
     await new Promise(res => rt.snapshot((img) => { g2.drawImage(img, 8, y); res(); }));
     rt.destroy(); g.destroy(); glow.destroy();

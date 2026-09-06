@@ -229,3 +229,99 @@ describe('isAboveView', () => {
     expect(isAboveView(cam, cam.y + 100, 7)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// DECISIONS-v1.2 D3: the world is WORLD_W (540) px wide and the view only VIEW_W (180) of it, so the
+// camera follows Bur in X as well. Y is untouched by every test below.
+// ---------------------------------------------------------------------------------------------
+
+const VIEW_W = t.VIEW_W;
+
+/** A camera looking at Bur at (burX, 1000), the way `GameWorld` builds it. */
+const camAt = (burX: number, tt = t): ReturnType<typeof createCamera> =>
+  createCamera(1000, VIEW_H, tt, burX, VIEW_W);
+
+/** Steps `cam` `n` times with Bur parked at `burX` (and inside the Y dead zone, so Y never moves). */
+function follow(cam: ReturnType<typeof createCamera>, burX: number, n: number, dt = 1 / 60, tt = t): void {
+  for (let i = 0; i < n; i++) {
+    const burY = cam.y + VIEW_H * 0.45;
+    stepCamera(cam, { burX, burY, burVelY: 0, zone: 0, ascenso: false, nowMs: i * dt * 1000, dt }, tt);
+  }
+}
+
+describe('horizontal follow (D3)', () => {
+  it('centres the view on Bur when the camera is created', () => {
+    expect(camAt(t.WORLD_W / 2).x).toBeCloseTo(t.WORLD_W / 2 - VIEW_W / 2, 10);
+    expect(camAt(t.WORLD_W / 2).viewW).toBe(VIEW_W);
+  });
+
+  it('clamps the initial centring to [0, WORLD_W - viewW]', () => {
+    expect(camAt(10).x).toBe(0);
+    expect(camAt(t.WORLD_W - 10).x).toBe(t.WORLD_W - VIEW_W);
+  });
+
+  it('does not move while Bur stays inside the CAM_DEADZONE_X band', () => {
+    const cam = camAt(270);
+    const x0 = cam.x;
+    const [lo, hi] = t.CAM_DEADZONE_X;
+    // Both ends of the band, and the middle: none of them may nudge the view.
+    for (const f of [lo + 0.01, 0.5, hi - 0.01]) follow(cam, cam.x + VIEW_W * f, 60);
+    expect(cam.x).toBeCloseTo(x0, 10);
+  });
+
+  it('follows Bur once she leaves the band, and stops with her back on its edge', () => {
+    const cam = camAt(270);
+    const [lo, hi] = t.CAM_DEADZONE_X;
+    const burX = cam.x + VIEW_W * 0.95;
+    follow(cam, burX, 240);
+    expect(burX - cam.x).toBeCloseTo(VIEW_W * hi, 3);
+
+    const back = cam.x + VIEW_W * 0.05;
+    follow(cam, back, 240);
+    expect(back - cam.x).toBeCloseTo(VIEW_W * lo, 3);
+  });
+
+  it('never leaves the world column, however hard Bur pushes at either wall', () => {
+    const left = camAt(270);
+    follow(left, -400, 600);
+    expect(left.x).toBe(0);
+
+    const right = camAt(270);
+    follow(right, t.WORLD_W + 400, 600);
+    expect(right.x).toBe(t.WORLD_W - VIEW_W);
+  });
+
+  it('is frame-rate independent: 240 steps of 1/60 s land where 120 of 1/30 s do', () => {
+    const fine = camAt(90);
+    const coarse = camAt(90);
+    follow(fine, 470, 240, 1 / 60);
+    follow(coarse, 470, 120, 1 / 30);
+    expect(coarse.x).toBeCloseTo(fine.x, 3);
+  });
+
+  it('is deterministic: the same walk twice gives the same x, bit for bit', () => {
+    const walk = (): number => {
+      const cam = camAt(270);
+      for (const x of [400, 120, 500, 60, 300, 539, 1]) follow(cam, x, 37);
+      return cam.x;
+    };
+    expect(walk()).toBe(walk());
+  });
+
+  it('leaves the §4.3 ratchet alone: a step with no burX moves neither x nor maxY', () => {
+    const cam = camAt(270);
+    const x0 = cam.x;
+    const maxY0 = cam.maxY;
+    stepCamera(cam, { burY: cam.y + VIEW_H * 0.45, burVelY: 0, zone: 0, ascenso: false, nowMs: 0, dt: 1 / 60 }, t);
+    expect(cam.x).toBe(x0);
+    expect(cam.maxY).toBe(maxY0);
+  });
+
+  it('has no ratchet of its own: X is free in both directions, unlike Y', () => {
+    const cam = camAt(270);
+    follow(cam, 500, 300);
+    const deepest = cam.x;
+    follow(cam, 40, 300);
+    expect(cam.x).toBeLessThan(deepest); // Y could never come back like this
+  });
+});

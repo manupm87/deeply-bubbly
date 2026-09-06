@@ -9,8 +9,6 @@ import {
   REACH_MAX_SECONDS,
   REACH_POWERS,
   findReachTrajectory,
-  laneAt,
-  lanesAdjacent,
   reachTolerance,
   restPoseY,
   sideWalls,
@@ -20,7 +18,7 @@ import {
   validateSequence,
 } from './validator';
 import type { ValidationIssue } from './validator';
-import type { Anchor, Ceiling, Chunk, Contact, Hazard, Lane, SolidEntity, Wall, WorldEntity } from '../types';
+import type { Anchor, Ceiling, Chunk, Contact, Hazard, SolidEntity, WorldEntity } from '../types';
 
 const t = createTuning();
 
@@ -49,7 +47,7 @@ function ledge(id: string, x: number, y: number, w: number): Ceiling {
 }
 
 function anchorOn(id: string, ceilingId: string, x: number, ledgeY: number): Anchor {
-  return { type: 'anchor', id, ceilingId, pos: { x, y: ledgeY + 10 + RADIUS }, lane: laneAt(x, t) };
+  return { type: 'anchor', id, ceilingId, pos: { x, y: ledgeY + 10 + RADIUS } };
 }
 
 function skeleton(): WorldEntity[] {
@@ -75,8 +73,6 @@ function entity<T extends WorldEntity>(chunk: Chunk, id: string): T {
 interface ChunkOverrides {
   difficulty?: Chunk['difficulty'];
   role?: Chunk['role'];
-  entry?: Lane;
-  exit?: Lane;
   targetTimeS?: number;
   airBudget?: number;
   extra?: WorldEntity[];
@@ -88,8 +84,6 @@ function makeChunk(id: string, o: ChunkOverrides = {}): Chunk {
     zone: 0,
     difficulty: o.difficulty ?? 1,
     verbs: ['reposar'],
-    entry: o.entry ?? 'L',
-    exit: o.exit ?? 'C',
     entryAnchorId: 'a-in',
     exitAnchorId: 'a-out',
     airBudget: o.airBudget ?? 0,
@@ -122,24 +116,6 @@ function makeSequence(overrides: Record<string, ChunkOverrides> = {}): ChunkLibr
 
 // ---------------------------------------------------------------------------------------------
 
-describe('laneAt / lanesAdjacent', () => {
-  it('maps x to the nearest lane centre (§11.5.1: 40 / 90 / 140)', () => {
-    expect(laneAt(0, t)).toBe('L');
-    expect(laneAt(40, t)).toBe('L');
-    expect(laneAt(90, t)).toBe('C');
-    expect(laneAt(140, t)).toBe('R');
-    expect(laneAt(180, t)).toBe('R');
-  });
-
-  it('treats L↔C and C↔R as adjacent but never L↔R', () => {
-    expect(lanesAdjacent('L', 'L')).toBe(true);
-    expect(lanesAdjacent('L', 'C')).toBe(true);
-    expect(lanesAdjacent('C', 'R')).toBe(true);
-    expect(lanesAdjacent('L', 'R')).toBe(false);
-    expect(lanesAdjacent('R', 'L')).toBe(false);
-  });
-});
-
 describe('validateChunk', () => {
   it('accepts a well-formed chunk', () => {
     expect(errors(validateChunk(makeChunk('ok'), t))).toEqual([]);
@@ -170,15 +146,27 @@ describe('validateChunk', () => {
     expect(messages(validateChunk(chunk, t)).some((m) => m.includes('is not under ceiling'))).toBe(true);
   });
 
-  it('rejects a lane label that disagrees with the anchor x', () => {
-    const chunk = makeChunk('lane');
-    entity<Anchor>(chunk, 'a-in').lane = 'R';
-    expect(rules(validateChunk(chunk, t))).toContain('lanes');
+  it('accepts geometry anywhere in the 540 px world, not just the first screen (D3)', () => {
+    // The far third of the column: legal since D3, impossible before it.
+    const chunk = makeChunk('far-right');
+    entity<Ceiling>(chunk, 'c1').rect = { x: 480, y: 18, w: 40, h: 10 };
+    entity<Anchor>(chunk, 'a-in').pos.x = 500;
+    expect(errors(validateChunk(chunk, t))).toEqual([]);
   });
 
-  it('rejects entry/exit anchors that are not in the declared lanes', () => {
-    const chunk = makeChunk('entrylane', { entry: 'R' });
-    expect(messages(validateChunk(chunk, t)).some((m) => m.includes("declares entry 'R'"))).toBe(true);
+  it('still rejects geometry that leaves the world on the right', () => {
+    const chunk = makeChunk('overhang');
+    entity<Ceiling>(chunk, 'c1').rect = { x: t.CHUNK_W - 10, y: 18, w: 40, h: 10 };
+    entity<Anchor>(chunk, 'a-in').pos.x = t.CHUNK_W - 5;
+    expect(messages(validateChunk(chunk, t)).some((m) => m.includes('leaves the'))).toBe(true);
+  });
+
+  it('accepts alternative exit anchors, and rejects one that is not an anchor of the chunk (D3)', () => {
+    const ok: Chunk = { ...makeChunk('alts'), exitAnchorIds: ['a-out', 'a-m2'] };
+    expect(errors(validateChunk(ok, t))).toEqual([]);
+
+    const bogus: Chunk = { ...makeChunk('alts-bad'), exitAnchorIds: ['a-out', 'a-ghost'] };
+    expect(messages(validateChunk(bogus, t)).some((m) => m.includes("exitAnchorIds lists 'a-ghost'"))).toBe(true);
   });
 
   it('rejects entry/exit anchor ids that do not exist', () => {
@@ -203,7 +191,7 @@ describe('validateChunk', () => {
     expect(messages(validateChunk(chunk, t)).some((m) => m.includes('duplicate entity id'))).toBe(true);
   });
 
-  it('rejects geometry that leaves the 180x240 chunk box, oscillation included', () => {
+  it('rejects geometry that leaves the CHUNK_W x CHUNK_H chunk box, oscillation included', () => {
     const chunk = makeChunk('oob');
     entity<Ceiling>(chunk, 'c1').moving = { axis: 'x', speed: 25, range: 120 };
     expect(messages(validateChunk(chunk, t)).some((m) => m.includes('leaves the'))).toBe(true);
@@ -223,23 +211,6 @@ describe('validateChunk', () => {
   it('rejects hazards inside a station chunk (§3.3: 4 s without danger)', () => {
     const chunk = makeChunk('st', { role: 'station', extra: [hazard('h', 6)] });
     expect(messages(validateChunk(chunk, t)).some((m) => m.includes('station chunk carries'))).toBe(true);
-  });
-
-  it('rejects a mouth narrower than CHUNK_MOUTH_MIN_W on the declared lane (§11.5.1)', () => {
-    const plug = { ...ledge('plug', 0, 232, 170), capturable: false };
-    const chunk = makeChunk('plugged', { extra: [plug] });
-    const lanes = errors(validateChunk(chunk, t)).filter((i) => i.rule === 'lanes');
-    expect(lanes.some((i) => i.message.includes('exit mouth'))).toBe(true);
-  });
-
-  it('accepts side walls that leave a 64 px mouth on the lane', () => {
-    const chunk = makeChunk('walled', {
-      extra: [
-        { type: 'wall', id: 'w-l', rect: { x: 0, y: 232, w: 8, h: 8 }, restitution: 0.55, material: 'rock' },
-        { type: 'wall', id: 'w-r', rect: { x: 172, y: 232, w: 8, h: 8 }, restitution: 0.55, material: 'rock' },
-      ],
-    });
-    expect(errors(validateChunk(chunk, t)).filter((i) => i.rule === 'lanes')).toEqual([]);
   });
 
   it('warns (but does not fail) when airBudget disagrees with the air the chunk actually holds', () => {
@@ -272,11 +243,6 @@ describe('validateSequence', () => {
     const found = messages(validateSequence(library, SEQ, t));
     expect(found.some((m) => m.includes("must have role 'station'"))).toBe(true);
     expect(found.some((m) => m.includes('only the last one may be'))).toBe(true);
-  });
-
-  it('rejects a non-adjacent lane transition (§11.5.1)', () => {
-    const library = makeSequence({ s1: { exit: 'L' }, s2: { entry: 'R' } });
-    expect(rules(validateSequence(library, SEQ, t))).toContain('lanes');
   });
 
   it('enforces the breathing rule (§11.5.4)', () => {
@@ -333,7 +299,6 @@ describe('reach rule (§11.5.11, §11.7.7)', () => {
     const arriveFromLeft = exitX > 30;
     return {
       ...makeChunk(id),
-      exit: laneAt(exitX, t),
       entities: [
         ledge('c1', 3, 18, 36),
         anchorOn('a-in', 'c1', 30, 18),
@@ -351,17 +316,45 @@ describe('reach rule (§11.5.11, §11.7.7)', () => {
     );
   }
 
-  it('flags two anchors 300 px apart: past MAX_HOP_PX for Zone 1 (200)', () => {
+  it('flags two anchors 300 px apart: past MAX_HOP_PX for Zone 1 (110 since D4)', () => {
     const issues = inChunkReach(twoStep('tall', 300, 110));
     expect(issues).toHaveLength(1);
-    expect(issues[0]?.message).toContain('vertical gap 300 px exceeds MAX_HOP_PX 200');
+    expect(issues[0]?.message).toContain('vertical gap 300 px exceeds MAX_HOP_PX 110');
+  });
+
+  it('flags a lateral gap past MAX_HOP_X_PX even when the drop is legal (D4, 2D reach)', () => {
+    // 60 px down — well inside MAX_HOP_PX — but 470 px sideways in a 540 px world. Before D3 no such
+    // pair could be authored at all; now it can, and only the second half of the rule catches it.
+    const issues = inChunkReach(twoStep('wide', 60, 500));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.message).toContain(`lateral gap 470 px exceeds MAX_HOP_X_PX ${t.MAX_HOP_X_PX[0]}`);
+  });
+
+  it('reports the lateral gap INSTEAD of flying every doomed probe', () => {
+    // The cheap box comes first: a pair outside it never reaches the ballistic search, so the author
+    // gets the geometric reason and not "no shot in the ±90° cone".
+    expect(inChunkReach(twoStep('wide2', 60, 500))[0]?.message).not.toContain('no shot in the');
+  });
+
+  it('is deterministic: the same chunk validated twice gives the same issues, in the same order', () => {
+    // §11.7.14. The reach search flies hundreds of probe shots through the real integrator; nothing in
+    // it may read a clock or an RNG, or a level would validate on one machine and fail on another.
+    const chunk = twoStep('repeat', 300, 500);
+    expect(inChunkReach(chunk)).toEqual(inChunkReach(chunk));
+    const clean = twoStep('repeat-ok', 60, 110);
+    expect(inChunkReach(clean)).toEqual(inChunkReach(clean));
+  });
+
+  it('accepts a wide hop that stays inside MAX_HOP_X_PX', () => {
+    // 60 px down and 140 px across: a real Zone 1 traverse in the 540 px world, and a legal one.
+    expect(inChunkReach(twoStep('reach-across', 60, 170))).toEqual([]);
   });
 
   it('flags a pair that is inside MAX_HOP_PX but ballistically impossible', () => {
     // 30 px straight below the source: the target ledge itself blocks every descent line into it.
     const issues = inChunkReach(twoStep('blocked', 30, 30));
     expect(issues).toHaveLength(1);
-    expect(issues[0]?.message).toContain('no shot in the ±62° cone');
+    expect(issues[0]?.message).toContain(`no shot in the ±${t.AIM_CONE_DEG}° cone`);
   });
 
   it('accepts a hop the ballistic search can actually fly', () => {
@@ -486,10 +479,7 @@ describe('a reach certificate describes a rest Bur can actually take (§2.3, §1
     expect(found.ok).toBe(true);
 
     // Replay the certified shot with the same fixed step and the same horizon the search flies.
-    const speed = impulseMagnitude(
-      { power: found.power, dragDist: t.DRAG_NEUTRAL_PX, radius: RADIUS, stunned: false, externalMul: 1 },
-      t,
-    );
+    const speed = impulseMagnitude({ power: found.power, radius: RADIUS, stunned: false, externalMul: 1 }, t);
     const lockSteps = launchLockSteps(t);
     let pos = { ...from };
     let vel = launchVelocity(degToRad(found.thetaDeg), speed);
@@ -527,12 +517,13 @@ describe('a reach certificate describes a rest Bur can actually take (§2.3, §1
     expect(Math.hypot(pos.x - to.x, pos.y - to.y)).toBeLessThanOrEqual(reachTolerance(0, t));
   });
 
-  it('probes the whole charge range a 70 ms tap can produce, not just the committed half (§11.4)', () => {
-    // p = (MIN_TAP_MS / CHARGE_FULL_MS) ^ CHARGE_EXP is the smallest power a human can ask for.
-    const floor = (t.MIN_TAP_MS / t.CHARGE_FULL_MS) ** t.CHARGE_EXP;
+  it('probes every pull the slingshot can fire, from the cancel radius to a full commit (D2, D4)', () => {
+    // Below PULL_CANCEL_PX / PULL_MAX_PX there is no shot at all, so that ratio is the honest floor.
+    const floor = t.PULL_CANCEL_PX / t.PULL_MAX_PX;
     expect(REACH_POWERS[0] ?? 1).toBeGreaterThanOrEqual(floor);
-    expect(REACH_POWERS[0] ?? 1).toBeLessThan(0.15);
+    expect(REACH_POWERS[0] ?? 1).toBe(0.2);
     expect(REACH_POWERS[REACH_POWERS.length - 1]).toBe(1);
+    expect(REACH_POWERS).toHaveLength(9); // 0,2 .. 1,0 in tenths
   });
 });
 
@@ -558,8 +549,7 @@ describe('anchors under moving ceilings (§11.2, §5 nº 3)', () => {
     entity<Ceiling>(chunk, 'c1').moving = { axis: 'x', speed: 25, range };
     const anchor = entity<Anchor>(chunk, 'a-in');
     anchor.pos.x = anchorX;
-    anchor.lane = laneAt(anchorX, t);
-    return { ...chunk, entry: anchor.lane };
+    return chunk;
   };
 
   it('accepts an anchor at the centre of a shell wider than its own walk', () => {
@@ -575,34 +565,6 @@ describe('anchors under moving ceilings (§11.2, §5 nº 3)', () => {
     const chunk = makeChunk('lift');
     entity<Ceiling>(chunk, 'c1').moving = { axis: 'y', speed: 20, range: 16 };
     expect(messages(validateChunk(chunk, t)).some((m) => m.includes('oscillates on y'))).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------
-// §11.5.1: the 64 px mouth is CENTRED on the lane, and Bur has a body
-// ---------------------------------------------------------------------------------------------
-
-describe('seam mouths (§11.5.1)', () => {
-  const plug = (w: number): Wall => ({
-    type: 'wall',
-    id: 'plug',
-    rect: { x: 0, y: t.CHUNK_H - 8, w, h: 8 },
-    restitution: t.RESTITUTION_ROCK,
-    material: 'rock',
-  });
-  const laneErrors = (chunk: Chunk): string[] =>
-    errors(validateChunk(chunk, t))
-      .filter((i) => i.rule === 'lanes')
-      .map((i) => i.message);
-
-  it('rejects free water that merely starts at the lane centre', () => {
-    // [90, 180] is 90 px wide and contains x = 90, but half of lane C's mouth [58, 122] is rock and
-    // Bur's own left edge (x = 83) is buried in it.
-    expect(laneErrors(makeChunk('half-plugged', { extra: [plug(90)] })).join('\n')).toContain('exit mouth');
-  });
-
-  it('accepts a plug that stops clear of the whole lane mouth', () => {
-    expect(laneErrors(makeChunk('clear', { extra: [plug(58)] }))).toEqual([]);
   });
 });
 
@@ -678,8 +640,6 @@ describe('validateJunction (§11.5.11, §11.1)', () => {
   function shelfStation(id: string, y: number): Chunk {
     return {
       ...makeChunk(id, { role: 'station' }),
-      entry: 'L',
-      exit: 'L',
       entryAnchorId: 'a-in',
       exitAnchorId: 'a-in',
       entities: [ledge('shelf', 3, y, 60), anchorOn('a-in', 'shelf', 30, y)],
@@ -692,27 +652,20 @@ describe('validateJunction (§11.5.11, §11.1)', () => {
     entity<Ceiling>(chunk, 'c1').rect = { x: x - 27, y: 18, w: 36, h: 10 };
     const anchor = entity<Anchor>(chunk, 'a-in');
     anchor.pos.x = x;
-    anchor.lane = laneAt(x, t);
-    return { ...chunk, entry: anchor.lane };
+    return chunk;
   }
 
   it('accepts a seam whose drop is inside MAX_HOP_PX and lands', () => {
-    // Station anchor at local y = 117; the next chunk's entry anchor is at world y = 275, 158 px lower
-    // and 80 px to the right. These are the numbers Zone 1 ships (§3.1's station in the middle of its band).
-    expect(errors(validateJunction(shelfStation('st', 100), entryAt('next', 110), t))).toEqual([]);
+    // Station anchor at local y = 187; the next chunk's entry anchor is at world y = 275, 88 px lower
+    // and 80 px to the right — inside MAX_HOP_PX (110) and MAX_HOP_X_PX (200) both, since D4.
+    expect(errors(validateJunction(shelfStation('st', 170), entryAt('next', 110), t))).toEqual([]);
   });
 
   it('flags a seam over MAX_HOP_PX', () => {
     // The same station parked at the TOP of its 240 px band: its anchor is now 240 px above the next
     // immersion's entry anchor, which is the defect §11.5.11 exists to catch.
     const issues = errors(validateJunction(shelfStation('st', 18), entryAt('next', 110), t));
-    expect(issues.map((i) => i.message).join('\n')).toContain('vertical gap 240 px exceeds MAX_HOP_PX 200');
-  });
-
-  it('flags a non-adjacent lane transition across the seam', () => {
-    const next: Chunk = { ...entryAt('next', 110), entry: 'R' };
-    const issues = errors(validateJunction(shelfStation('st', 100), next, t));
-    expect(issues.some((i) => i.rule === 'lanes' && i.message.includes("'st'") && i.message.includes("'next'"))).toBe(true);
+    expect(issues.map((i) => i.message).join('\n')).toContain('vertical gap 240 px exceeds MAX_HOP_PX 110');
   });
 
   it('is what validateCampaign runs between two immersions, and only it can see that seam', () => {
@@ -729,6 +682,48 @@ describe('validateJunction (§11.5.11, §11.1)', () => {
 
     // The column they form together is not: 'a-st' -> 'b1' is a 240 px drop (§11.1, §11.5.11).
     const reach = errors(validateCampaign(library, [first, second], t)).filter((i) => i.rule === 'reach');
-    expect(reach.map((i) => i.message).join('\n')).toContain('vertical gap 240 px exceeds MAX_HOP_PX 200');
+    expect(reach.map((i) => i.message).join('\n')).toContain('vertical gap 240 px exceeds MAX_HOP_PX 110');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// §11.5.11 — a shelf that declares more than one anchor
+// ---------------------------------------------------------------------------------------------
+
+describe('the reach ladder and a shelf with two anchors', () => {
+  /**
+   * Anchors that share a ceiling are ONE rest, not a hop — but they are a rest Bur reaches at
+   * whichever of them her arc arrived on: `bubbleStep.restPose` clamps her x to where she came in and
+   * never slides her along to the declared anchor. So the hop out of that shelf has to be certified
+   * from every one of them. Walking the ladder as consecutive pairs certifies only the last, and a
+   * wide shelf then ships with one of its two exits never checked.
+   */
+  function twoAnchorShelf(): Chunk {
+    return {
+      ...makeChunk('shelf-2a'),
+      exitAnchorId: 'a-out',
+      entities: [
+        ledge('c1', 20, 18, 280),
+        anchorOn('a-in', 'c1', 40, 18),
+        anchorOn('a-b', 'c1', 280, 18),
+        ledge('c2', 480, 78, 40),
+        anchorOn('a-out', 'c2', 500, 78),
+      ],
+    };
+  }
+
+  it('certifies the hop out of EVERY anchor of the shelf, not just the last one', () => {
+    const chunk = twoAnchorShelf();
+    const issues = errors(validateSequence(new ChunkLibrary([chunk]), [chunk.id], t)).filter((i) => i.rule === 'reach');
+    const text = issues.map((i) => i.message).join('\n');
+    // 460 px and 220 px of lateral gap: both are past MAX_HOP_X_PX (200), and both must be said.
+    expect(text).toContain("'0:a-in' -> '0:a-out'");
+    expect(text).toContain("'0:a-b' -> '0:a-out'");
+  });
+
+  it('still treats the two anchors themselves as one rest, never as a hop', () => {
+    const chunk = twoAnchorShelf();
+    const issues = errors(validateSequence(new ChunkLibrary([chunk]), [chunk.id], t)).filter((i) => i.rule === 'reach');
+    expect(issues.map((i) => i.message).join('\n')).not.toContain("'0:a-in' -> '0:a-b'");
   });
 });

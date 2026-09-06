@@ -35,8 +35,6 @@ function makeChunk(id: string, role: Chunk['role'], zone: ZoneIndex = 0, entitie
     zone,
     difficulty: 1,
     verbs: [],
-    entry: 'C',
-    exit: 'C',
     entryAnchorId: 'a-in',
     exitAnchorId: 'a-out',
     airBudget: 1,
@@ -62,7 +60,6 @@ const anchor = (id: string, ceilingId: string, y: number): Anchor => ({
   id,
   ceilingId,
   pos: { x: 50, y },
-  lane: 'C',
 });
 
 const pickup = (id: string, y: number): Pickup => ({

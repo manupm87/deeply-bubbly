@@ -37,7 +37,6 @@ const anchor = (id: string, ceilingId: string, y: number): Anchor => ({
   id,
   ceilingId,
   pos: { x: 50, y },
-  lane: 'C',
 });
 
 /** Every chunk: an entry ceiling at local y=20 (anchor 'a-in') and a mid ceiling at y=100 (anchor 'a-rest'). */
@@ -47,8 +46,6 @@ function makeChunk(id: string, role: Chunk['role']): Chunk {
     zone: 0 as ZoneIndex,
     difficulty: 1,
     verbs: [],
-    entry: 'C',
-    exit: 'C',
     entryAnchorId: 'a-in',
     exitAnchorId: 'a-rest',
     airBudget: 1,
@@ -106,17 +103,17 @@ function makeBubble(overrides: Partial<Bubble> = {}): Bubble {
     air: 3,
     airMax: 8,
     state: 'IDLE',
-    chargeMs: 0,
     restMs: 0,
     launchedMs: 0,
     deadMs: 0,
-    lastChargePower: 0,
+    lastLaunchPower: 0,
     aimOrigin: null,
-    aimTheta: 0,
-    lastAimValid: null,
-    dragDist: 0,
-    overchargeDrained: 0,
-    overchargeTickMs: 0,
+    pullDist: 0,
+    pullTheta: 0,
+    aimMs: 0,
+    aimValid: true,
+    cancelZone: false,
+    airLaunchesUsed: 0,
     restingOnId: null,
     lastRestingCeilingId: null,
     bounceChain: 0,
@@ -130,6 +127,7 @@ function makeBubble(overrides: Partial<Bubble> = {}): Bubble {
 
 function makeCamera(overrides: Partial<Camera> = {}): Camera {
   return {
+    x: 0,
     y: 1200,
     maxY: 1200,
     recallPx: t.CAM_RECALL_PX,
@@ -137,6 +135,7 @@ function makeCamera(overrides: Partial<Camera> = {}): Camera {
     zoomPunchUntil: 0,
     shakePx: 0,
     shakeUntil: 0,
+    viewW: t.VIEW_W,
     viewH: 360,
     lookaheadPx: 0,
     renderY: 1200,
@@ -318,7 +317,8 @@ describe('deathRespawnPoint', () => {
 
   it('uses DEFAULT_TUNING when no tuning is supplied', () => {
     const run = makeRun({ maxProgressY: 1400, lastStationIndex: 0 });
-    expect(deathRespawnPoint(run, campaign)).toEqual({ kind: 'station', pos: { x: 90, y: 1320 } });
+    // D3: a station respawn is centred on the WORLD, which is WORLD_W (540) wide now.
+    expect(deathRespawnPoint(run, campaign)).toEqual({ kind: 'station', pos: { x: t.WORLD_W / 2, y: 1320 } });
   });
 });
 

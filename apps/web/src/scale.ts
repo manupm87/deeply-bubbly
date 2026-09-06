@@ -5,10 +5,15 @@
  * it turns a canvas size into a `ScaleState` and lays the Phaser cameras out from it.
  */
 import * as Phaser from 'phaser';
+import { DEFAULT_TUNING } from '@deeply-bubbly/core';
 import type { GameContext, ScaleState } from './context';
 
-/** Fixed design width of the world (GDD §8 / tuning.WORLD_W). */
-export const DESIGN_W = 180;
+/**
+ * Fixed design width of the VIEWPORT (GDD §8 / tuning.VIEW_W). Since D3 the WORLD is three of these
+ * wide (`WORLD_W = 540`) and the camera scrolls across it, so this number sizes the letterbox and the
+ * HUD, never the world.
+ */
+export const DESIGN_W = DEFAULT_TUNING.VIEW_W;
 export const MIN_VIEW_H = 320;
 export const MAX_VIEW_H = 420;
 
@@ -30,27 +35,38 @@ export function computeScale(cssW: number, cssH: number): ScaleState {
 }
 
 /**
- * Places a camera so that design coordinates `(0..viewW, topY..topY+viewH)` fill the letterboxed area.
+ * Places a camera so that world coordinates `(leftX..leftX+viewW, topY..topY+viewH)` fill the
+ * letterboxed area. `leftX` is `snapshot.camera.x` (D3): the world is wider than the view.
  *
  * `setScroll` alone is wrong once `zoom > 1`: Phaser centres `worldView` on `scroll + size/2` and then
  * divides by the zoom, so the top-left of the view drifts by `size * (zoom - 1) / (2 * zoom)`.
  * `centerOn` states the intent directly and is exact at every zoom.
  */
-export function layoutCamera(cam: Phaser.Cameras.Scene2D.Camera, s: ScaleState, topY = 0): void {
+export function layoutCamera(
+  cam: Phaser.Cameras.Scene2D.Camera,
+  s: ScaleState,
+  topY = 0,
+  leftX = 0,
+): void {
   cam.setViewport(s.offsetX, s.offsetY, s.viewW * s.zoom, s.viewH * s.zoom);
   cam.setZoom(s.zoom);
   cam.setRoundPixels(true);
-  cam.centerOn(s.viewW / 2, topY + s.viewH / 2);
+  cam.centerOn(leftX + s.viewW / 2, topY + s.viewH / 2);
 }
 
 /**
- * Scroll an already laid-out camera so `topY` is the world y of the top edge of the view.
+ * Scroll an already laid-out camera so `(leftX, topY)` is the world position of its top-left corner.
  * The zoom is re-asserted every frame — and it is ALWAYS the integer design zoom (§8): nothing in the
  * shell may scale the world by a fraction, or nearest-neighbour sampling stops landing on whole pixels.
  */
-export function scrollCameraTo(cam: Phaser.Cameras.Scene2D.Camera, s: ScaleState, topY: number): void {
+export function scrollCameraTo(
+  cam: Phaser.Cameras.Scene2D.Camera,
+  s: ScaleState,
+  topY: number,
+  leftX = 0,
+): void {
   cam.setZoom(s.zoom);
-  cam.centerOn(s.viewW / 2, topY + s.viewH / 2);
+  cam.centerOn(leftX + s.viewW / 2, topY + s.viewH / 2);
 }
 
 /**
@@ -64,6 +80,10 @@ export function attachResize(game: Phaser.Game, ctx: GameContext): () => void {
     // Mutated in place: every module holds the same `ctx.scale` reference.
     Object.assign(ctx.scale, next);
     ctx.world.setViewHeight(next.viewH);
+    // D3: the world is WORLD_W wide and the camera clamps its follow to `[0, WORLD_W - viewW]`, so
+    // core has to be told how wide the view actually is — it is a constant today, but the clamp is
+    // core's and the number is the shell's.
+    ctx.world.setViewWidth(next.viewW);
     for (const scene of game.scene.getScenes(true)) {
       const cam = scene.cameras?.main;
       if (cam) layoutCamera(cam, next);

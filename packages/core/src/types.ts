@@ -6,15 +6,17 @@ import type { Rect, Vec2 } from './math/vec';
 import type { CeilingKind } from './tuning';
 
 export type ZoneIndex = 0 | 1 | 2 | 3 | 4 | 5;
-export type Lane = 'L' | 'C' | 'R';
 export type EntityId = string;
 
 // ---------------------------------------------------------------------------------------------
 // Bubble (Bur)
 // ---------------------------------------------------------------------------------------------
 
-/** Canonical input states (§11.3). No other route exists. */
-export type BubbleState = 'IDLE' | 'CHARGING' | 'LAUNCHED' | 'RESTING' | 'DEAD';
+/**
+ * Canonical input states (§11.3, renamed by DECISIONS-v1.2 D2). No other route exists.
+ * `AIMING` replaces v1.1's `CHARGING`: power is pull DISTANCE now, so nothing is being charged.
+ */
+export type BubbleState = 'IDLE' | 'AIMING' | 'LAUNCHED' | 'RESTING' | 'DEAD';
 
 /** Orthogonal flags (§11.3), each stored as an "until" timestamp in simulation ms (0 = inactive). */
 export interface BubbleFlags {
@@ -46,41 +48,38 @@ export interface Bubble {
   air: number;
   airMax: number;
   state: BubbleState;
-  /** ms accumulated in the current CHARGING hold. */
-  chargeMs: number;
   /** ms spent in the current RESTING contact. */
   restMs: number;
   /** ms since entering LAUNCHED. */
   launchedMs: number;
   /** ms since entering DEAD. */
   deadMs: number;
-  /** Charge power [0,1] of the last launch (drives light radius, §11.4). */
-  lastChargePower: number;
-  /** Frozen at pointerdown (§2.1); aim direction is measured from here, never from live pos. */
-  aimOrigin: Vec2 | null;
-  /** Current aim angle in radians from straight-down (+ = right). */
-  aimTheta: number;
-  /** Last valid aim angle, kept when the pointer goes above the origin or too close (§2.1). */
-  lastAimValid: number | null;
-  /** Drag distance (px) from aimOrigin, for the ±15 % fine tune. */
-  dragDist: number;
-  /** Pips drained by overcharge during the current hold (cap OVERCHARGE_MAX_DRAIN). */
-  overchargeDrained: number;
-  /** Accumulator for the next overcharge drain tick. */
-  overchargeTickMs: number;
+  /** Power [0,1] of the last launch (drives light radius, §11.4). */
+  lastLaunchPower: number;
   /**
-   * True once the finger currently on the glass has had its hold. Press EDGES are derived from this
-   * latch, never from `state`: the auto-release (§2.2) ends the gesture at 2.500 ms with the finger
-   * still down, and a never-lifted finger must not start a second hold (nor a second overcharge
-   * budget). Cleared on the first step the pointer is up.
+   * Frozen at pointerdown (D2): the POINTER's world position, not Bur's. The pull is measured from
+   * here, so a still finger is a still shot however far Bur drifts while she aims.
+   */
+  aimOrigin: Vec2 | null;
+  /** Pull distance in px from `aimOrigin` to the pointer; power is `pullDist / PULL_MAX_PX` (D2). */
+  pullDist: number;
+  /** Launch angle in radians from straight down (+ = right), already clamped to the cone (D2). */
+  pullTheta: number;
+  /** ms accumulated in the current AIMING gesture; cancels at AIM_MAX_MS (D2). */
+  aimMs: number;
+  /** False while the pull asks to go UP and the direction was clamped to the horizontal (amber guide). */
+  aimValid: boolean;
+  /** True while the pull is shorter than PULL_CANCEL_PX: releasing now cancels the shot (D2). */
+  cancelZone: boolean;
+  /** Mid-air launches spent in the current airborne phase (cap AIR_LAUNCHES_MAX); 0 again on rest (D1). */
+  airLaunchesUsed: number;
+  /**
+   * True once the finger currently on the glass has had its gesture. Press EDGES are derived from this
+   * latch, never from `state`: the AIM_MAX_MS timeout (D2) ends the gesture with the finger still
+   * down, and a never-lifted finger must not start a second aim. Cleared on the first step the
+   * pointer is up.
    */
   holdLatched?: boolean;
-  /**
-   * True once `overchargeStart` was emitted for the current hold. The threshold moves mid-hold
-   * (1.800 ms attached, 900 ms in the water, §2.3), so the tell is latched instead of being derived
-   * from a threshold crossing: §2.2 has no silent drain.
-   */
-  overchargeAnnounced?: boolean;
   restingOnId: EntityId | null;
   lastRestingCeilingId: EntityId | null;
   bounceChain: number;
@@ -145,7 +144,6 @@ export interface Anchor {
   id: EntityId;
   ceilingId: EntityId;
   pos: Vec2; // Bur's centre when resting under the ceiling
-  lane: Lane;
 }
 
 export type PushDir = 'lateral' | 'down' | 'up';
@@ -240,16 +238,28 @@ export type SolidEntity = Ceiling | Wall;
 // Level structure
 // ---------------------------------------------------------------------------------------------
 
-/** Single chunk schema of the project (§4.1, §11.2). Entities are in CHUNK-LOCAL coordinates (0..180, 0..240). */
+/**
+ * Single chunk schema of the project (§4.1, §11.2). Entities are in CHUNK-LOCAL coordinates
+ * (0..CHUNK_W, 0..CHUNK_H).
+ *
+ * DECISIONS-v1.2 D3 removed the `L/C/R` lanes and the entry mouth: in a 540 px world the continuity
+ * between chunks is guaranteed by the 2D reach rule between anchors (D4) and by nothing else. What a
+ * chunk still declares is WHERE that ladder starts and ends.
+ */
 export interface Chunk {
   id: string;
   zone: ZoneIndex;
   difficulty: 1 | 2 | 3 | 4 | 5;
   verbs: string[];
-  entry: Lane;
-  exit: Lane;
   entryAnchorId: EntityId;
   exitAnchorId: EntityId;
+  /**
+   * D3: alternative exit anchors a wide chunk offers. The validator certifies the declared route
+   * (`exitAnchorId`) and, when this is present, that every candidate is a real anchor of the chunk —
+   * "puede haber varios anclajes de salida candidatos, pero el validador certifica al menos la ruta
+   * declarada".
+   */
+  exitAnchorIds?: EntityId[];
   airBudget: number;
   targetTimeS: number;
   tags: string[];
@@ -280,6 +290,8 @@ export interface Immersion {
 // ---------------------------------------------------------------------------------------------
 
 export interface Camera {
+  /** D3: left edge of the viewport in world px, always inside [0, WORLD_W - viewW]. */
+  x: number;
   y: number; // top of the viewport in world px
   maxY: number; // ratchet: never decreases
   recallPx: number;
@@ -287,6 +299,8 @@ export interface Camera {
   zoomPunchUntil: number;
   shakePx: number;
   shakeUntil: number;
+  /** D3: visible width in design px (VIEW_W = 180); the world is three of these wide. */
+  viewW: number;
   viewH: number; // visible height in design px (320–420)
   /** §7 lookahead: smoothed offset (px) added to `y` for RENDERING only, never for the rules. */
   lookaheadPx: number;
@@ -315,7 +329,7 @@ export interface RunState {
 /** Pointer input sampled once per rendered frame by the shell, in DESIGN px of the viewport. */
 export interface PointerInput {
   down: boolean;
-  /** Viewport coordinates (0..WORLD_W, 0..viewH). Only meaningful while `down`. */
+  /** Viewport coordinates (0..viewW, 0..viewH). Only meaningful while `down`. */
   x: number;
   y: number;
 }
@@ -343,12 +357,20 @@ export interface Contact {
 // Events emitted to the presentation layer (SFX, particles, haptics, HUD)
 // ---------------------------------------------------------------------------------------------
 
-export type AirLossReason = 'hit' | 'resaca' | 'overcharge' | 'pressure' | 'trap';
+/** D1 replaces v1.1's 'overcharge' with 'airLaunch': the optional pip a mid-air launch costs. */
+export type AirLossReason = 'hit' | 'resaca' | 'airLaunch' | 'pressure' | 'trap';
 export type AirGainReason = 'pickup' | 'station' | 'bounceChain';
 
 export type GameEvent =
-  | { type: 'chargeStart'; at: Vec2 }
-  | { type: 'launch'; power: number; vel: Vec2; at: Vec2 }
+  /** `at` is the frozen `aimOrigin` (the finger), not Bur. `fromRest` is false for an air aim (D1). */
+  | { type: 'aimStart'; at: Vec2; fromRest: boolean }
+  /**
+   * 'zone' = released inside PULL_CANCEL_PX, 'timeout' = AIM_MAX_MS, 'displaced' = Bur lost the ledge
+   * (or the world took the gesture away), 'noAir' = the mid-air launch the release asked for is the
+   * one D1 refuses on the last pip, so the shot is declined instead of fired.
+   */
+  | { type: 'aimCancel'; reason: 'zone' | 'timeout' | 'displaced' | 'noAir' }
+  | { type: 'launch'; power: number; vel: Vec2; at: Vec2; airLaunch: boolean }
   | { type: 'bounce'; contact: Contact; speed: number; material: Ceiling['material'] | Wall['material'] }
   | { type: 'rest'; ceilingId: EntityId; kind: CeilingKind }
   | { type: 'restRelease'; reason: 'timeout' | 'launch' | 'displaced' }
@@ -356,7 +378,6 @@ export type GameEvent =
   | { type: 'airGained'; reason: AirGainReason; air: number; at: Vec2 }
   | { type: 'shieldUsed'; at: Vec2 }
   | { type: 'pickup'; pickup: Pickup }
-  | { type: 'overchargeStart' }
   | { type: 'resacaWarning' }
   | { type: 'respawn'; at: Vec2; anchorKind: 'ceiling' | 'chunkEntry' | 'boya' | 'station' }
   | { type: 'boya'; boyaId: EntityId }
@@ -383,10 +404,12 @@ export interface HudData {
   zone: ZoneIndex;
   pearls: number;
   shells: number;
-  chargePower: number; // 0..1 while CHARGING
-  overcharging: boolean;
+  power: number; // 0..1 while AIMING (pull distance over PULL_MAX_PX)
   lastPip: boolean;
-  fineTune: number; // -1..1
+  /** True while the pull is inside PULL_CANCEL_PX: the ring is drawn empty, "here there is no shot". */
+  cancelZone: boolean;
+  /** True while the "double jump" of D1 is still available (a pip to spend and a launch left). */
+  airLaunchAvailable: boolean;
 }
 
 export type GamePhase = 'playing' | 'station' | 'dead' | 'gameOver' | 'campaignComplete';
@@ -399,7 +422,7 @@ export interface WorldSnapshot {
   zone: ZoneIndex;
   /** Entities currently instantiated by the streamer, in WORLD coordinates. */
   entities: readonly WorldEntity[];
-  /** Predicted arc while charging (world coords), exact until the first bounce (§2.7). */
+  /** Predicted arc while aiming (world coords), exact until the first bounce (§2.7). */
   trajectory: readonly Vec2[];
   trajectoryDots: number;
   hud: HudData;

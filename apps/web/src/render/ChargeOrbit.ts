@@ -35,8 +35,10 @@ export class ChargeOrbit {
   /** `dtMs` is the real frame delta: the orbit is presentation and keeps turning through a hitstop. */
   update(snapshot: WorldSnapshot, dtMs: number): void {
     const b = snapshot.bubble;
-    const power = Math.min(1, Math.max(0, snapshot.hud.chargePower));
-    if (b.state !== 'CHARGING') {
+    const power = Math.min(1, Math.max(0, snapshot.hud.power));
+    // See `ChargeRing`: a live gesture is `aimOrigin !== null`, which survives the single RESTING
+    // step a mid-air capture parks the aim in.
+    if (b.aimOrigin === null) {
       this.hide();
       return;
     }

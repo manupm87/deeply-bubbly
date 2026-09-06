@@ -92,7 +92,12 @@ export class AirPips {
 
   /** Air changes get a short ghost pip so the loss/gain is visible without moving the row. */
   handleEvent(event: GameEvent): void {
-    if (event.type === 'airLost') this.pop(Math.max(0, Math.round(event.air)), UI.softRed, 3);
+    // D1: a pip SPENT on the mid-air launch is not damage. Same tween, cyan instead of soft red, so
+    // the player learns the difference between "that cost me" and "that hurt me".
+    if (event.type === 'airLost') {
+      const spent = event.reason === 'airLaunch';
+      this.pop(Math.max(0, Math.round(event.air)), spent ? UI.cyan : UI.softRed, spent ? -3 : 3);
+    }
     else if (event.type === 'airGained') this.pop(Math.max(0, Math.round(event.air) - 1), UI.white, -3);
   }
 

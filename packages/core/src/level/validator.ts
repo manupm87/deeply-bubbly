@@ -24,7 +24,6 @@ import type {
   Contact,
   ForceField,
   Hazard,
-  Lane,
   PlacedChunk,
   SolidEntity,
   Wall,
@@ -37,7 +36,7 @@ export type IssueSeverity = 'error' | 'warning';
 
 export interface ValidationIssue {
   severity: IssueSeverity;
-  rule: string; // e.g. 'lanes', 'breathing', 'isolation', 'reach', 'schema', 'segmentTime', 'airBudget', 'pushDir'
+  rule: string; // e.g. 'breathing', 'isolation', 'reach', 'schema', 'segmentTime', 'airBudget', 'pushDir', 'trap'
   chunkId?: string;
   message: string;
 }
@@ -48,17 +47,18 @@ export interface ValidationIssue {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Smallest charge power the search probes. It is not a taste value: `p = (chargeMs / 550) ^ 1.3` (§11.4)
- * and the shortest press the machine recognises is MIN_TAP_MS = 70 ms, so `p ≈ 0.069` is the floor of
- * what a human can ask for. Rounded up to 0.10, the first grid point above it.
+ * Smallest charge power the search probes (DECISIONS-v1.2 D4). Since D2 the power IS the pull distance
+ * — `p = |drag| / PULL_MAX_PX` — so the grid is uniform in what the finger asks for, and a release
+ * inside PULL_CANCEL_PX (12 of 70 px, `p ≈ 0,17`) is not a shot at all: 0,2 is the first tenth above
+ * the cancel radius, i.e. the weakest thing the player can actually fire.
  *
- * The old floor of 0.3 was the single reason the ballistic rule could not see Zone 1: a Z1 hop of 60 px
- * is flown at p ≈ 0.15–0.25 (a 0.3 shot dips 146 px and comes back up somewhere else entirely).
+ * It is weaker in absolute terms than the old 0,1 floor was, because D4 halved the impulse range
+ * (90–280 instead of 150–430): 0,2 now buys 128 px/s where 0,1 used to buy 178.
  */
-const REACH_POWER_MIN = 0.1;
+const REACH_POWER_MIN = 0.2;
 
-/** Grid step of the charge sweep. 0.05 of `p` is ~14 ms of hold near the bottom of the curve. */
-const REACH_POWER_STEP = 0.05;
+/** Grid step of the charge sweep (D4): a tenth of the pull, 7 px of travel on a 70 px slingshot. */
+const REACH_POWER_STEP = 0.1;
 
 /** Charge powers sampled by the reach search: `p` of §11.4, from the shortest legal tap to a full commit. */
 export const REACH_POWERS: readonly number[] = buildReachPowers();
@@ -74,11 +74,13 @@ function buildReachPowers(): number[] {
 }
 
 /**
- * Angular resolution of the aim sweep inside the ±AIM_CONE_DEG cone, in degrees. 2° is what the landing
- * point needs: one degree of aim moves a Z1 arc's landing by ~5 px, so a 2° grid can always place the
- * arrival inside the ±(radius + REACH_TOLERANCE_PX) window around an anchor.
+ * Angular resolution of the aim sweep inside the ±AIM_CONE_DEG cone, in degrees (D4). D2 opened the
+ * cone to the full 90° — horizontal-left to horizontal-right through straight down — which quadruples
+ * the grid at a fixed step; 5° keeps the sweep at 37 angles while D4's shorter arcs (a full-power shot
+ * now descends ≈195 px in Z1, not 362) move the landing by well under the ±(radius + tolerance) window
+ * per degree, so nothing reachable falls between two samples.
  */
-export const REACH_THETA_STEP_DEG = 2;
+export const REACH_THETA_STEP_DEG = 5;
 
 /**
  * Slack, ON TOP OF Bur's radius, between where a certified shot actually lands and the declared anchor
@@ -116,18 +118,12 @@ const SIDE_WALL_THICKNESS = 40;
 /**
  * Vertical slack added above the source anchor when collecting the solids a probe shot can meet (px).
  * A full chunk: a probe that misses everything floats up at TERMINAL_RISE, and it must meet the world
- * walls (and any ledge above) instead of escaping the 180 px column sideways.
+ * walls (and any ledge above) instead of escaping the WORLD_W column sideways.
  */
 const REACH_CONTEXT_ABOVE_PX = 240;
 
 /** Vertical slack added below the target anchor when collecting those solids (px). */
 const REACH_CONTEXT_BELOW_PX = 400;
-
-/**
- * Height of the band at a chunk seam inspected for the entry / exit mouth (§11.5.1). It equals the
- * minimum ledge thickness (§2.3, `h >= 8`), so every solid that can actually pinch the seam is seen.
- */
-const MOUTH_BAND_PX = 8;
 
 /** Tolerance (px) on where an `Anchor` sits under its ceiling: Bur's centre is exactly one radius below. */
 const ANCHOR_PLACEMENT_EPS = 0.5;
@@ -141,27 +137,6 @@ const error = (rule: string, message: string, chunkId?: string): ValidationIssue
 
 const warning = (rule: string, message: string, chunkId?: string): ValidationIssue =>
   chunkId === undefined ? { severity: 'warning', rule, message } : { severity: 'warning', rule, chunkId, message };
-
-/** Lane whose centre is closest to `x` (§11.5.1: lanes are centred at 40 / 90 / 140). */
-export function laneAt(x: number, t: Tuning): Lane {
-  const lanes: Lane[] = ['L', 'C', 'R'];
-  let best: Lane = 'C';
-  let bestD = Infinity;
-  for (const lane of lanes) {
-    const d = Math.abs(x - t.LANE_X[lane]);
-    if (d < bestD) {
-      bestD = d;
-      best = lane;
-    }
-  }
-  return best;
-}
-
-/** `true` when two lanes are the same or neighbours (L↔C, C↔R); L↔R is not adjacent (§11.5.1). */
-export function lanesAdjacent(a: Lane, b: Lane): boolean {
-  const order: Lane[] = ['L', 'C', 'R'];
-  return Math.abs(order.indexOf(a) - order.indexOf(b)) <= 1;
-}
 
 /**
  * Where Bur's centre sits when she rests under a ceiling whose box is `rect` (§2.3): exactly one radius
@@ -218,28 +193,6 @@ function travelExtremes(solid: SolidEntity): Rect[] {
     return solidRectAt(solid, shifted * periodMs);
   };
   return [atPhase(0.25), atPhase(0.75)];
-}
-
-/** Free horizontal spans of [0, WORLD_W] left by the solids that cross a horizontal band. */
-function freeSpansInBand(solids: readonly SolidEntity[], bandTop: number, bandBottom: number, t: Tuning): Array<[number, number]> {
-  const blocked: Array<[number, number]> = [];
-  for (const s of solids) {
-    const moving = s.type === 'ceiling' ? s.moving : undefined;
-    const r = sweptRect(s.rect, moving?.axis, moving?.range ?? 0);
-    if (r.y >= bandBottom || r.y + r.h <= bandTop) continue;
-    blocked.push([r.x, r.x + r.w]);
-  }
-  blocked.sort((a, b) => a[0] - b[0]);
-
-  const spans: Array<[number, number]> = [];
-  let cursor = 0;
-  for (const [from, to] of blocked) {
-    if (from > cursor) spans.push([cursor, Math.min(from, t.WORLD_W)]);
-    cursor = Math.max(cursor, to);
-    if (cursor >= t.WORLD_W) break;
-  }
-  if (cursor < t.WORLD_W) spans.push([cursor, t.WORLD_W]);
-  return spans.filter(([from, to]) => to > from);
 }
 
 /** Squared distance from `p` to the segment [a, b] (the arc is sampled once per step; segments close it). */
@@ -387,7 +340,7 @@ function ascentCrossingTime(vy0: number, dy: number, terminal: number, damping: 
  * is exactly where the landing happens. Ordering only — every candidate is still simulated if the
  * cheap ones fail.
  */
-function orderedProbes(from: Vec2, to: Vec2, radius: number, t: Tuning): Probe[] {
+function orderedProbes(from: Vec2, to: Vec2, radius: number, t: Tuning, launchMul: number): Probe[] {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const cone = t.AIM_CONE_DEG;
@@ -398,7 +351,7 @@ function orderedProbes(from: Vec2, to: Vec2, radius: number, t: Tuning): Probe[]
   const terminal = t.BUOYANCY / t.DAMPING_Y;
   const probes: Probe[] = [];
   for (const power of REACH_POWERS) {
-    const speed = impulseMagnitude({ power, dragDist: t.DRAG_NEUTRAL_PX, radius, stunned: false, externalMul: 1 }, t);
+    const speed = impulseMagnitude({ power, radius, stunned: false, externalMul: launchMul }, t);
     for (const thetaDeg of degrees) {
       const theta = degToRad(thetaDeg);
       const vy0 = Math.cos(theta) * speed;
@@ -453,6 +406,11 @@ function targetCeiling(
  * `solids` must already be in the same (world) coordinates as the anchors and include the side walls;
  * use the sequence walkers below, or `sideWalls`, to build them. `targetCeilingId` names the ceiling the
  * anchor hangs from; when omitted it is recovered from the geometry.
+ *
+ * `launchMul` is the impulse multiplier of the surface the shot LEAVES: 1 from a posadero or an
+ * impaciente, `REST_STICKY_IMPULSE_MUL` from a pegajosa (§2.3 — `bubbleStep.launch` applies exactly
+ * this factor). Certifying a sticky rung at full impulse writes a certificate for a shot the player
+ * cannot take: a Zone 1 shot descends 193 px, the same shot off a sticky ledge 86 px.
  */
 export function findReachTrajectory(
   from: Vec2,
@@ -462,13 +420,14 @@ export function findReachTrajectory(
   t: Tuning,
   targetCeilingId?: string,
   fields: readonly ForceField[] = [],
+  launchMul = 1,
 ): ReachResult {
   const radius = zoneRadius(zone, t);
   const target = targetCeiling(to, radius, solids, targetCeilingId);
   let best: ReachResult = { ok: false, bestDistance: Infinity, power: 0, thetaDeg: 0 };
 
-  for (const probe of orderedProbes(from, to, radius, t)) {
-    const shot = flyOneProbe(from, to, zone, probe, target, solids, fields, t);
+  for (const probe of orderedProbes(from, to, radius, t, launchMul)) {
+    const shot = flyOneProbe(from, to, zone, probe, target, solids, fields, t, launchMul);
     if (shot.ok) return { ok: true, bestDistance: shot.closest, power: probe.power, thetaDeg: probe.thetaDeg };
     if (shot.closest < best.bestDistance) {
       best = { ok: false, bestDistance: shot.closest, power: probe.power, thetaDeg: probe.thetaDeg };
@@ -487,9 +446,10 @@ function flyOneProbe(
   solids: readonly SolidEntity[],
   fields: readonly ForceField[],
   t: Tuning,
+  launchMul: number,
 ): { ok: boolean; closest: number; flight: ProbeFlight } {
   const radius = zoneRadius(zone, t);
-  const speed = impulseMagnitude({ power: probe.power, dragDist: t.DRAG_NEUTRAL_PX, radius, stunned: false, externalMul: 1 }, t);
+  const speed = impulseMagnitude({ power: probe.power, radius, stunned: false, externalMul: launchMul }, t);
   const flight = flyProbe(from, launchVelocity(degToRad(probe.thetaDeg), speed), radius, solids, fields, t);
 
   let closest = Infinity;
@@ -534,13 +494,14 @@ export function findLandingLines(
   targetCeilingId?: string,
   fields: readonly ForceField[] = [],
   hazards: readonly Hazard[] = [],
+  launchMul = 1,
 ): LandingLine[] {
   const radius = zoneRadius(zone, t);
   const target = targetCeiling(to, radius, solids, targetCeilingId);
   const boxes = hazards.map((h) => sweptRect(h.shape, h.moving?.axis, h.moving?.range ?? 0));
   const out: LandingLine[] = [];
-  for (const probe of orderedProbes(from, to, radius, t)) {
-    const shot = flyOneProbe(from, to, zone, probe, target, solids, fields, t);
+  for (const probe of orderedProbes(from, to, radius, t, launchMul)) {
+    const shot = flyOneProbe(from, to, zone, probe, target, solids, fields, t, launchMul);
     if (!shot.ok) continue;
     const touchesHazard = boxes.some((box) => shot.flight.points.some((p) => circleRectOverlap(p, radius, box)));
     out.push({ power: probe.power, thetaDeg: probe.thetaDeg, touchesHazard });
@@ -548,7 +509,11 @@ export function findLandingLines(
   return out;
 }
 
-/** The two solid side walls of the world column (§4.3: "en X no hay scroll ... paredes laterales sólidas"). */
+/**
+ * The two solid side walls of the world column. D3 keeps them in every zone — "paredes laterales
+ * sólidas en x < 0 y x > WORLD_W en todas las zonas" — now that the column is WORLD_W wide and the
+ * view scrolls across it; they are what a lateral shot at the edge of the 90° cone answers to.
+ */
 export function sideWalls(yTop: number, yBottom: number, t: Tuning): Wall[] {
   const h = Math.max(1, yBottom - yTop);
   return [
@@ -636,7 +601,7 @@ function trapEscapes(
   if (poses.length === 0) return false; // a crown entirely inside rock can never be met, nor left
   return poses.every((from) =>
     powers.some((power) => {
-      const speed = impulseMagnitude({ power, dragDist: t.DRAG_NEUTRAL_PX, radius, stunned: false, externalMul: 1 }, t);
+      const speed = impulseMagnitude({ power, radius, stunned: false, externalMul: 1 }, t);
       return degrees.some((thetaDeg) => {
         const flight = flyProbe(from, launchVelocity(degToRad(thetaDeg), speed), radius, solids, fields, t);
         const end = flight.points[flight.points.length - 1];
@@ -652,8 +617,9 @@ function trapEscapes(
 
 /**
  * Validates a single chunk's schema (§11.2, §11.5): anchors exist and reference capturable ceilings,
- * ceilings w>=20 h>=8, entities inside chunk bounds, mouth width, pushDir 'up' only for catalog 20/21,
- * hazards airCost 1, station chunks have no hazards, entry/exit anchors in the declared lanes.
+ * ceilings w>=20 h>=8, entities inside the CHUNK_W x CHUNK_H box, pushDir 'up' only for catalog 20/21,
+ * hazards airCost 1, station chunks have no hazards, and the declared entry / exit anchors open and
+ * close the chunk's y-ordered ladder. D3 removed the lane and mouth rules entirely.
  */
 export function validateChunk(chunk: Chunk, t: Tuning): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -748,8 +714,6 @@ export function validateChunk(chunk: Chunk, t: Tuning): ValidationIssue[] {
         break;
       }
     }
-    const nearest = laneAt(a.pos.x, t);
-    if (a.lane !== nearest) add('lanes', `anchor '${a.id}' declares lane '${a.lane}' but x=${a.pos.x} is lane '${nearest}'`);
   }
 
   const byId = new Map(anchors.map((a) => [a.id, a] as const));
@@ -758,27 +722,18 @@ export function validateChunk(chunk: Chunk, t: Tuning): ValidationIssue[] {
   if (entryAnchor === undefined) add('schema', `entryAnchorId '${chunk.entryAnchorId}' is not an Anchor of this chunk`);
   if (exitAnchor === undefined) add('schema', `exitAnchorId '${chunk.exitAnchorId}' is not an Anchor of this chunk`);
 
-  if (entryAnchor !== undefined) {
-    if (entryAnchor.lane !== chunk.entry) {
-      add('lanes', `entry anchor '${entryAnchor.id}' is in lane '${entryAnchor.lane}' but the chunk declares entry '${chunk.entry}'`);
-    }
-    // §11.5.11 walks the anchors of a chunk in y order: the entry must open that ladder and the exit close it.
-    if (anchors.some((a) => a.pos.y < entryAnchor.pos.y)) {
-      add('schema', `entry anchor '${entryAnchor.id}' is not the topmost anchor of the chunk`);
-    }
+  // §11.5.11 walks the anchors of a chunk in y order: the entry must open that ladder and the exit close it.
+  if (entryAnchor !== undefined && anchors.some((a) => a.pos.y < entryAnchor.pos.y)) {
+    add('schema', `entry anchor '${entryAnchor.id}' is not the topmost anchor of the chunk`);
   }
-  if (exitAnchor !== undefined) {
-    if (exitAnchor.lane !== chunk.exit) {
-      add('lanes', `exit anchor '${exitAnchor.id}' is in lane '${exitAnchor.lane}' but the chunk declares exit '${chunk.exit}'`);
-    }
-    if (anchors.some((a) => a.pos.y > exitAnchor.pos.y)) {
-      add('schema', `exit anchor '${exitAnchor.id}' is not the bottommost anchor of the chunk`);
-    }
+  if (exitAnchor !== undefined && anchors.some((a) => a.pos.y > exitAnchor.pos.y)) {
+    add('schema', `exit anchor '${exitAnchor.id}' is not the bottommost anchor of the chunk`);
   }
-
-  // --- mouths (§11.5.1) ------------------------------------------------------------------------
-  checkMouth(issues, chunk, solids, chunk.entry, 0, MOUTH_BAND_PX, 'entry', t);
-  checkMouth(issues, chunk, solids, chunk.exit, t.CHUNK_H - MOUTH_BAND_PX, t.CHUNK_H, 'exit', t);
+  // D3: a wide chunk may offer alternative exits. They are candidates for the generator to pick from,
+  // so they must be real anchors of this chunk; the certified route is still `exitAnchorId`.
+  for (const id of chunk.exitAnchorIds ?? []) {
+    if (!byId.has(id)) add('schema', `exitAnchorIds lists '${id}', which is not an Anchor of this chunk`);
+  }
 
   // --- role invariants -------------------------------------------------------------------------
   if (chunk.role === 'station' && hazardCount > 0) {
@@ -810,37 +765,6 @@ export function validateChunk(chunk: Chunk, t: Tuning): ValidationIssue[] {
   }
 
   return issues;
-}
-
-/**
- * A chunk's entry / exit mouth (§11.5.1): "boca de 64 px de ancho mínimo, con los carriles centrados en
- * x = 40 / 90 / 140". The mouth is therefore the CHUNK_MOUTH_MIN_W band CENTRED on the lane, and it must
- * be free water end to end — a 90 px gap whose edge merely touches the lane centre is not a mouth: Bur's
- * own body (a whole radius either side of her centre) would be inside the rock.
- */
-function checkMouth(
-  issues: ValidationIssue[],
-  chunk: Chunk,
-  solids: readonly SolidEntity[],
-  lane: Lane,
-  bandTop: number,
-  bandBottom: number,
-  which: 'entry' | 'exit',
-  t: Tuning,
-): void {
-  const laneX = t.LANE_X[lane];
-  const half = t.CHUNK_MOUTH_MIN_W / 2;
-  const spans = freeSpansInBand(solids, bandTop, bandBottom, t);
-  const open = spans.some(([from, to]) => from <= laneX - half && to >= laneX + half);
-  if (!open) {
-    issues.push(
-      error(
-        'lanes',
-        `${which} mouth on lane '${lane}' (x=${laneX}) is not ${t.CHUNK_MOUTH_MIN_W} px of free water centred on the lane (§11.5.1)`,
-        chunk.id,
-      ),
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -927,22 +851,53 @@ function buildLadder(chunks: readonly Chunk[], geometry: SequenceGeometry): Rung
 }
 
 /**
- * Both checks of §11.5.11 on one consecutive anchor pair: the vertical gap against `MAX_HOP_PX[zone]`,
- * and a ballistic search from rest (entry velocity zero, the worst case) with the real integrator that
- * must END on the target anchor's ceiling (§11.7.7).
+ * The three checks of §11.5.11 on one consecutive anchor pair, now that DECISIONS-v1.2 D3 made the
+ * world WORLD_W wide and D4 turned the reach rule two-dimensional:
+ *   1. the vertical drop against `MAX_HOP_PX[zone]` (and never upward: Bur cannot launch up, D2),
+ *   2. the lateral separation `|Δx|` against `MAX_HOP_X_PX[zone]`,
+ *   3. a ballistic search from rest (entry velocity zero, the worst case) with the real integrator,
+ *      which must END on the target anchor's ceiling (§11.7.7).
+ *
+ * 1 and 2 are a cheap box around 3, not a second model of it: a pair outside the box is rejected with a
+ * message a level author can act on, instead of after 333 simulated shots that were never going to
+ * arrive. Both are needed — a 190 px sideways hop with no drop is as unreachable as a 300 px fall.
  */
+/**
+ * The impulse multiplier a shot leaving `ceilingId` actually gets (§2.3). Only the pegajosa changes
+ * it, and `bubbleStep.launch` applies the very same factor: the reach rule is certified "con el MISMO
+ * integrador" the player runs, and that includes the ledge she pushes off.
+ */
+function launchMulOf(ceilingId: string, solids: readonly SolidEntity[], t: Tuning): number {
+  for (const s of solids) {
+    if (s.type === 'ceiling' && s.id === ceilingId) return s.kind === 'pegajosa' ? t.REST_STICKY_IMPULSE_MUL : 1;
+  }
+  return 1;
+}
+
 function checkRung(a: Rung, b: Rung, geometry: SequenceGeometry, t: Tuning): ValidationIssue[] {
   // Anchors of the SAME ceiling (a wide shelf may declare several) are the same rest, not a hop.
   if (a.anchor.ceilingId === b.anchor.ceilingId) return [];
 
-  const maxHop = t.MAX_HOP_PX[a.chunk.zone] ?? t.MAX_HOP_PX[0] ?? 200;
+  const zone = a.chunk.zone;
+  const maxHop = t.MAX_HOP_PX[zone] ?? t.MAX_HOP_PX[0] ?? 110;
+  const maxHopX = t.MAX_HOP_X_PX[zone] ?? t.MAX_HOP_X_PX[0] ?? 200;
   const dy = b.anchor.pos.y - a.anchor.pos.y;
+  const dx = b.anchor.pos.x - a.anchor.pos.x;
   const label = `'${a.anchor.id}' -> '${b.anchor.id}'`;
   if (dy < 0) {
     return [error('reach', `${label}: the next anchor is ${-dy} px ABOVE the previous one; Bur can never launch upward (§2.1)`, b.chunk.id)];
   }
   if (dy > maxHop) {
-    return [error('reach', `${label}: vertical gap ${dy} px exceeds MAX_HOP_PX ${maxHop} for zone ${a.chunk.zone} (§11.5.11)`, b.chunk.id)];
+    return [error('reach', `${label}: vertical gap ${dy} px exceeds MAX_HOP_PX ${maxHop} for zone ${zone} (§11.5.11)`, b.chunk.id)];
+  }
+  if (Math.abs(dx) > maxHopX) {
+    return [
+      error(
+        'reach',
+        `${label}: lateral gap ${Math.abs(dx)} px exceeds MAX_HOP_X_PX ${maxHopX} for zone ${zone} (D4)`,
+        b.chunk.id,
+      ),
+    ];
   }
 
   const context = reachContext(geometry, a.anchor.pos, b.anchor.pos, t);
@@ -954,6 +909,7 @@ function checkRung(a: Rung, b: Rung, geometry: SequenceGeometry, t: Tuning): Val
     t,
     b.anchor.ceilingId,
     context.fields,
+    launchMulOf(a.anchor.ceilingId, context.solids, t),
   );
   if (found.ok) return [];
   return [
@@ -965,31 +921,44 @@ function checkRung(a: Rung, b: Rung, geometry: SequenceGeometry, t: Tuning): Val
   ];
 }
 
-/** Walks the whole ladder of a sequence. */
-function validateReach(chunks: readonly Chunk[], t: Tuning): ValidationIssue[] {
+/**
+ * Walks a ladder rung by rung, and it is the anchors that SHARE a ceiling that make it more than a
+ * `for` loop. They are one rest, not a hop (`checkRung` says so), but they are a rest Bur reaches at
+ * whichever of them her arc arrived on — `restPose` clamps her x to where she came in, it never
+ * slides her along to the declared anchor. So the hop to the next rung has to be certified from EVERY
+ * anchor of the shelf, not only from the one the y order happens to leave next to it: a wide shelf
+ * with two anchors would otherwise ship with one of its two exits never checked.
+ */
+function walkLadder(ladder: readonly Rung[], geometry: SequenceGeometry, t: Tuning): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const geometry = placeSequence(chunks, t);
-  const ladder = buildLadder(chunks, geometry);
-  for (let i = 0; i < ladder.length - 1; i++) {
-    const a = ladder[i];
-    const b = ladder[i + 1];
-    if (a === undefined || b === undefined) continue;
-    issues.push(...checkRung(a, b, geometry, t));
+  let shelf: Rung[] = [];
+  for (const rung of ladder) {
+    const first = shelf[0];
+    if (first !== undefined && first.anchor.ceilingId === rung.anchor.ceilingId) {
+      shelf.push(rung);
+      continue;
+    }
+    for (const from of shelf) issues.push(...checkRung(from, rung, geometry, t));
+    shelf = [rung];
   }
   return issues;
+}
+
+/** Walks the whole ladder of a sequence. */
+function validateReach(chunks: readonly Chunk[], t: Tuning): ValidationIssue[] {
+  const geometry = placeSequence(chunks, t);
+  return walkLadder(buildLadder(chunks, geometry), geometry, t);
 }
 
 /**
  * The seam between two chunks that are NOT in the same immersion (§11.5.11: "la regla se aplica también
  * a la junta entre chunks"; §11.1 places all 108 chunks in ONE continuous column, so the last chunk of
- * an immersion is followed by the first of the next exactly like any other pair). Checks the lane
- * transition and the single anchor pair `exitAnchor(prev) -> entryAnchor(next)`.
+ * an immersion is followed by the first of the next exactly like any other pair). Since D3 there is no
+ * lane and no mouth to check: the seam IS the single anchor pair `exitAnchor(prev) -> entryAnchor(next)`,
+ * judged by the same 2D reach rule as any rung inside a chunk, with both chunks' solids in the context.
  */
 export function validateJunction(prev: Chunk, next: Chunk, t: Tuning): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  if (!lanesAdjacent(prev.exit, next.entry)) {
-    issues.push(error('lanes', laneJunctionMessage(prev, next), next.id));
-  }
   const chunks = [prev, next];
   const geometry = placeSequence(chunks, t);
   const ladder = buildLadder(chunks, geometry);
@@ -1001,9 +970,6 @@ export function validateJunction(prev: Chunk, next: Chunk, t: Tuning): Validatio
   }
   return issues;
 }
-
-const laneJunctionMessage = (a: Chunk, b: Chunk): string =>
-  `'${a.id}' exits lane '${a.exit}' into '${b.id}' entering lane '${b.entry}' (not adjacent)`;
 
 /**
  * §11.5.2, anti-repetition. A `chunk.id` may not reappear inside a window of CHUNK_REPEAT_WINDOW, and no
@@ -1060,11 +1026,11 @@ function catalogEntries(chunk: Chunk): number[] {
 
 /**
  * Validates a hand-authored immersion sequence (§11.5 rules 1, 2, 4, 5, 6, 11, 13 as applicable to fixed content):
- *  - lanes: exit(i) === entry(i+1) or adjacent (L↔C, C↔R)
  *  - rotation: no repeated id inside CHUNK_REPEAT_WINDOW, no tag chained three times
  *  - breathing: difficulty >= 4 followed by <= 3; at most two >= 4 per immersion
- *  - reach: vertical gap between consecutive anchors (within a chunk and across the seam) <= MAX_HOP_PX[zone],
- *           AND a shot from rest (zero entry velocity) that LANDS on the next anchor — §11.7.7
+ *  - reach (D4, 2D): between consecutive anchors (within a chunk and across the seam) the drop is
+ *           <= MAX_HOP_PX[zone] and |Δx| <= MAX_HOP_X_PX[zone], AND a shot from rest (zero entry
+ *           velocity) LANDS on the next anchor — §11.7.7. There is no lane rule since D3.
  *  - segmentTime: sum of targetTimeS between boyas/stations <= MAX_SEGMENT_S
  *  - last chunk must be a station
  * `firstAppearances` lets the caller pass hazard catalog ids already seen in previous immersions (isolation rule).
@@ -1106,14 +1072,6 @@ export function validateSequence(
     if (c !== undefined && c.role === 'station') {
       issues.push(error('schema', `chunk '${c.id}' at index ${i} is a station but only the last one may be`, c.id));
     }
-  }
-
-  // --- lanes (§11.5.1) ---------------------------------------------------------------------------
-  for (let i = 0; i < chunks.length - 1; i++) {
-    const a = chunks[i];
-    const b = chunks[i + 1];
-    if (a === undefined || b === undefined) continue;
-    if (!lanesAdjacent(a.exit, b.entry)) issues.push(error('lanes', laneJunctionMessage(a, b), b.id));
   }
 
   // --- anti-repetition (§11.5.2) -----------------------------------------------------------------

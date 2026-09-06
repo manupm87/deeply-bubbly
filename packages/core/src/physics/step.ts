@@ -20,7 +20,7 @@ export interface PhysicsStepBody {
   pos: Vec2;
   vel: Vec2;
   radius: number;
-  /** Drives buoyancy (§11.4): CHARGING anchors, RESTING and DEAD do not integrate at all. */
+  /** Drives buoyancy (§11.4): RESTING and DEAD do not integrate at all; every other state does. */
   state: BubbleState;
 }
 
@@ -74,7 +74,7 @@ export function physicsStep(
   t: Tuning,
 ): PhysicsStepResult {
   // No fields means nothing to sample: hand out the shared frozen env instead of allocating one per
-  // step (§11.5.10 — the guide rebuilds 150 steps every frame while CHARGING, on a phone).
+  // step (§11.5.10 — the guide rebuilds 150 steps every frame while AIMING, on a phone).
   const env: ReadonlyPhysicsEnv =
     world.fields.length === 0 ? NEUTRAL_ENV : sampleForceFields(body.pos, body.radius, world.fields);
 

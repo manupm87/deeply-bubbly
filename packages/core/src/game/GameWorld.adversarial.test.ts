@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_TUNING } from '../tuning';
 import { MemoryStore } from '../ports';
 import { SAVE_KEY, defaultSave } from '../run/save';
-import { ScriptedFinger, createTestWorld } from './testHarness';
+import { GuidedFinger } from './autoPlayer';
+import { createTestWorld } from './testHarness';
 import type { PointerInput, WorldSnapshot } from '../types';
 import type { SaveData } from '../run/save';
 import type { GameWorld } from './GameWorld';
@@ -26,26 +27,37 @@ function readSave(store: MemoryStore): SaveData {
 
 describe('a still finger is a still shot (§2.1)', () => {
   /**
-   * `aimOrigin` is frozen in WORLD coordinates at the pointerdown (§2.1, §11.4), but `GameWorld.step`
-   * re-converts the pointer from viewport to world every step with the camera OF THAT STEP. The camera
-   * scrolls while Bur is charging — she is outside the dead zone whenever she is descending, and from
-   * Z3 the "corriente mínima" of §4.3 scrolls it unconditionally — so the world-space vector from the
-   * frozen origin to a motionless finger rotates on its own.
+   * `aimOrigin` is frozen in WORLD coordinates at the pointerdown (D2), but `GameWorld.step`
+   * re-converts the pointer from viewport to world every step. If it used the camera OF THAT STEP the
+   * world-space vector from the frozen origin to a motionless finger would rotate on its own: the
+   * camera scrolls while Bur aims — she is outside the dead zone whenever she is descending, from Z3
+   * the "corriente mínima" of §4.3 scrolls it unconditionally, and since D3 it also tracks her in X.
    *
-   * This is exactly the failure §2.1 introduces the frozen origin to prevent ("el tiro rotaría solo
-   * bajo un dedo completamente quieto"); freezing the origin in world space while measuring the finger
-   * in world space through a moving camera reintroduces it one level up.
+   * This is exactly the failure the frozen origin exists to prevent ("el tiro rotaría solo bajo un
+   * dedo completamente quieto"); freezing one end of the vector and measuring the other through a
+   * moving camera reintroduces it one level up.
    */
   it('holds the aim while the camera scrolls under a motionless pointer', () => {
     const world = createTestWorld();
     let snap = world.snapshot();
 
-    // Full charges straight down, released. Bur starts resting under the foam raft of §8 and the raft
+    // Full pulls straight down, released. Bur starts resting under the foam raft of §8 and the raft
     // catches the first shot on the way back up (§2.3), so the gesture is repeated until she is really
-    // falling — at ~417 px/s, with the camera chasing her, which is what this test needs.
-    for (let round = 0; round < 8 && !(snap.bubble.restingOnId === null && snap.bubble.vel.y > 200); round++) {
+    // falling, with the camera chasing her, which is what this test needs.
+    const falling = (): boolean => snap.bubble.restingOnId === null && snap.bubble.vel.y > 150;
+    for (let round = 0; round < 12 && !falling(); round++) {
+      // Wait for a ledge first: D1 launches come from REST, and a press in open water would spend the
+      // one double jump of this fall — which is the gesture the rest of the test is about to make.
+      for (let i = 0; i < 600 && snap.bubble.state !== 'RESTING' && !falling(); i++) {
+        world.update(STEP_MS, UP);
+        snap = world.snapshot();
+      }
+      if (falling()) break;
+      // D2: the origin freezes at the FINGER, and the sling is drawn UP for a downward shot.
+      const anchor = { x: snap.bubble.pos.x - snap.camera.x, y: snap.bubble.pos.y - snap.camera.y };
       for (let i = 0; i < 34; i++) {
-        world.update(STEP_MS, { down: true, x: snap.bubble.pos.x, y: snap.bubble.pos.y - snap.camera.y + 45 });
+        const stretch = Math.min(1, i / 6);
+        world.update(STEP_MS, { down: true, x: anchor.x, y: anchor.y - T.PULL_MAX_PX * stretch });
         snap = world.snapshot();
       }
       for (let i = 0; i < 19; i++) {
@@ -53,23 +65,27 @@ describe('a still finger is a still shot (§2.1)', () => {
         snap = world.snapshot();
       }
     }
-    expect(snap.bubble.vel.y).toBeGreaterThan(200); // the camera really is following her down
+    expect(snap.bubble.vel.y).toBeGreaterThan(150); // the camera really is following her down
     expect(snap.bubble.restingOnId).toBeNull();
 
-    // From here the finger never moves: one fixed viewport point, sampled every frame.
-    const pointer: PointerInput = { down: true, x: snap.bubble.pos.x + 10, y: snap.bubble.pos.y - snap.camera.y + 45 };
+    // From here the finger never moves: one fixed viewport point for the press, one for the pull.
+    const origin = { x: snap.bubble.pos.x - snap.camera.x, y: snap.bubble.pos.y - snap.camera.y + 20 };
+    world.update(STEP_MS, { down: true, ...origin });
+    const pointer: PointerInput = { down: true, x: origin.x + 10, y: origin.y - 60 };
     const thetas: number[] = [];
+    const pulls: number[] = [];
     for (let i = 0; i < 30; i++) {
       world.update(STEP_MS, pointer);
       snap = world.snapshot();
-      thetas.push(snap.bubble.aimTheta);
+      thetas.push(snap.bubble.pullTheta);
+      pulls.push(snap.bubble.pullDist);
     }
 
-    expect(snap.bubble.state).toBe('CHARGING');
+    expect(snap.bubble.state).toBe('AIMING');
     const first = thetas[0] ?? 0;
     const last = thetas[thetas.length - 1] ?? 0;
-    // Half a second of a perfectly still thumb currently rotates the shot by ~8°.
     expect(Math.abs(last - first)).toBeLessThan(1e-6);
+    for (const pull of pulls) expect(pull).toBeCloseTo(pulls[0] ?? 0, 12);
   });
 });
 
@@ -112,10 +128,12 @@ describe('the save is progress, not a report of this run (§6.1, §12.1)', () =>
 
 /** The bot of `GameWorld.test.ts`: charges 400 ms, releases, repeats, answering both prompts. */
 function playToTheBottom(world: GameWorld): WorldSnapshot {
-  const finger = new ScriptedFinger(400, 140, 45, 16);
+  // The aiming autoplayer of `game/autoPlayer.ts`, not a metronome: since D1/D3/D4 a fixed cadence
+  // misses every hop by design, so a save test built on one would never reach a station to persist.
+  const finger = new GuidedFinger(T);
   let snap = world.snapshot();
-  for (let i = 0; i < 120 * 60; i++) {
-    world.update(STEP_MS, finger.next(STEP_MS, snap.bubble.pos.x, snap.bubble.pos.y, snap.camera.y));
+  for (let i = 0; i < 240 * 60; i++) {
+    world.update(STEP_MS, finger.next(STEP_MS, snap));
     snap = world.snapshot();
     if (snap.phase === 'station') world.continueDescent();
     if (snap.phase === 'dead') world.restart();

@@ -63,11 +63,18 @@ test('a first-ever player gets no title screen, just the tutorial', async ({ pag
   expect(await buttonIds(page)).not.toContain('start.surface');
   expect(await tutorialHandVisible(page)).toBe(true);
 
-  // Bur is born at y ≈ 229 and rises on her own into the foam raft above her (§8 step 1): the world is
-  // RUNNING from the first frame, which is the whole point of not showing a modal here.
+  // Bur is born SPAWN_BELOW_ANCHOR_PX under the foam raft of `z1-open-1` and rises into it on her own
+  // (§8 step 1): the world is RUNNING from the first frame, which is the whole point of not showing a
+  // modal here. The raft sits near the surface since DECISIONS-v1.2 D3 re-authored the zone for the
+  // 540 px world, so the window is read off the campaign instead of written out as a literal.
+  const raft = await page.evaluate(() => {
+    const first = window.__db?.world.snapshot().entities.find((e) => e.type === 'anchor');
+    return first?.type === 'anchor' && first.pos !== undefined ? first.pos.y : null;
+  });
+  expect(raft).not.toBeNull();
   const y = await burY(page);
-  expect(y).toBeGreaterThan(180);
-  expect(y).toBeLessThan(260);
+  expect(y).toBeGreaterThanOrEqual(raft ?? 0);
+  expect(y).toBeLessThan((raft ?? 0) + 40);
   const before = await simulationTimeMs(page);
   await page.waitForTimeout(600);
   expect(await simulationTimeMs(page)).toBeGreaterThan(before + 300);

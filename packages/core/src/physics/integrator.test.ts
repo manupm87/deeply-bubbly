@@ -44,11 +44,28 @@ describe('integrateVelocity (§11.4)', () => {
     expect(v0).toEqual({ x: 10, y: 10 });
   });
 
-  it('CHARGING applies buoyancy at CHARGING_BUOYANCY_MUL ("cargar ancla", §2.1)', () => {
+  it('AIMING anchors: §2.1 drops buoyancy to AIM_BUOYANCY_MUL while an air aim is held', () => {
     const idle = integrateVelocity({ x: 0, y: 0 }, DT, params('IDLE'), t);
-    const charging = integrateVelocity({ x: 0, y: 0 }, DT, params('CHARGING'), t);
-    expect(charging.y / idle.y).toBeCloseTo(t.CHARGING_BUOYANCY_MUL, 12);
-    expect(charging.y).toBeLessThan(0); // still rising, just slower
+    const aiming = integrateVelocity({ x: 0, y: 0 }, DT, params('AIMING'), t);
+    expect(aiming.y).toBeLessThan(0); // still rising, just far more slowly
+    expect(aiming.y).toBeCloseTo(idle.y * t.AIM_BUOYANCY_MUL, 12);
+    expect(aiming.x).toBe(idle.x); // the anchor is buoyancy only: damping and fields are untouched
+  });
+
+  /**
+   * The number that makes D1's double jump usable. Free rise over the 6 s of AIM_MAX_MS is 728 px,
+   * against a 320–420 px view and a Y camera that ratchets: an air aim held while the player thinks
+   * would hand her a resaca for thinking. The anchor keeps the whole aim inside a screen.
+   */
+  it('keeps a full AIM_MAX_MS air aim inside one screen of drift', () => {
+    let vel = { x: 0, y: 0 };
+    let risen = 0;
+    for (let i = 0; i < Math.round(t.AIM_MAX_MS / 1000 / DT); i++) {
+      vel = integrateVelocity(vel, DT, params('AIMING'), t);
+      risen -= vel.y * DT;
+    }
+    expect(risen).toBeGreaterThan(0);
+    expect(risen).toBeLessThan(320); // the shortest view §2.2 designs for
   });
 
   it('RESTING and DEAD return the velocity unchanged (no buoyancy, no damping)', () => {

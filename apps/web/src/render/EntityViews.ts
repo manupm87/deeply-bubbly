@@ -19,7 +19,11 @@ export interface EntityView {
   destroy(): void;
 }
 
-const WORLD_W = 180;
+/**
+ * Boyas and rest stations span the WHOLE world (D3: "la estación ocupa todo el ancho"), so their
+ * width is `tuning.WORLD_W`, never the 180 px of the viewport. Every other entity carries its own
+ * rect and needs no world width at all.
+ */
 
 function solidView(scene: Phaser.Scene, entity: Ceiling | Wall, p: ZonePalette): EntityView {
   const g = scene.add.graphics().setDepth(DEPTH.ledge);
@@ -234,30 +238,45 @@ function pickupView(scene: Phaser.Scene, entity: Pickup, zone: number): EntityVi
   };
 }
 
-function boyaView(scene: Phaser.Scene, worldY: number, zone: number): EntityView {
-  const sprite = scene.add.image(WORLD_W / 2, worldY, boyaKey(zone)).setDepth(DEPTH.boya).setAlpha(0.85);
+/**
+ * A boya is a CHECKPOINT LINE, not an object at a place. The entity only carries a `worldY`, so the
+ * marker used to sit alone at `worldW / 2` — which since D3 means a player crossing the left or right
+ * third of a 540 px column never sees the checkpoint she just banked. The threshold is therefore drawn
+ * the way the station band already is, all the way across the world, with the marker on it: the same
+ * dotted line vocabulary, dimmer, because a boya is a smaller promise than a station.
+ */
+function boyaView(scene: Phaser.Scene, worldY: number, zone: number, worldW: number): EntityView {
+  const p = paletteOf(zone);
+  const line = scene.add.graphics().setDepth(DEPTH.boya).setPosition(0, worldY);
+  line.fillStyle(p.foam, 0.4);
+  for (let x = 3; x < worldW; x += 10) line.fillRect(x, 0, 2, 1);
+  const sprite = scene.add.image(worldW / 2, worldY, boyaKey(zone)).setDepth(DEPTH.boya).setAlpha(0.85);
   return {
     update(_e, timeMs) {
       sprite.y = Math.round(worldY + Math.sin(timeMs / 700) * 2);
+      line.setAlpha(0.7 + 0.3 * Math.sin(timeMs / 700));
     },
-    destroy: () => sprite.destroy(),
+    destroy: () => {
+      sprite.destroy();
+      line.destroy();
+    },
   };
 }
 
 /** The rest station is a calm band of light: no geometry, just a place that reads as safe. */
-function stationView(scene: Phaser.Scene, worldY: number, p: ZonePalette): EntityView {
+function stationView(scene: Phaser.Scene, worldY: number, p: ZonePalette, worldW: number): EntityView {
   const g = scene.add.graphics().setDepth(DEPTH.station).setPosition(0, worldY);
   const bands = 8;
   for (let i = 0; i < bands; i++) {
     g.fillStyle(p.foam, 0.14 + 0.16 * Math.sin((i / bands) * Math.PI));
-    g.fillRect(0, (i * 240) / bands, WORLD_W, 240 / bands);
+    g.fillRect(0, (i * 240) / bands, worldW, 240 / bands);
   }
   // NOT a 1 px light line across the column: that is the visual language of a capturable ledge's
   // bottom glow (§2.3). A rest station is a dotted THRESHOLD plus a wide soft halo under it.
   g.fillStyle(p.foam, 0.75);
-  for (let x = 2; x < WORLD_W; x += 6) g.fillRect(x, 0, 3, 1);
+  for (let x = 2; x < worldW; x += 6) g.fillRect(x, 0, 3, 1);
   g.fillStyle(p.foam, 0.16);
-  g.fillRect(0, 1, WORLD_W, 3);
+  g.fillRect(0, 1, worldW, 3);
   return {
     update(_e, timeMs) {
       g.setAlpha(0.85 + 0.15 * Math.sin(timeMs / 900));
@@ -285,9 +304,9 @@ export function createEntityView(
     case 'pickup':
       return pickupView(scene, entity, zone);
     case 'boya':
-      return boyaView(scene, entity.worldY, zone);
+      return boyaView(scene, entity.worldY, zone, tuning().WORLD_W);
     case 'station':
-      return stationView(scene, entity.worldY, p);
+      return stationView(scene, entity.worldY, p, tuning().WORLD_W);
     case 'anchor':
       return null;
   }

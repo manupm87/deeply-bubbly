@@ -19,13 +19,25 @@ declare global {
   interface Window {
     __db?: {
       world: {
-        snapshot(): { timeMs: number; bubble: { pos: { x: number; y: number } }; phase: string };
+        snapshot(): {
+          timeMs: number;
+          bubble: { pos: { x: number; y: number }; state: string; restingOnId: string | null };
+          camera: { x: number; y: number; renderY: number; viewW: number };
+          phase: string;
+          /** Streamed entities, as `WorldSnapshot.entities`; a spec only ever reads shape and position. */
+          entities: Array<{ type: string; id: string; pos?: { x: number; y: number } }>;
+        };
+        onEvent(listener: (e: { type: string }) => void): () => void;
       };
       ctx: {
         scale: { zoom: number; viewW: number; viewH: number; offsetX: number; offsetY: number };
         save: { unlockedStation: number };
       };
       buttons(): DebugButtonRect[];
+      /** The shot core would take from here (`game/autoPlayer.pickShot`); used by `e2e/tools/bot.mjs`. */
+      nextShot?(): { power: number; thetaDeg: number } | null;
+      /** The LIVE tuning; `gestureTuning` reads the gesture constants the drags below assume. */
+      tuning: { PULL_MAX_PX: number; PULL_CANCEL_PX: number };
     };
   }
 }
@@ -105,8 +117,10 @@ export function collectErrors(page: Page): string[] {
 }
 
 /**
- * A finger that presses, holds and lifts. Uses the CDP touch input so the run exercises the same path
- * a phone does (Phaser reads pointer events either way, but touch is what the game ships for).
+ * A finger that presses, holds and lifts, without moving. Uses the CDP touch input so the run
+ * exercises the same path a phone does (Phaser reads pointer events either way, but touch is what the
+ * game ships for). Since DECISIONS-v1.2 D2 this is a TAP, not a shot: a press that never leaves the
+ * cancel radius cancels. Use it for HUD buttons; use `pullAndRelease` to make Bur move.
  */
 export async function holdAndRelease(page: Page, x: number, y: number, holdMs: number): Promise<void> {
   const cdp = await page.context().newCDPSession(page);
@@ -115,6 +129,88 @@ export async function holdAndRelease(page: Page, x: number, y: number, holdMs: n
   await page.waitForTimeout(holdMs);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await cdp.detach();
+}
+
+/** Design px of a full pull (`PULL_MAX_PX`); the page renders at an integer zoom, so scale by it. */
+export const PULL_MAX_DESIGN_PX = 70;
+/** Design px of the cancel radius (`PULL_CANCEL_PX`): a release inside it fires nothing (D2). */
+export const PULL_CANCEL_DESIGN_PX = 12;
+
+/**
+ * The two constants above, read out of the running game. They are duplicated as module constants
+ * because every drag helper needs them synchronously, so one spec asserts the copies against this —
+ * without it a `PULL_MAX_PX` that moved would turn every drag in the suite into a wrong-power gesture
+ * that still passed.
+ */
+export async function gestureTuning(page: Page): Promise<{ pullMaxPx: number; pullCancelPx: number }> {
+  return page.evaluate(() => ({
+    pullMaxPx: window.__db?.tuning.PULL_MAX_PX ?? 0,
+    pullCancelPx: window.__db?.tuning.PULL_CANCEL_PX ?? 0,
+  }));
+}
+/**
+ * A world x with nothing in it. D3 widened the world to `WORLD_W = 540` while the authored content
+ * still lives in the left 180 px, so this is the deep end of the pool: a test that needs Bur adrift
+ * and ungrabbable puts her here.
+ */
+export const OPEN_WATER_X = 480;
+
+/**
+ * The D2 slingshot: press at (x, y), draw the sling by (dx, dy) over a few moves, lift. The shot
+ * leaves in the direction OPPOSITE to the drag, so a downward shot is a finger travelling UP.
+ * `moveMs` is the whole drag; the release happens as soon as it ends.
+ */
+export async function pullAndRelease(
+  page: Page,
+  x: number,
+  y: number,
+  dx: number,
+  dy: number,
+  moveMs = 240,
+): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  const steps = 6;
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: Math.round(x), y: Math.round(y) }],
+  });
+  for (let k = 1; k <= steps; k++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: Math.round(x + (dx * k) / steps), y: Math.round(y + (dy * k) / steps) }],
+    });
+    await page.waitForTimeout(Math.max(1, Math.round(moveMs / steps)));
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.detach();
+}
+
+/** CSS px of a full pull at the page's current integer zoom. */
+export async function pullReachPx(page: Page): Promise<number> {
+  return PULL_MAX_DESIGN_PX * (await zoomOf(page));
+}
+
+/** CSS px of the cancel radius at the page's current integer zoom. */
+export async function cancelRadiusPx(page: Page): Promise<number> {
+  return PULL_CANCEL_DESIGN_PX * (await zoomOf(page));
+}
+
+async function zoomOf(page: Page): Promise<number> {
+  const zoom = await page.evaluate(() => window.__db?.ctx.scale.zoom ?? 2);
+  return zoom > 0 ? zoom : 2;
+}
+
+/** Bur's world x right now; since D3 the world is WORLD_W wide, so x is a real degree of freedom. */
+export async function burX(page: Page): Promise<number> {
+  return page.evaluate(() => window.__db?.world.snapshot().bubble.pos.x ?? Number.NaN);
+}
+
+/** The camera as core publishes it (the shell must place it, never compute it). */
+export async function cameraState(page: Page): Promise<{ x: number; renderY: number; viewW: number }> {
+  return page.evaluate(() => {
+    const c = window.__db?.world.snapshot().camera;
+    return { x: c?.x ?? Number.NaN, renderY: c?.renderY ?? Number.NaN, viewW: c?.viewW ?? Number.NaN };
+  });
 }
 
 /**
@@ -142,4 +238,70 @@ export async function forceResacaDeath(page: Page): Promise<void> {
     sn.bubble.launchedMs = 0;
   });
   await page.waitForFunction(() => window.__db?.world.snapshot().phase === 'dead', undefined, { timeout: 15_000 });
+}
+
+/** A recorded `GameEvent`, JSON round-tripped out of the page. `type` is always there. */
+export type RecordedEvent = { type: string } & Record<string, unknown>;
+
+/** Names the page uses to park the event recorder on `window`; test-only, never shipped. */
+interface EventRecorder {
+  __evts?: RecordedEvent[];
+  __off?: () => void;
+}
+
+/**
+ * Starts recording the TYPE of every `GameEvent` the world dispatches, and hands back a reader.
+ *
+ * `world.onEvent` is the right channel here (and not `snapshot().events`, which the shell drains
+ * every frame): a test must be able to watch the events a gesture produced without racing the render
+ * loop for them. Calling it again replaces the previous recording.
+ */
+export async function recordEvents(page: Page): Promise<() => Promise<RecordedEvent[]>> {
+  await page.evaluate(() => {
+    const w = window as unknown as EventRecorder;
+    w.__off?.();
+    w.__evts = [];
+    const off = window.__db?.world.onEvent((e) => {
+      // Round-tripped so the payload survives the bridge as plain data (every GameEvent field is).
+      w.__evts?.push(JSON.parse(JSON.stringify(e)) as RecordedEvent);
+    });
+    if (off) w.__off = off;
+  });
+  return async () => page.evaluate(() => (window as unknown as EventRecorder).__evts ?? []);
+}
+
+/** The type of every recorded event, in order. */
+export function typesOf(events: readonly RecordedEvent[]): string[] {
+  return events.map((e) => e.type);
+}
+
+/**
+ * Puts Bur adrift in open water with her D1 double jump already spent, so the next touch is the one
+ * the rules must refuse. It writes the live bubble the snapshot exposes — the same door
+ * `forceResacaDeath` uses — and never touches the shell.
+ *
+ * She is moved to `OPEN_WATER_X` and given a downward velocity on purpose: dropped where she was, she
+ * re-captured the ceiling she had just been pinned under and the gesture under test became an
+ * ordinary aim from rest.
+ */
+export async function spendAirLaunches(page: Page): Promise<void> {
+  await page.evaluate((x) => {
+    const world = window.__db?.world as unknown as {
+      snapshot(): {
+        bubble: Record<string, unknown> & { pos: { x: number; y: number }; vel: { x: number; y: number } };
+        camera: { renderY: number };
+      };
+    };
+    const sn = world.snapshot();
+    sn.bubble.state = 'LAUNCHED';
+    sn.bubble.restingOnId = null;
+    sn.bubble.restMs = 0;
+    sn.bubble.launchedMs = 0;
+    // One more than any sane AIR_LAUNCHES_MAX: the budget is spent whatever the tuning says.
+    sn.bubble.airLaunchesUsed = 9;
+    sn.bubble.pos.x = x;
+    sn.bubble.pos.y = sn.camera.renderY + 60;
+    sn.bubble.vel.x = 0;
+    sn.bubble.vel.y = 60; // falling, away from anything she could grab
+  }, OPEN_WATER_X);
 }

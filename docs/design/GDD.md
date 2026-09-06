@@ -1,7 +1,8 @@
 # Deeply Bubbly — Documento de Diseño de Juego (GDD)
 
-> **Versión 1.1 — REVISADA** · 5 de septiembre de 2026 · Dirección de diseño
+> **Versión 1.2 — MUNDO ANCHO** · 6 de septiembre de 2026 · Dirección de diseño
 > Este documento sustituye a las tres propuestas previas (*mechanics-first*, *story-first*, *retention-first*). La columna vertebral es la propuesta *mechanics-first*, ganadora del panel; sobre ella se han injertado las decisiones que el panel señaló como mejores de las otras dos: la estructura de **Inmersiones** discretas disfrazadas de descenso continuo y la **regla de misericordia** silenciosa (*retention-first*), y el **aliento prestado** como medidor temático, los **jefes que no se derrotan sino que reciben algo** y el **bestiario con datos reales** (*story-first*).
+> **Qué cambia en la v1.2 y por qué.** El *owner* jugó el primer jugable en móvil y el playtest devolvió tres cosas que ninguna revisión de escritorio podía ver: la carga por tiempo no se lee con el pulgar, encadenar impulsos en el aire convertía el juego en un *flappy* sin cálculo, y un mundo de una sola pantalla de ancho se siente un pasillo. De ahí las cuatro decisiones de `docs/design/DECISIONS-v1.2.md`, que esta versión incorpora: **(D1)** el impulso sale del reposo, con **un solo "doble salto" aéreo** que cuesta Aire; **(D2)** el gesto pasa a ser un **tirachinas** (arrastre = potencia, dirección opuesta, cancelación devolviendo el pájaro a la horquilla) y **desaparece la sobrecarga**; **(D3)** el mundo pasa a **540 px de ancho** con cámara que también sigue en X, sin carriles ni bocas de entrada; **(D4)** menos potencia (**90–280 px/s**) y mundo más denso (**3–5 anclajes por *chunk***). Las secciones 2, 3, 4, 8, 11 y 12 están recalculadas en consecuencia; el detalle está en el **Registro de revisión v1.1 → v1.2**, al final.
 > **Estado de las decisiones.** La v1.0 se declaró "final". Una auditoría técnica encontró en ella contradicciones que impedían escribir la primera línea de código del núcleo (impulso sin definir, alcance menor que la altura de un *chunk*, ventana de reposo inalcanzable, cámara de trinquete incompatible con dos verbos catalogados, alcance del MVP fuera de plazo). **Esta v1.1 resuelve todas esas contradicciones y las hace consistentes entre secciones.** Las secciones 1–9 y 11–12 son firmes y ejecutables. Los puntos genuinamente abiertos siguen en la sección 10, que ahora indica además **qué números de las secciones 2, 3 y 11 dependen de cada uno**: si el *owner* cambia una respuesta de §10, se recalculan esos números y no otros. Todo valor es de arranque, sujeto a *tuning* en playtest pero no a debate de diseño. El detalle de lo modificado está en el **Registro de revisión**, al final.
 
 ---
@@ -14,8 +15,8 @@ Esta inversión es la decisión central del proyecto. En *Doodle Jump* la graved
 
 **Los cinco pilares, en orden de prioridad. Ante cualquier duda de producción, decide por el pilar más alto.**
 
-1. **Un solo gesto, de principio a fin.** Mantener y soltar. Nada más, nunca.
-2. **Ningún sistema hace un solo trabajo.** La presión te encoge *y* te abre huecos; cargar te mueve *y* te ilumina; reinflar es premio arriba *y* trampa abajo.
+1. **Un solo gesto, de principio a fin.** Tirar del tirachinas y soltar. Nada más, nunca.
+2. **Ningún sistema hace un solo trabajo.** La presión te encoge *y* te abre huecos; el tiro te mueve *y* te ilumina; reinflar es premio arriba *y* trampa abajo.
 3. **El fracaso nunca es castigo.** No hay muerte, no hay sangre, no hay pantalla roja, y **ningún fallo cuesta más de 35 segundos de progreso**. Regla dura, verificable en QA. La garantiza el sistema de **boyas de aliento** de §3.1 (un punto de reaparición silencioso a mitad de cada Inmersión), no la duración de la Inmersión: reaparecer al principio de una Inmersión de 65 s violaría el pilar y por eso ya no se hace.
 4. **Cero maldad.** Todo lo que estorba es *naturaleza*, no villanía. Ningún jefe se derrota: a todos se les devuelve algo.
 5. **Todo se lee sin texto.** Forma, color, movimiento y sonido antes que palabras. **El juego jugable —HUD, tutorial, pantallas de fin, menú de pausa y misiones— contiene menos de 40 palabras en pantalla, y ninguna es necesaria para jugar ni para terminar la campaña.** El texto largo existe pero vive **fuera del *loop*** y es siempre opcional: Postales (12 × 2 frases) y Álbum de Fauna (32 fichas de una frase) suman ≈1.500 palabras, que son el presupuesto real de localización. Formulado así, el pilar es verificable: se cuenta el diccionario de cadenas de la capa de juego, no el del contenido coleccionable.
@@ -68,24 +69,23 @@ Al llegar a 10.935 m, Bur se posa en la frente de Ámbar y suelta el aliento. La
 
 ---
 
-## 2. El núcleo: cargar, soltar, rebotar
+## 2. El núcleo: tirar, soltar, rebotar
 
-### 2.1 El gesto (un solo input)
+### 2.1 El gesto (un solo input: el tirachinas)
 
-**Pulsar → mantener → soltar.** Un tirachinas virtual clavado en Bur y limitado a un cono descendente.
+**Pulsar → arrastrar → soltar.** Un tirachinas de *Angry Birds*, con el mundo entero como horquilla y una sola dirección prohibida: hacia arriba.
 
-- Al tocar **cualquier punto de la pantalla** empieza la carga. En ese mismo instante se **congela un origen de puntería (`aimOrigin`) en la posición que Bur ocupa**. La dirección se mide siempre desde ese origen congelado, **nunca desde Bur en vivo**. Razón: cargar en el aire está permitido y Bur se sigue moviendo mientras cargas; si la dirección se recalculase desde Bur, el tiro rotaría solo bajo un dedo completamente quieto. Con el origen congelado, dedo quieto = tiro quieto.
-- La **posición del dedo respecto al `aimOrigin` define la dirección**; la distancia modula un **ajuste fino simétrico de ±15%**. No hace falta tocar sobre Bur: el pulgar nunca tapa al personaje.
-- **Ganancia angular 1,5×.** El ángulo crudo se multiplica por 1,5 antes de recortarlo al cono. Esto existe para que **el cono completo sea alcanzable desde el tercio inferior de la pantalla**: desde el reposo típico (Bur al 45% de la altura), el punto más cómodo del pulgar da un ángulo crudo de ~41°, que con la ganancia ya alcanza el borde del cono. Sin ganancia, los ángulos extremos solo se lograban tocando pegado a Bur, que es justo donde la precisión angular es peor y donde el dedo tapa la acción.
-- Dirección limitada a un **cono de ±62° respecto a la vertical hacia abajo**, con **zona muerta de ±5°** alrededor de la vertical para garantizar que "recto abajo" salga fácil. (La v1.0 decía "±8%": era una unidad equivocada; el valor normativo siempre fue el ángulo, `AIM_DEADZONE_DEG = 5`.)
-- **Sin discontinuidad y sin temblor.** Si el puntero cae **por encima de la horizontal del `aimOrigin`** —lo primero que hace todo el mundo, porque un tirachinas invita a tirar hacia atrás— o a **menos de 18 px** de él, la dirección **no se recalcula: se conserva la última dirección válida**; si todavía no hay ninguna, el tiro es recto abajo. La guía se pinta en ámbar tenue para decir "aquí no mando". Esto elimina el salto de 124° que tenía la v1.0 al cruzar la horizontal (un píxel a la izquierda o a la derecha del "recto arriba" invertía el tiro) y el temblor de los toques pegados al personaje. **Nunca se puede lanzar hacia arriba**: la única forma de subir es que el mundo te empuje.
-- **Potencia = tiempo de mantenido.** Razón: en *portrait* y con una mano, el pulgar tiene poco recorrido; el tiempo es un canal de precisión ilimitada que no obliga a alcanzar la parte alta de la pantalla.
-- El dedo se puede arrastrar mientras se carga; la guía se actualiza en vivo.
-- **Cargar ancla.** Mientras se está cargando, la flotabilidad cae al **35%**. Es coherente con la ficción (Bur se tensa y se agarra al agua), impide que un mantenido largo arrastre a Bur hasta el borde superior de la cámara, y hace que la puntería congelada siga teniendo sentido tras medio segundo de carga.
+- Al tocar **cualquier punto de la pantalla** se **congela un origen (`aimOrigin`) en la posición del dedo**, no en la de Bur. La dirección y la potencia se miden siempre respecto a ese origen congelado: **dedo quieto = tiro quieto**, aunque Bur se mueva. No hace falta tocar sobre Bur y el pulgar nunca tapa al personaje.
+- **El arrastre es el tiro.** La dirección del impulso es **opuesta** al vector de arrastre —tiras hacia atrás y Bur sale hacia delante, exactamente como una goma— y la **potencia es la distancia arrastrada**: `p = clamp(|d| / PULL_MAX_PX, 0, 1)` con **`PULL_MAX_PX = 70` px de diseño** (≈140 px css a zoom 2, un recorrido de pulgar cómodo). La relación es **lineal a propósito**: lo que ves arrastrado es lo que sale.
+- **Cancelar es gratis.** Soltar con el dedo a **menos de `PULL_CANCEL_PX = 12` px** del origen **cancela el tiro**: Bur sigue en reposo, sin coste, sin evento. Mientras el dedo está dentro de ese radio la guía no se dibuja y el anillo se muestra vacío y atenuado — el jugador ve que "aquí no hay tiro". Es devolver el pájaro a la horquilla, y es lo que permite explorar la puntería sin miedo.
+- **Cono: cualquier dirección no ascendente** (`AIM_CONE_DEG = 90`, de horizontal-izquierda a horizontal-derecha pasando por abajo), con **zona muerta de ±5°** alrededor de la vertical para que "recto abajo" salga fácil. Si el arrastre pide subir, la dirección se **recorta a la horizontal más cercana** y la guía se pinta en ámbar: nunca hay salto de 180° ni tiro sorpresa. **Nunca se lanza hacia arriba**; subir sigue siendo cosa del mundo (flotabilidad, fumarola, metano).
+- **Solo se dispara desde el reposo.** El lanzamiento nace en `RESTING`. En el aire hay **una sola excepción**: un **"doble salto"** por fase aérea (`AIR_LAUNCHES_MAX = 1`) que **cuesta 1 pip de Aire** (`AIR_LAUNCH_COST = 1`) y **nunca está disponible con el último pip**. El contador se reinicia al reposar. Un toque en el aire sin doble salto disponible **no hace nada**: ni evento, ni castigo, ni tiro fantasma. La regla se comprueba **también al soltar**, no solo al tocar: un gesto abierto con dos pips que se suelta con uno pide exactamente el tiro que "nunca con el último pip" prohíbe, así que se **cancela** en vez de dispararse (y lo dice, porque para entonces el jugador lleva seis segundos viendo una goma tensada). El juego premia **calcular el tiro**, no corregirlo a media caída.
+- **Tope de apuntado, no suelta automática.** Mientras se apunta desde reposo, el temporizador anti-*camping* del posadero **se congela** (§2.3); existe un tope de `AIM_MAX_MS = 6.000 ms` tras el cual **el tiro se cancela**, nunca se dispara solo. Las superficies *impaciente* y *pegajosa* mantienen sus temporizadores corriendo: es su carácter.
+- **Apuntar ancla.** Mientras se apunta, la flotabilidad cae al **35%**. Es coherente con la ficción (Bur se tensa y se agarra al agua) y evita que apuntar seis segundos en el aire, con el doble salto, arrastre a Bur hasta el borde superior de la cámara.
 
 ### 2.2 Números de partida
 
-Resolución de diseño: **180 px de ancho fijos** y **320–420 px de alto visible** según el dispositivo, con zoom entero (§8). Todas las unidades del documento están en px de diseño salvo indicación expresa.
+Resolución de diseño: **ventana de 180 px de ancho fijos** (`VIEW_W`) y **320–420 px de alto visible** según el dispositivo, con zoom entero (§8). El **mundo mide 540 px de ancho** (`WORLD_W`, tres ventanas) y la cámara se mueve también en X (§4.3). Todas las unidades del documento están en px de diseño salvo indicación expresa.
 
 **Regla número uno, la que la v1.0 no decía y sin la cual no se puede escribir el núcleo: el lanzamiento *sustituye* la velocidad, no la suma.**
 
@@ -93,7 +93,7 @@ Resolución de diseño: **180 px de ancho fijos** y **320–420 px de alto visib
 vel = dir * impulso        // asignación. NUNCA vel += dir * impulso
 ```
 
-Cada tiro empieza de cero. Es la decisión que hace el juego legible y enseñable: el alcance de un disparo depende de **una sola variable** (la carga), la trayectoria punteada puede ser exacta, y **no se pueden apilar impulsos en el aire** para atravesar tres *chunks* de una tacada, que era lo que rompía la coreografía "de techo en techo" y toda hipótesis de alcanzabilidad del generador. Cargar en el aire sigue permitido y sigue siendo necesario: sirve para **corregir**, no para acumular. Las velocidades que aportan los campos de fuerza (fumarola, corriente, metano) **sí** se suman, pero las aplica el integrador después del lanzamiento, nunca el impulso.
+Cada tiro empieza de cero. Es la decisión que hace el juego legible y enseñable: el alcance de un disparo depende de **una sola variable** (la distancia de arrastre), la trayectoria punteada puede ser exacta, y **no se pueden apilar impulsos en el aire** para atravesar tres *chunks* de una tacada. Desde la v1.2 la regla es aún más dura: **solo se lanza desde el reposo**, con la única excepción del doble salto aéreo de §2.1, que cuesta 1 pip. El tiro se calcula antes de soltar, no se corrige a media caída. Las velocidades que aportan los campos de fuerza (fumarola, corriente, metano) **sí** se suman, pero las aplica el integrador después del lanzamiento, nunca el impulso.
 
 | Parámetro | Valor | Nota |
 |---|---|---|
@@ -102,13 +102,12 @@ Cada tiro empieza de cero. Es la decisión que hace el juego legible y enseñabl
 | Amortiguación horizontal del agua | **0,30 /s** | La mitad que la vertical: **el horizontal se conserva** y se encadenan paredes |
 | Velocidad terminal ascendente | **167 px/s** (derivada) | `BUOYANCY / DAMPING_Y` = 100 / 0,60. Es una identidad, no un número suelto |
 | Velocidad de caída máxima | **520 px/s** | Cap de seguridad; solo se roza combinando lanzamiento y corriente descendente |
-| Impulso mínimo (tap seco) | **150 px/s** | Un tap accidental hace algo, pero poco |
-| Impulso máximo (carga 1,0, arrastre neutro) | **430 px/s** | Rango real con el ajuste fino: **373 – 494 px/s** |
-| Tiempo de carga a máximo | **550 ms** | Curva `p = min(1,(t/0,55))^1,30` |
-| Ventana de maestría | **últimos 170 ms** | Aporta el 38% de la potencia (`p(380 ms) = 0,618`) |
-| Umbral de sobrecarga | **900 ms en el agua / 1.800 ms en reposo** | A partir de ahí, Bur ventila −1 Aire cada 500 ms, **nunca el último pip** |
-| Suelta automática | **2.500 ms** | Bur se suelta sola: mantener eternamente no es un estado válido |
-| Toque mínimo reconocido | **70 ms** | Por debajo se ignora (evita soplos accidentales) |
+| Impulso base (`p = 0`) | **90 px/s** | Suelo de la rampa; el tiro más corto posible (13 px de arrastre) sale a 125 px/s |
+| Impulso máximo (arrastre ≥ 70 px) | **280 px/s** | Ya no hay ajuste fino: el arrastre *es* la potencia |
+| Arrastre a potencia máxima (`PULL_MAX_PX`) | **70 px** | `p = clamp(|d|/70, 0, 1)`, **lineal**. A 35 px, `p = 0,5` |
+| Radio de cancelación (`PULL_CANCEL_PX`) | **12 px** | Soltar dentro = sin tiro, sin coste, sin evento |
+| Tope de apuntado (`AIM_MAX_MS`) | **6.000 ms** | Al agotarse **cancela**; nunca dispara sola |
+| Doble salto aéreo | **1 por fase aérea, −1 Aire** | Nunca disponible con el último pip; se reinicia al reposar |
 | Captura de reposo | **≤ 260 px/s de acercamiento por debajo** | Umbral de *captura*, no de "casi parado". Ver §2.3 |
 | Restitución roca/coral | **0,55** | Rebote de referencia |
 | Restitución medusa | **0,92** | Superficie **no capturable**: trampolín, no posadero |
@@ -117,22 +116,24 @@ Cada tiro empieza de cero. Es la decisión que hace el juego legible y enseñabl
 | Fricción lateral en rebote | **0,08** | Con la amortiguación horizontal a 0,30 /s, tras dos rebotes queda ~60% del horizontal |
 | Enfriamiento de trampolín | **600 ms** | Tras rebotar en una medusa, esa medusa se desinfla y Bur la atraviesa |
 
-**Alcance por impulso (tabla derivada, normativa para el generador).** Integrando `dv/dt = −BUOYANCY − DAMPING_Y·v` desde `v0` hacia abajo, el descenso hasta el punto muerto es `d = (T/D)·(x − ln(1+x))` con `T = 167`, `D = 0,60`, `x = v0/T`. Con carga 1,0 y arrastre neutro:
+**Alcance por impulso (tabla derivada, normativa para el generador).** Integrando `dv/dt = −BUOYANCY − DAMPING_Y·v` desde `v0` hacia abajo, el descenso hasta el punto muerto es `d = (T/D)·(x − ln(1+x))` con `T = 167`, `D = 0,60`, `x = v0/T`. Con arrastre completo (`p = 1`) y tiro recto abajo:
 
-| Zona | Impulso efectivo | **Descenso por tiro** | `MAX_HOP_PX` (regla del generador) |
-|---|---|---|---|
-| Z1 | 430 px/s | **362 px** | 200 |
-| Z2 | 418 px/s | 346 px | 195 |
-| Z3 | 404 px/s | 331 px | 185 |
-| Z4 | 387 px/s | 311 px | 175 |
-| Z5 | 368 px/s | 288 px | 165 |
-| Z6 | 349 px/s | **267 px** | 150 |
+| Zona | Impulso efectivo | **Descenso por tiro** | `MAX_HOP_PX` | `MAX_HOP_X_PX` |
+|---|---|---|---|---|
+| Z1 | 280 px/s | **193 px** | 110 | 200 |
+| Z2 | 272 px/s | 184 px | 105 | 190 |
+| Z3 | 263 px/s | 175 px | 100 | 180 |
+| Z4 | 252 px/s | 164 px | 95 | 170 |
+| Z5 | 240 px/s | 152 px | 90 | 160 |
+| Z6 | 227 px/s | **140 px** | 80 | 140 |
 
-Un tap seco (150 px/s) desciende **72 px**. **Un tiro a plena carga supera siempre la altura de un *chunk* (240 px), en las seis zonas**, y `MAX_HOP_PX` deja un margen del 40% para que el jugador no tenga que ejecutar el tiro perfecto. Esa columna es la que consume la regla de alcance de §11.5.11: ningún par de anclajes de reposo consecutivos, ni dentro de un *chunk* ni cruzando la junta entre dos, puede separarse más de ese desnivel. La v1.0 no tenía ninguna regla de este tipo y podía ensamblar tramos literalmente imposibles.
+El tiro más corto posible —13 px de arrastre, justo fuera del radio de cancelación, 125 px/s— desciende **53 px**; un arrastre de 35 px (`p = 0,5`, 185 px/s) desciende **101 px** en Z1 (el impulso base de 90 px/s, inalcanzable por definición, daría 30 px). **Un tiro a plena potencia ya no cruza un *chunk* entero** (193 px frente a los 240 px de alto del chunk): esa es exactamente la consecuencia buscada de la v1.2, y por eso el contenido pasa a **3–5 anclajes por *chunk*** (§4.1) en vez de 1–2. `MAX_HOP_PX` es el **57–59% del descenso por tiro** en las seis zonas, es decir, **más del 40% de margen** para que el jugador no tenga que ejecutar el tiro perfecto.
 
-**La curva de carga es exponencial a propósito** (`^1,30`). Un mantenido "a ojo" (~400 ms) da ~66% de potencia; el 100% exige comprometerse hasta el borde de la sobrecarga. Ese es el eje de habilidad de todo el juego y no necesita ningún sistema adicional.
+**La regla de alcance es ahora bidimensional.** Con el mundo a 540 px y el cono abierto a 90°, dos anclajes consecutivos ya no se separan solo en vertical: `MAX_HOP_X_PX` acota también el desplazamiento lateral. La caja `(MAX_HOP_X_PX, MAX_HOP_PX)` está calculada para quedar **holgadamente dentro de la envolvente balística** de cada zona: en Z1, un tiro a ~33° cruza los 200 px laterales habiendo descendido 145 px, y el punto más lateral alcanzable a plena potencia (tiro a 45°) está a **214 px** con 112 px de desnivel; en Z6 esa cifra baja a **153 px**. La caja es un filtro rápido; la certificación real la hace el **mismo integrador**, desde reposo y **sin doble salto** (§11.5.11).
 
-**Sobrecarga en vez de barra oscilante.** Los juegos de golf usan una barra que rebota: precisa, pero hostil para un niño. Aquí, mantener de más **no arruina el tiro: fuga aire lentamente**. El castigo es un recurso, no una tirada perdida. Y tiene **un suelo duro: la sobrecarga nunca puede quitar el último pip de Aire, y nunca drena más de 2 pips en un mismo mantenido.** Sin ese suelo, un niño que mantiene el dedo 3,4 s —exactamente lo que enseña la mano fantasma del tutorial— se quedaba sin aire de una sentada, que contradice el pilar 3 y la propia frase anterior. A los 2.500 ms Bur se suelta sola con la potencia acumulada.
+**La potencia es lineal a propósito.** La v1.1 tenía una curva `^1,30` sobre el tiempo de mantenido, precisa pero invisible: el jugador no podía ver cuánta llevaba. Con el tirachinas, la potencia **se ve**: la banda elástica mide 70 px y la mitad de la banda es la mitad del tiro. El eje de habilidad se traslada de "cronometrar el dedo" a **calcular el tiro**, que es lo que el playtest pedía.
+
+**Cancelar en vez de sobrecarga.** La v1.1 castigaba el mantenido largo con una fuga de Aire (sobrecarga). Con el tirachinas ese castigo no tiene sentido y **desaparece del documento**: apuntar es gratis, cancelar es gratis, y el único límite es el tope de 6 s, que **cancela y no dispara**. Lo que sí cuesta Aire es el **doble salto aéreo** (1 pip, nunca el último): el gasto pasa de castigar la indecisión a pagar una segunda oportunidad.
 
 ### 2.3 La superficie de reposo: el techo
 
@@ -147,7 +148,7 @@ Esta inversión respecto a la v1.0 es deliberada. La v1.0 exigía llegar al tech
 
 Reglas de la superficie de reposo:
 
-- En reposo, Bur puede cargar hasta **1.800 ms** antes de entrar en sobrecarga (en el agua son 900 ms): está anclada y no se agota igual. Con el temporizador de reposo de 3,0 s, eso deja **presupuesto de puntería de sobra sin necesidad de quitar el anti-*camping***. El drenaje pasivo de Aire por presión se congela mientras dura el reposo; es un alivio pequeño y honesto (a lo sumo 3 s de un reloj de 25 s), y se comunica como una pausa del pulso de Bur, no como una mecánica.
+- **Apuntar congela el reloj del posadero, pero es un préstamo.** Mientras el dedo está en la pantalla apuntando desde un **posadero**, el temporizador anti-*camping* de 3,0 s **se detiene**: el juego pide calcular el tiro (§2.1) y sería absurdo cronometrar a quien calcula. El límite lo pone el tope de apuntado de **6,0 s** (`AIM_MAX_MS`), que **cancela** el tiro y devuelve a Bur al reposo. Y todo gesto que **termina sin disparar** —el tope, la cancelación en el radio muerto, levantar el dedo— **le devuelve al reloj el tiempo que le congeló**: solo el lanzamiento sale gratis, y el lanzamiento ya abandona la repisa. Sin esa devolución, levantar el dedo un fotograma renueva la congelación indefinidamente y acampar vuelve a ser posible (con ella, un reposo dura como mucho `REST_MAX_MS + AIM_MAX_MS`). Las superficies **impaciente** y **pegajosa** *no* congelan nada: sus relojes siguen corriendo mientras apuntas, y esa es justamente su personalidad. El drenaje pasivo de Aire por presión se congela mientras dura el reposo; es un alivio pequeño y honesto (a lo sumo 3 s de un reloj de 25 s), y se comunica como una pausa del pulso de Bur, no como una mecánica.
 - Las repisas tienen **anchura mínima 20 px y grosor mínimo 8 px**, y se marcan con una línea de brillo en su cara inferior (bioluminiscencia en zonas oscuras). Son **cuerpos sólidos por las dos caras**: una repisa ancha bloquea el descenso, y eso es material de diseño de nivel, no un accidente. Solo la cara inferior captura.
 - **Máximo 3,0 s de reposo continuado**: pasado ese tiempo, una corriente suave despega a Bur **hacia abajo, a 90 px/s** —nunca hacia arriba, que era regalar una resaca a cualquier niño que tardase tres segundos en apuntar—. El anti-*camping* empuja en la dirección del juego. En "Buceo tranquilo" el temporizador es de 6,0 s.
 - **No hay reposo en superficies laterales ni en suelos.** Tocar un suelo hacia abajo es simplemente un rebote. Esto obliga a pensar el descenso como "de techo en techo", que es la coreografía que define el juego.
@@ -156,13 +157,14 @@ Tres calidades de techo, vocabulario cerrado de *level design*: **posadero** (fi
 
 ### 2.4 Estados de fallo (ninguno es instantáneo)
 
-Regla de oro: **no existe la muerte por un error.** Todo se paga en Aire. **Hay exactamente cinco formas de perder Aire**, y esta lista es la fuente de verdad (§12.1 la cuenta):
+Regla de oro: **no existe la muerte por un error.** Todo se paga en Aire. **Hay exactamente cuatro formas de perder Aire**, más el **coste opcional del doble salto**, y esta lista es la fuente de verdad (§12.1 la cuenta):
 
 1. **Golpe de peligro** → −1 Aire, 700 ms de invulnerabilidad, destello y empujón de 120 px/s en dirección contraria.
 2. **Resaca (salir por arriba)** → si Bur asciende por encima del borde superior de la cámara, entra en resaca: 1,6 s de aviso con flecha y silbido; si no vuelve a entrar en pantalla, −1 Aire y **reaparece con velocidad 0 en el mejor anclaje disponible**, con 700 ms de invulnerabilidad. El anclaje se elige en este orden: (a) el **último techo de reposo visitado**, si sigue instanciado y cae dentro de la banda de retorno de la cámara (§4.3); (b) el **anclaje de entrada del *chunk* actual** (todo *chunk* declara uno, §11.2); (c) la **última boya de aliento** (§3.1). **Nunca se pierde profundidad conquistada**: la reaparición nunca ocurre por encima de la boya alcanzada, y `maxY` de progreso no retrocede jamás. La v1.0 prometía reaparecer en un techo que su propia cámara de trinquete dejaba fuera de pantalla y su *streaming* podía haber destruido; la cadena (a)→(b)→(c) siempre tiene respuesta, incluida la del principio de la Inmersión, cuando (a) es nulo.
-3. **Sobrecarga** → fuga de Aire mientras se mantiene pulsado más de 900 ms (1.800 ms en reposo). **Nunca quita el último pip; máximo 2 pips por mantenido.**
-4. **Presión sostenida en Z5–Z6** → −1 Aire cada 25 s sin tocar bolsa de aire. Reloj de dificultad nativo, sin temporizador visible: se comunica con el pulso visual de Bur acelerándose.
-5. **Ventilación por atrapamiento** → la Anémona Pegajosa (§5, nº 7) es el único caso: atrapa 0,8 s, y si sigues dentro a los 1,5 s ventila 1 Aire. Escapar cuesta una carga del 60% o más (≈330 ms), que cabe holgadamente en la ventana. Es una forma de perder Aire propia y por eso está en la lista.
+3. **Presión sostenida en Z5–Z6** → −1 Aire cada 25 s sin tocar bolsa de aire. Reloj de dificultad nativo, sin temporizador visible: se comunica con el pulso visual de Bur acelerándose.
+4. **Ventilación por atrapamiento** → la Anémona Pegajosa (§5, nº 7) es el único caso: atrapa 0,8 s, y si sigues dentro a los 1,5 s ventila 1 Aire. Escapar cuesta un tiro del 60% o más (42 px de arrastre), que cabe holgadamente en la ventana. **Ese tiro no es el doble salto de §2.1**: Bur atrapada está sujeta a una superficie, no a la deriva, así que su tiro sale como el del reposo —sin pip y sin gastar el doble salto—. Cobrárselo al presupuesto aéreo convertiría una anémona encontrada con el último pip en una muerte inevitable (D1 niega el lanzamiento aéreo justo ahí), que es lo contrario de "recurso, no muerte". Es una forma de perder Aire propia y por eso está en la lista.
+
+**Y un gasto que no es un fallo: el doble salto** (§2.1). El único lanzamiento aéreo de cada fase cuesta **1 pip** (`AIR_LAUNCH_COST`), **nunca está disponible con el último pip** y siempre lo decide el jugador. No entra en la lista de "formas de perder Aire" porque no es un error: es una compra. La v1.1 tenía aquí la **sobrecarga**, que castigaba mantener el dedo demasiado tiempo; con el tirachinas de §2.1 ese castigo desaparece del juego entero.
 
 **Aire = 0** → Bur **se deshincha**: suelta 14 burbujitas que ascienden, ralentización a 0,35× durante 500 ms, y a los **700 ms** aparece la pantalla de fin, sobre la misma escena y sin ninguna carga. **Sin sangre, sin grito, sin pantalla roja.** Con "Otra vez" bajo el pulgar se vuelve a jugar en **menos de 0,8 s desde el toque**, y se reaparece **en la última boya de aliento o estación alcanzada** (§3.1), nunca al principio de la Inmersión. **Coste real de un fallo: 18–32 s**, por debajo del pilar 3 y medible con cronómetro.
 
@@ -188,14 +190,14 @@ Cada zona reduce el radio de Bur. Radio base **7 px**.
 La presión es **ambivalente a propósito**, nunca un simple castigo:
 
 - **Ventaja**: *hitbox* más pequeña → pasas por huecos imposibles arriba. La Zona 6 es un laberinto de rendijas que *exige* estar comprimido. El sistema que te encogió es el que te salva.
-- **Desventaja**: el impulso efectivo escala con el radio — `impulso_real = impulso × (radio/7)^0,35` — así que **al 55% del radio, una carga máxima da 350 px/s, que es lo mismo que una carga del 70% en superficie (346 px/s)**. Ese es exactamente el trato: en la fosa trabajas al límite para conseguir lo que arriba te salía sin pensar. (El exponente **0,35** sustituye al 0,5 de la v1.0, con el que la frase anterior era falsa: a plena carga en Z6 se conseguía *menos* que con un tiro perezoso de superficie, y el alcance por tiro se hundía justo en la zona más larga del juego.)
+- **Desventaja**: el impulso efectivo escala con el radio — `impulso_real = impulso × (radio/7)^0,35` — así que **al 55% del radio, un tirachinas completo (70 px) da 227 px/s, lo mismo que un arrastre de 50 px en superficie (226 px/s)**. Ese es exactamente el trato: en la fosa estiras la goma entera para conseguir lo que arriba te salía con dos tercios del recorrido. (El exponente **0,35** sustituye al 0,5 de la v1.0, con el que la frase anterior era falsa: a plena potencia en Z6 se conseguía *menos* que con un tiro perezoso de superficie, y el alcance por tiro se hundía justo en la zona más larga del juego.)
 - **Capacidad de Aire.** La capacidad visible baja un pip cada dos zonas según la tabla; los pips sobrantes se dibujan atenuados. **El recorte de capacidad se aplica siempre dentro de una estación de descanso, y la estación recarga al nuevo máximo**: nunca se pierde un pip que estuvieras usando, ni a mitad de Inmersión. Reinflar devuelve **radio, no capacidad**. Las mejoras de Capacidad de Aire suman sobre el máximo de la zona, no sobre el máximo base. El ratio oferta/demanda de 0,95 en Z5–Z6 (§4.2) se calcula contra la capacidad **de la zona** (6), no contra el 8 base.
 - **El verbo de la Zona 3, "reinflar"** (reventar una bolsa de aire grande), devuelve un escalón de tamaño durante **12 s**. En Z6 eso se invierte: **reinflar te impide pasar por las rendijas.** Un mismo objeto es premio arriba y trampa abajo, sin una línea de código nueva. Y por eso mismo el radio **solo** depende de la zona y del reinflado temporal: **nada comprable lo toca** (§6.2). Una compra permanente de radio sería un reinflado irreversible, es decir, un objeto de tienda que bloquea la zona final.
 - **Suelo de legibilidad**: aunque el cuerpo encoja, Bur conserva siempre un contorno de 1 px y un aura luminosa que **crece** al menguar. La silueta total nunca baja de 8 px.
 
 ### 2.7 La ayuda de puntería también es un recurso
 
-Mientras se carga aparece una **trayectoria punteada de N puntos**, con N descendiendo de 6 a 2 según la tabla anterior. No es una decisión estética: **es cómo sube la dificultad sin tocar la física.** El jugador aprende a predecir el arco en las zonas fáciles y el andamio se retira poco a poco. La trayectoria es **exacta hasta el primer rebote y difusa después** (los puntos se separan): enseña "la física es predecible" sin regalar la solución. Que el impulso sustituya la velocidad (§2.2) es lo que permite que sea exacta.
+Mientras se apunta aparece una **trayectoria punteada de N puntos**, con N descendiendo de 6 a 2 según la tabla anterior. No es una decisión estética: **es cómo sube la dificultad sin tocar la física.** El jugador aprende a predecir el arco en las zonas fáciles y el andamio se retira poco a poco. **Los puntos se dibujan siempre con la separación de la zona más rica (6), no repartidos a lo largo de todo el arco**: por eso Z1 ve el arco entero —el último punto *es* el sitio donde se posa— y Z6 ve solo el primer tercio. Repartir N puntos sobre el arco completo conservaría el punto de llegada en todas las zonas, es decir, la respuesta, y la rampa no retiraría nada. La trayectoria es **exacta hasta el primer rebote y difusa después** (los puntos se separan): enseña "la física es predecible" sin regalar la solución. Que el impulso sustituya la velocidad (§2.2) es lo que permite que sea exacta. **Desde la v1.2 este andamio pesa más que nunca**: como ya no se corrige en el aire salvo con el doble salto (§2.1), la trayectoria es la herramienta principal para calcular el tiro, y su recorte por zona (6 → 2 puntos) es la rampa de dificultad del juego.
 
 **Modo asistido "trayectoria completa"** (§8): dibuja el arco continuo hasta el primer rebote en todas las zonas. Para que la rampa de §2.7 no desaparezca del todo, el modo asistido **sigue sin dibujar el efecto de los campos de fuerza ni nada posterior al primer rebote**: la lectura de corrientes, fumarolas y encadenados —que es lo que de verdad se endurece de Z3 a Z6— se sigue aprendiendo. Es una ayuda de ejecución, no una solución.
 
@@ -228,10 +230,10 @@ Las profundidades comprimen la escala real pero respetan el orden y el carácter
 
 | # | Zona | Profundidad | Inmersiones | Paleta y mood | Truco visual | **Verbo nuevo** | Criaturas clave | Jefe / entrega |
 |---|---|---|---|---|---|---|---|---|
-| 1 | **Superficie** | 0–200 m | 2 | Cian, turquesa, blanco espuma, sol amarillo. Alegre | *God rays* animados, oleaje visible en el borde superior | **Cargar, soltar y reposar bajo el techo** | Peces payaso, tortuga paseante, medusa farolillo, alga cinta | **Don Hinchón**, pez globo miedoso que tapona el desfiladero. No se derrota: se le hace reír rebotando en sus tres cosquillas |
+| 1 | **Superficie** | 0–200 m | 2 | Cian, turquesa, blanco espuma, sol amarillo. Alegre | *God rays* animados, oleaje visible en el borde superior | **Tirar, soltar y reposar bajo el techo** | Peces payaso, tortuga paseante, medusa farolillo, alga cinta | **Don Hinchón**, pez globo miedoso que tapona el desfiladero. No se derrota: se le hace reír rebotando en sus tres cosquillas |
 | 2 | **Borde de arrecife** | 200–600 m | 3 | Turquesa oscuro + acento coral naranja. Vibrante, ya con penumbra | Pared de arrecife en primer plano con *parallax* fuerte | **Leer y usar las corrientes** | Erizo coralino, anémona pegajosa, pulpo camuflado, almeja portón | **Pulpa, Guardiana del Arrecife**: tres brazos abren y cierran tres puertas en ciclo de 2 s. Se le devuelve una perla que perdió |
 | 3 | **Crepuscular** | 600–1.800 m | 3 | Azul-violeta desaturado + puntos bio cian. Misterio | La luz ambiente deja de bastar: viñeta oscura suave | **Reinflar** (bolsas grandes) y plataformas vivas en migración | Banco migratorio, pez linterna señuelo, medusa fría | **Kalamar**, calamar juvenil curioso que quiere jugar. Sus brazos son techos móviles: es un puzle de movimiento, no un combate |
-| 4 | **Medianoche** | 1.800–4.000 m | 3 | Negro azulado, **un solo color de acento por escena** | Oscuridad real: fuera del radio de luz la geometría no se dibuja | **Anclarse a la luz** (cargar ilumina) | Rape farolero, nieve marina, burbuja de metano | **Farola**, rape gigante que ha olvidado su luz. Se le devuelve una chispa; a cambio ilumina el cañón a ráfagas de 1,5 s |
+| 4 | **Medianoche** | 1.800–4.000 m | 3 | Negro azulado, **un solo color de acento por escena** | Oscuridad real: fuera del radio de luz la geometría no se dibuja | **Anclarse a la luz** (el tiro a plena potencia ilumina) | Rape farolero, nieve marina, burbuja de metano | **Farola**, rape gigante que ha olvidado su luz. Se le devuelve una chispa; a cambio ilumina el cañón a ráfagas de 1,5 s |
 | 5 | **Abisal** | 4.000–6.500 m | 3 | Gris-azul casi monocromo + naranjas cálidos en las fumarolas | Llanura vacía y solemne, nieve marina densa cayendo | **Cabalgar la fumarola** (el primer momento en que subir es correcto: la cámara abre su ventana de ascenso, §4.3) | Gusanos tubícolas, isópodo rodante, charcas de salmuera | **Tenaza**, cangrejo guardián del respiradero: pinzas que barren como muros móviles cada 3 s. Detrás, la **ballena caída** |
 | 6 | **Fosa hadal** | 6.500–10.935 m | 4 | Negro casi puro + un único dorado reservado a la meta | Paredes de fosa visibles y estrechas a ambos lados | **Encadenar rebotes de pared** | Anfípodo gigante, muro de presión, fauna endémica | **Ámbar y el Guardián de la Fosa**: no hay combate, hay una entrega. Fin de campaña |
 
@@ -254,9 +256,10 @@ Entre Inmersiones hay siempre una estación ocupando toda la anchura y **el sext
 
 **Ni 100% procedural ni 100% artesanal.** Modelo *Spelunky*: biblioteca de piezas hechas a mano, ensamblaje por reglas.
 
-- Un **chunk** mide **180 × 240 px** (0,75 pantallas). **Su esquema es exactamente el `Chunk` de §11.2 y no hay ningún otro**: `id`, `zone`, `difficulty 1–5`, `verbs[]`, `entry/exit: 'L'|'C'|'R'`, `entryAnchorId`, `exitAnchorId`, `airBudget`, `targetTimeS`, `tags[]`, `entities[]`. Las bolsas de aire y las perlas **son entidades** dentro de `entities[]`, no campos propios; el presupuesto de aire que lee la regla §11.5.7 es `airBudget`. (La v1.0 declaraba dos esquemas distintos en §4.1 y §11.2; manda este.)
+- Un **chunk** mide **540 × 240 px**: **tres ventanas de ancho** (§11.1) por 0,75 pantallas de alto. **Su esquema es exactamente el `Chunk` de §11.2 y no hay ningún otro**: `id`, `zone`, `difficulty 1–5`, `verbs[]`, `entryAnchorId`, `exitAnchorId`, `airBudget`, `targetTimeS`, `tags[]`, `entities[]`. **Ya no hay carriles `L/C/R` ni "boca de entrada"** (v1.2, D3): la continuidad entre chunks la garantiza únicamente la regla de alcance 2D entre anclajes (§11.5.11). Un chunk puede declarar varios anclajes de salida candidatos, pero el validador certifica al menos la ruta declarada. Las bolsas de aire y las perlas **son entidades** dentro de `entities[]`, no campos propios; el presupuesto de aire que lee la regla §11.5.7 es `airBudget`.
+- **3–5 anclajes de reposo por chunk** (v1.2, D4), en vez de los 1–2 de la v1.1: con 540 px de ancho y un tiro que ya no cruza un chunk entero (§2.2), cada pantalla ofrece varias rutas. Repisas **más y más cortas** (24–48 px), más rebotes y más decisiones por pantalla.
 - **Biblioteca objetivo: 24 chunks por zona (144 en total).** Con **histograma de dificultad obligatorio**: al menos **4 chunks de cada nivel 1–5 por zona**. Sin ese histograma el selector se queda sin candidatos legales, que es lo que le pasaba a la v1.0.
-- El generador encadena chunks respetando el carril (§11.5.1), la **regla de alcance vertical** (§11.5.11) y la anti-repetición, con un **orden de relajación explícito** cuando no hay candidatos (§11.5.12): nunca se bloquea.
+- El generador encadena chunks respetando la **continuidad por anclajes** (§11.5.1), la **regla de alcance 2D** (§11.5.11) y la anti-repetición, con un **orden de relajación explícito** cuando no hay candidatos (§11.5.12): nunca se bloquea.
 - **Artesanales obligatorios**, nunca procedurales: el primer chunk de cada zona (tutorial aislado del verbo), el chunk de jefe, la estación de descanso y **los tres primeros chunks de la partida** (la primera impresión no se deja al azar).
 - **Inmersiones 1–8 (zonas 1 y 2 y la primera de Z3): secuencia fija a mano.** Ahí se gana el D1. **De la 9 en adelante, ensamblaje procedural** con **semilla fija por Inmersión**: todos los jugadores juegan la misma Inmersión 12, lo que permite depurarla y hablar de ella. Esa promesa exige determinismo entre dispositivos, y por eso la simulación vive en `packages/core` con paso fijo y aritmética propia, no en un motor de terceros (§11 y §10.3).
 - **Consecuencia de alcance:** el ensamblador procedural **no entra en el MVP**, porque en el MVP no se juega ni una sola Inmersión procedural (§12.1). Lo que sí entra es el **validador**: las mismas reglas de §11.5 ejecutadas sobre las secuencias escritas a mano, en test. El generador que las consume se construye en H3, cuando hay contenido que generar.
@@ -293,7 +296,8 @@ La v1.0 tenía una cámara que **jamás** retrocedía. Era incompatible con medi
 - **Zona muerta**: Bur se mantiene entre el **34% y el 56%** de la altura de pantalla. Dentro de esa banda la cámara no se mueve. El anclaje alto deja más mundo visible por debajo, que es hacia donde el jugador apunta.
 - **Resaca**: si Bur sube por encima del borde superior con la cámara **ya tocando su límite de retorno** y sin `ASCENSO` activo, empieza la resaca (§2.4). Así el aviso solo aparece cuando de verdad te estás yendo del nivel.
 - Si Bur desciende más rápido que la cámara, el cap de 520 px/s más un `lerp` acelerado (hasta 0,34 cuando la distancia supera 90 px) evitan que salga por abajo. **Caso extremo** (salida de fumarola, rebote encadenado o corriente descendente de Z6): si `|vel.y| > 420 px/s` en cualquiera de los dos sentidos, 200 ms de *zoom-out* del 8%.
-- **En X no hay scroll**: el mundo mide exactamente 180 px de ancho, con paredes laterales sólidas en todas las zonas (decorativas y difusas en Z1–Z3; el propio nivel en Z6).
+- **En X sí hay scroll (v1.2, D3).** El mundo mide **540 px de ancho** (`WORLD_W`) y la ventana **180** (`VIEW_W`): la cámara sigue a Bur también en horizontal, con **zona muerta `CAM_DEADZONE_X = [0,35 · 0,65]`** del ancho visible —dentro de esa banda no se mueve— y **recorte duro a `[0, WORLD_W − VIEW_W] = [0, 360]`**, de modo que nunca se ve fuera del mundo. En X no hay trinquete: la vista va y vuelve libremente, porque explorar de lado es el punto. Paredes laterales **sólidas** en `x < 0` y `x > 540` en todas las zonas (arrecife decorativo en Z1–Z3, pared de fosa en Z6).
+- **Referencia de sensación: *Hungry Shark*.** Agua abierta con estructuras dispersas, coleccionables que invitan a desviarse en lateral y el descenso como objetivo de fondo. El **tercio inferior de la pantalla sigue despejado** para el pulgar (§8), y con el tirachinas de §2.1 —que se puede iniciar en cualquier punto— toda la dirección es alcanzable desde ahí.
 - **Corriente mínima**: desde la Zona 3, la cámara desciende sola a **8 px/s** como mínimo. No es una persecución: es una presión constante que impide el *camping* sin generar prisa. **Se suspende mientras `ASCENSO` está activo** (si no, la fumarola competiría contra la propia cámara).
 - El *streaming* mantiene instanciados los chunks que la banda de retorno puede mostrar (§11.5.10): con retorno abierto, hasta **5**. Que la reaparición pudiera caer en un chunk ya destruido era otro fallo de la v1.0.
 
@@ -305,29 +309,29 @@ Todo es fauna, nunca maldad. **Ninguna entrada inflige más de 1 Aire por contac
 
 | # | Nombre | Zona | Comportamiento | Cómo se contrarresta |
 |---|---|---|---|---|
-| 1 | **Medusa Farolillo** | Z1+ | **Techo no capturable** con restitución 0,92: se coloca siempre como cara inferior, de modo que Bur la golpea **subiendo** y sale **disparada hacia abajo**. Tras el rebote se desinfla 600 ms y Bur la atraviesa | Aliado disfrazado de peligro y **primera lección del juego, en la dirección correcta**: convierte tu ascenso inevitable en descenso gratis sin gastar carga. No se puede reposar en ella (por eso no hay castañeo ni Aire gratis) |
+| 1 | **Medusa Farolillo** | Z1+ | **Techo no capturable** con restitución 0,92: se coloca siempre como cara inferior, de modo que Bur la golpea **subiendo** y sale **disparada hacia abajo**. Tras el rebote se desinfla 600 ms y Bur la atraviesa | Aliado disfrazado de peligro y **primera lección del juego, en la dirección correcta**: convierte tu ascenso inevitable en descenso gratis sin gastar un tiro. No se puede reposar en ella (por eso no hay castañeo ni Aire gratis) |
 | 2 | **Alga Cinta** | Z1–Z2 | Techo blando, absorbe el 82% de la velocidad | Superficie de reposo segura, pero te frena |
 | 3 | **Tortuga Paseante** | Z1 | Techo móvil lento (25 px/s lateral) | Reposar encima y dejar que te coloque: viaje gratis |
 | 4 | **Banco de Peces Payaso** | Z1 | Cruza en horizontal y se aparta al acercarte | Decorativo y vivo; atravesarlo da 1 perla |
-| 5 | **Don Hinchón** | Z1 (jefe) | Se infla cada 3 s y empuja radialmente 200 px/s | Cargar en su ventana desinflada de 1,2 s. No se derrota: se le hace reír |
+| 5 | **Don Hinchón** | Z1 (jefe) | Se infla cada 3 s y empuja radialmente 200 px/s | Tirar desde el reposo en su ventana desinflada de 1,2 s. No se derrota: se le hace reír |
 | 6 | **Erizo Coralino** | Z2+ | Estático sobre repisas, −1 Aire | Nunca se mueve: es puntería pura. Su naranja rompe la paleta a propósito |
-| 7 | **Anémona Pegajosa** | Z2 | Atrapa 0,8 s; si sigues dentro a los 1,5 s, ventila 1 Aire (es la quinta forma de perder Aire, §2.4) | Escapar cuesta una carga del 60% (≈330 ms), que cabe de sobra en la ventana de 1,5 s: recurso, no muerte |
+| 7 | **Anémona Pegajosa** | Z2 | Atrapa 0,8 s; si sigues dentro a los 1,5 s, ventila 1 Aire (es la cuarta forma de perder Aire, §2.4) | Escapar cuesta un tiro del 60% (42 px de arrastre), que cabe de sobra en la ventana de 1,5 s, y **no gasta el doble salto ni un pip** (§2.4.5): recurso, no muerte, también con el último pip |
 | 8 | **Corriente de Arrecife** | Z2+ | Banda horizontal ±90 px/s, visible como partículas | Lanzarse contra ella, o cabalgarla para alargar el tiro gratis |
 | 9 | **Pulpo Camuflado** | Z2 | Parece repisa; a los 0,5 s de reposo te desplaza suave | No quedarse quieto. Parpadea 0,4 s antes: enseña a mirar antes de saltar |
-| 10 | **Almeja Portón** | Z2 | Abre y cierra con ciclo de 2 s; al cerrarse **te escupe en lateral hacia el carril contiguo**, nunca hacia arriba | *Timing* puro; un chirrido avisa 0,5 s antes. Fallar cuesta posición, no altura |
+| 10 | **Almeja Portón** | Z2 | Abre y cierra con ciclo de 2 s; al cerrarse **te escupe en lateral, hacia el hueco contiguo**, nunca hacia arriba | *Timing* puro; un chirrido avisa 0,5 s antes. Fallar cuesta posición, no altura |
 | 11 | **Pulpa, Guardiana del Arrecife** | Z2 (jefe) | Tres brazos abren y cierran tres puertas, ciclo 2 s | Ritmo: entrar en el compás correcto. Se resuelve devolviéndole su perla |
-| 12 | **Banco Migratorio** | Z3+ | Muro de peces que asciende; ralentiza un 60% y **arrastra en lateral** (el banco cruza, no eleva) | Esperar el hueco, o atravesarlo con carga máxima, o dejarse llevar en lateral para cambiar de carril gratis |
+| 12 | **Banco Migratorio** | Z3+ | Muro de peces que asciende; ralentiza un 60% y **arrastra en lateral** (el banco cruza, no eleva) | Esperar el hueco, o atravesarlo a plena potencia, o dejarse llevar en lateral para recorrer mundo gratis |
 | 13 | **Pez Linterna Señuelo** | Z3+ | Finge ser repisa luminosa y desaparece al acercarte | *Tell* legible: las repisas reales pulsan a 1 Hz, los señuelos a 3 Hz |
-| 14 | **Medusa Fría** | Z3+ | Campo frío: −25% de potencia de carga durante 2 s | Cargar antes de entrar, o rodearla |
+| 14 | **Medusa Fría** | Z3+ | Campo frío: −25% de potencia de tiro durante 2 s | Tirar antes de entrar, o rodearla |
 | 15 | **Bolsa de Aire Grande** | Z3+ | Reventable: reinfla un escalón de tamaño durante 12 s | Premio en Z3–Z5; **trampa en Z6**, donde el tamaño impide pasar las rendijas |
 | 16 | **Kalamar** | Z3 (jefe) | Curioso, sigue a Bur; sus brazos son techos móviles | No hace daño: es un puzle de movimiento |
-| 17 | **Oscuridad** | Z4+ | Sistema: fuera del radio de luz la geometría no se dibuja | Cargar al 100% ilumina 14 px durante el vuelo |
+| 17 | **Oscuridad** | Z4+ | Sistema: fuera del radio de luz la geometría no se dibuja | Un tiro al 100% ilumina 14 px durante el vuelo |
 | 18 | **Rape Farolero** | Z4 | Patrulla lenta; su linterna revela 40 px | Orbitar la luz sin tocar el cuerpo (−1 Aire). Peligro y herramienta a la vez |
 | 19 | **Nieve Marina** | Z4–Z5 | Grumos que caen; techos temporales que se disuelven en 2,5 s | Usarlos rápido; encadenar antes de que se deshagan |
 | 20 | **Burbuja de Metano** | Z4–Z5 | Asciende rápido desde el fondo; empuje de ~2 pantallas. **Abre la ventana de ascenso de la cámara** (§4.3): mientras dura, la vista te sigue y la resaca está suspendida | Esquivarla, o usarla a propósito para alcanzar un tesoro elevado. Es uno de los dos únicos empujes hacia arriba del juego, y es seguro por diseño |
 | 21 | **Fumarola Hidrotermal** | Z5+ | Columna ascendente +500 px/s; núcleo caliente de 12 px = −1 Aire. **Abre la ventana de ascenso** (§4.3) mientras la cabalgas y 2 s después | Cabalgar el borde para alcanzar rutas laterales que saltan un tramo entero. Al salir se llega a los techos por encima de 260 px/s: se rebota, no se reposa (§2.3), y ahí está la habilidad |
 | 22 | **Charca de Salmuera** | Z5 | Flotabilidad 0, impulso al 40%, hundimiento a 60 px/s | Entrar con velocidad acumulada; sus orillas concentran burbujitas |
-| 23 | **Isópodo Rodante** | Z5 | Se enrosca y rueda por el suelo; empuja **en la dirección en que rueda**, no daña | Golpearlo de costado conserva casi todo tu horizontal y te lanza en lateral hacia el siguiente carril: velocidad gratis sin perder profundidad |
+| 23 | **Isópodo Rodante** | Z5 | Se enrosca y rueda por el suelo; empuja **en la dirección en que rueda**, no daña | Golpearlo de costado conserva casi todo tu horizontal y te lanza en lateral hacia el siguiente anclaje: velocidad gratis sin perder profundidad |
 | 24 | **Tenaza, Cangrejo Guardián** | Z5 (jefe) | Pinzas que barren como muros móviles cada 3 s | Reposar entre barridos; ventanas de 1,4 s |
 | 25 | **Anfípodo Gigante / Muro de Presión** | Z6 | Salta de pared a pared y bloquea el corredor 1 s; las paredes se estrechan y tienen restitución **0,85** | Encadenar rebotes al ritmo de sus saltos: con la amortiguación horizontal a 0,30 /s y esa restitución, el horizontal aguanta el encadenado (§2.2). El paso solo cabe si Bur es pequeña, y por eso **nada comprable agranda a Bur** (§6.2) |
 
@@ -406,16 +410,16 @@ Sección nueva. La v1.0 declaraba cumplimiento sin especificar ni una sola pieza
 
 El juice es capa de producto, no decoración. Mínimos exigibles para considerar "hecho" el core:
 
-- **Squash al cargar**: escala vertical 1,00 → 0,78 y horizontal → 1,22 a lo largo de los 550 ms, con oscilación senoidal de 12 Hz y amplitud del 3% (la burbuja vibra de tensión). Los ojos se desplazan hacia la dirección de tiro.
-- **Anticipación**: 3 burbujitas orbitan a Bur mientras carga, más rápido cuanta más carga.
+- **Squash al tirar**: escala vertical 1,00 → 0,78 y horizontal → 1,22 mapeadas a la potencia del arrastre (0 → 70 px), con oscilación senoidal de 12 Hz y amplitud del 3% (la burbuja vibra de tensión). Los ojos se desplazan hacia la dirección de tiro.
+- **Anticipación**: 3 burbujitas orbitan a Bur mientras se apunta, más rápido cuanta más potencia.
 - **Stretch al soltar**: 1,35 en el eje de vuelo durante 120 ms, con vuelta en `easeOutElastic`.
 - **Impacto**: aplastamiento a 0,70 en el eje de colisión durante 90 ms + rotación amortiguada de ±8°.
 - **Partículas**: 6–10 microburbujas al soltar (en la cola), 12 al impactar, 14 al hacer *pop*; capa ambiental de nieve marina desde Z4 (120 partículas, *parallax* 0,3, delante de todo).
 - **Screen shake**: **solo** en impactos > 400 px/s (2 px, 120 ms) y en puertas de jefe (4 px, 200 ms). **Cero shake al perder Aire** (agita a los jugadores pequeños): ahí se usa un *zoom punch* de 1,02× durante 100 ms.
 - **Hitstop**: 40 ms al perder Aire, 90 ms al hacer *pop*.
-- **Cámara**: *lookahead* de 20 px en la dirección del impulso con `lerp 0,12`; *zoom-out* del 5% mientras se carga al máximo (comunica ambición).
-- **Sonido**: carga = "glub" ascendente de 200 → 600 Hz mapeado a la potencia (**el oído sabe cuánto llevas sin mirar**); soltar = *pop* con *pitch* inverso a la potencia; rebote = 3 muestras por material con *pitch* según velocidad de impacto y ±8% aleatorio; coleccionable = nota de una escala pentatónica que asciende con la cadena de rebotes; ambiente por zona con filtro paso-bajo que baja de 12 kHz a 800 Hz de Z1 a Z6 (**la profundidad se oye**); la música del menú gana un instrumento por cada Postal conseguida.
-- **Háptica** (Capacitor Haptics): `light` al soltar y al alcanzar el 100% de carga, `medium` al perder Aire, `heavy` solo en jefes. Desactivable; apagada por defecto en tablets.
+- **Cámara**: *lookahead* de 20 px en la dirección del impulso con `lerp 0,12`; *zoom-out* del 5% con la goma estirada al máximo (comunica ambición).
+- **Sonido**: tensar = "glub" ascendente de 200 → 600 Hz mapeado a la potencia del arrastre (**el oído sabe cuánto llevas sin mirar**), y un "clic" seco al entrar en el radio de cancelación; soltar = *pop* con *pitch* inverso a la potencia; rebote = 3 muestras por material con *pitch* según velocidad de impacto y ±8% aleatorio; coleccionable = nota de una escala pentatónica que asciende con la cadena de rebotes; ambiente por zona con filtro paso-bajo que baja de 12 kHz a 800 Hz de Z1 a Z6 (**la profundidad se oye**); la música del menú gana un instrumento por cada Postal conseguida.
+- **Háptica** (Capacitor Haptics): `light` al soltar y al alcanzar el 100% de potencia, `medium` al perder Aire, `heavy` solo en jefes. Desactivable; apagada por defecto en tablets.
 - **Regla de oro del juice**: ningún efecto puede tapar la trayectoria punteada ni los pips de Aire.
 
 ---
@@ -424,7 +428,7 @@ El juice es capa de producto, no decoración. Mínimos exigibles para considerar
 
 **Escalado (decisión revisada).** `pixelArt: true`, `roundPixels: true`, sin *anti-aliasing*. La v1.0 pedía a la vez `Scale.FIT` y "escalado entero": son incompatibles —FIT escala por un factor fraccionario y `autoRound` solo redondea a píxeles de dispositivo—, y en un 1284 × 2778 daba 7,13×, con muestreo no entero y parpadeo en un juego cuyo argumento de legibilidad es el vecino más próximo. Regla nueva:
 
-- **Anchura fija de 180 px de diseño; altura elástica.** El zoom es **`floor(anchoDispositivo / 180)`**, siempre entero. La altura visible resultante (`alto / zoom`, redondeada hacia abajo) se sitúa entre **320 y 420 px de diseño**: en pantallas altas **se ve más mundo por abajo**, nunca menos, lo cual encaja con el juego (se apunta hacia abajo). Modo Phaser: `Scale.RESIZE` con la cámara fijada a esos 180 px de ancho.
+- **Ventana fija de 180 px de diseño; altura elástica.** El zoom es **`floor(anchoDispositivo / 180)`**, siempre entero. La altura visible resultante (`alto / zoom`, redondeada hacia abajo) se sitúa entre **320 y 420 px de diseño**: en pantallas altas **se ve más mundo por abajo**, nunca menos, lo cual encaja con el juego (se apunta hacia abajo). Modo Phaser: `Scale.RESIZE` con la cámara fijada a esos 180 px de ancho. El **mundo** mide 540 px: la ventana es un tercio de él y se desplaza en X (§4.3).
 - **Nada de diseño depende de la altura exacta.** Toda la maquetación del HUD y todas las constantes de cámara están en fracciones de `H` (la altura visible real), no en píxeles absolutos. `H` se recalcula al rotar o al cambiar de tamaño.
 - **Bandas de seguridad.** El HUD se coloca dentro de `env(safe-area-inset-*)`: nunca bajo la muesca, la cámara frontal ni la barra de estado. Si los insets superiores comen más del 12% de la altura, el HUD baja y el mundo se recorta por arriba, nunca al revés.
 - **Bloqueo de orientación en *portrait*** y **pausa automática al perder el foco** (`blur`, llamada entrante, cambio de app), con reanudación por toque.
@@ -434,24 +438,24 @@ El juice es capa de producto, no decoración. Mínimos exigibles para considerar
   - **Arriba-izquierda**: pips de Aire, burbujitas de 6 × 6 px. Los pips bloqueados por presión se dibujan atenuados (§2.6).
   - **Arriba-derecha**: medidor de profundidad como cinta vertical de 8 px de ancho con marcas de zona y un pez-marcador que baja, más la cifra en metros y, en gris, una raya con el récord (una raya, no un número que compita).
   - **Arriba-centro**: pausa. Icono de 10 px, **área táctil real de 44 pt**.
-  - **Tercio inferior siempre despejado**: ahí vive el pulgar, y con la ganancia angular de §2.1 el cono completo se alcanza desde ahí.
+  - **Tercio inferior siempre despejado**: ahí vive el pulgar. Como el tirachinas de §2.1 se ancla **donde toques**, todo el cono de 90° se alcanza desde esa banda sin estirar la mano ni tapar a Bur.
 - **Cifra de profundidad: legible y localizada.** Formato con `Intl.NumberFormat` de la locale activa (`10.935 m` en ES/PT/DE, `10,935 m` en EN, `10 935 m` en FR): la cifra de la v1.0 se leía como "diez coma nueve metros" para un angloparlante. Además, como la escala metros/píxel varía 11× entre zonas (§11.1), **el contador se suaviza**: interpola hacia el valor real con un tope de **9 m por *frame***, de modo que en Z6 no salta a saltos ilegibles. La cinta lateral interpola por zona y muestra las marcas de zona como referencia estable.
-- **Indicador de carga (tres canales redundantes para el mismo dato):** el cuerpo de Bur (squash), un **anillo que se rellena de 0 a 360°** a su alrededor, y la trayectoria punteada. El grosor del anillo muestra el ajuste fino por arrastre (±15%). El anillo pasa a ámbar palpitante al entrar en sobrecarga y **parpadea en rojo suave cuando queda un solo pip, momento en que la sobrecarga deja de drenar** (§2.2). Más el tono de audio afinado del §7.
+- **Indicador del tirachinas (tres canales redundantes para el mismo dato):** (1) una **banda elástica** dibujada del `aimOrigin` al dedo, que es el gesto mismo hecho imagen; (2) un **anillo de potencia** alrededor de Bur que se rellena de 0 a 360° con `p = |d| / 70`; y (3) la **trayectoria punteada** del tiro que saldría. Dentro del radio de cancelación (12 px) la banda no se dibuja, el anillo se muestra **vacío y atenuado** y no hay trayectoria: se ve que ahí no hay tiro. Si el arrastre pide subir, la guía y el anillo pasan a **ámbar** para avisar de que la dirección se ha recortado a la horizontal. El anillo **parpadea en rojo suave cuando queda un solo pip**, momento en que el doble salto deja de estar disponible (§2.1). Más el tono de audio afinado del §7.
 - **Colores de UI reservados**: blanco puro, ámbar y el cian de interfaz **no aparecen jamás en el mundo**. La interfaz se lee aunque el fondo sea negro.
-- **Tutorial de primera partida (< 25 s, diegético, sin una sola palabra):** (1) Bur sube sola y se queda quieta bajo un techo de espuma; el jugador toca por instinto (paso mudo por el desbloqueo de audio de iOS: todo se cuenta con movimiento). (2) Una mano fantasma mantiene **medio segundo** y suelta; el arco punteado aparece exagerado. La mano **nunca mantiene más de 700 ms**, para no enseñar el gesto que provoca sobrecarga. (3) Un único posadero al que es imposible no llegar. (4) La primera burbujita de aire brillando. (5) Tortu asoma y el juego empieza. Sin modales, sin "OK". Se salta con un toque y no vuelve a aparecer.
+- **Tutorial de primera partida (< 25 s, diegético, sin una sola palabra):** (1) Bur sube sola y se queda quieta bajo un techo de espuma; el jugador toca por instinto (paso mudo por el desbloqueo de audio de iOS: todo se cuenta con movimiento). (2) Una mano fantasma **arrastra hacia arriba unos 45 px y suelta**; la banda elástica se tensa y el arco punteado aparece exagerado hacia abajo. La mano **enseña también una cancelación**: un segundo arrastre vuelve al origen y no pasa nada, para que el niño descubra que probar es gratis. (3) Un único posadero al que es imposible no llegar. (4) La primera burbujita de aire brillando. (5) Tortu asoma y el juego empieza. Sin modales, sin "OK". Se salta con un toque y no vuelve a aparecer.
 - **Fin de Inmersión (< 2,5 s si el jugador machaca el botón):** profundidad, 3 conchas animándose una a una, perlas, y un botón gigante **"Seguir bajando"** bajo el pulgar. A su izquierda, el hueco secundario maquetado de "Perlas dobles".
 - **Fin por fallo:** aparece **700 ms** después del deshinchado, sobre la misma escena y sin carga; el mismo layout, **"Otra vez"** gigante, **reinicio en < 0,8 s medidos desde el toque**. El hueco de "Segundo aliento" existe en el layout desde la v1 y solo se muestra a partir del cuarto fallo de la misma Inmersión (§6.5).
 - **Pausa:** congelación con desenfoque y 4 opciones grandes: Seguir, Reiniciar Inmersión, Sonido, Salir. Sin anuncios, sin tienda.
 - **Accesibilidad:**
   - modo "sin temblor";
   - modo **"trayectoria asistida"** (arco completo hasta el primer rebote en todas las zonas; no penaliza en Expedición; conserva la rampa porque sigue sin dibujar campos de fuerza ni nada posterior al primer rebote, §2.7);
-  - **"carga lenta"** (×1,6), sugerida automáticamente tras 5 fallos seguidos: **escala con el mismo factor todos los tiempos del gesto** —`CHARGE_FULL_MS` 550 → 880, `OVERCHARGE_MS` 900 → 1.440 (y 1.800 → 2.880 en reposo), `OVERCHARGE_DRAIN_MS` 500 → 800, suelta automática 2.500 → 4.000—. Escalar solo la carga, como hacía la v1.0, dejaba 20 ms entre potencia máxima y pérdida de aire: el modo pensado para quien más lo necesita era el más duro del juego;
+  - **"tirachinas largo"** (`LONG_SLING_MUL = 1,5`: `PULL_MAX_PX` 70 → **105 px**), sugerido automáticamente tras 5 fallos seguidos. Sustituye a la "carga lenta" de la v1.1, que dejó de tener sentido en cuanto la potencia pasó a ser distancia y no tiempo: aquí **la misma potencia se reparte en un recorrido 1,5× mayor**, de modo que cada muesca de potencia exige un arrastre más largo y, por tanto, más preciso. Es la única constante del gesto que toca: el radio de cancelación, el cono y el tope de apuntado son los mismos para todo el mundo;
   - peligros distinguibles por silueta y patrón además de por color; texto ×1,5; todas las señales críticas duplicadas en audio y vídeo.
 - **Dificultad elegible**, nunca llamada fácil/difícil: **"Buceo tranquilo"** (reposo de 6,0 s, gracia de resaca ×1,5, drenaje de presión ×1,4) y **"Buceo profundo"** (valores de esta especificación).
 
 ## 9. Hoja de ruta
 
-**H1 — Prototipo de sensación (3 semanas).** Sin arte (cajas de colores). Una burbuja, techos, carga/suelta, flotabilidad, cámara de trinquete con banda de retorno, Aire, un peligro, reinicio. **Integrador y colisión propios en `packages/core`** (paso fijo, círculo barrido contra AABB) — es lo primero que se escribe, porque de él dependen los tests, el determinismo entre dispositivos y el validador de alcanzabilidad. Panel de sliders en vivo para las constantes de §11.6. Tests Vitest headless de carga, presión, cámara y Aire.
+**H1 — Prototipo de sensación (3 semanas).** Sin arte (cajas de colores). Una burbuja, techos, tirachinas (arrastre/suelta/cancelación), flotabilidad, cámara de trinquete con banda de retorno y seguimiento en X, Aire, un peligro, reinicio. **Integrador y colisión propios en `packages/core`** (paso fijo, círculo barrido contra AABB) — es lo primero que se escribe, porque de él dependen los tests, el determinismo entre dispositivos y el validador de alcanzabilidad. Panel de sliders en vivo para las constantes de §11.6. Tests Vitest headless de potencia por arrastre, presión, cámara y Aire.
 *Criterio de salida:* 5 personas ajenas juegan 3 minutos sin explicación y descienden 400 m. **Si la sensación no está aquí, se ajustan constantes, no arquitectura: el motor es nuestro y el panel de tuning existe desde el día 3.**
 
 **H2 — Rebanada vertical (6 semanas).** Zonas 1–3 **jugables y cerradas de diseño**, con **arte final solo en la Zona 1** y Z2–Z3 en *greybox* con la paleta definitiva (ver recorte más abajo). Secuenciador de Inmersiones a mano + **validador** de las reglas de §11.5, 1 jefe, estaciones y boyas, Inmersiones con su pantalla de fin, tutorial, sonido, juice, regla de misericordia, huecos de anuncio maquetados, telemetría local.
@@ -476,7 +480,7 @@ El juice es capa de producto, no decoración. Mínimos exigibles para considerar
 *Esta es la única sección del documento donde quedan cosas sin cerrar. Cada punto indica **qué números se recalculan** si la respuesta cambia, para que "abierto" no signifique "indefinido".*
 
 1. **La flotabilidad invertida puede desorientar.** Es la apuesta central y no tiene precedente validado en el mercado. *Mitigación:* se prueba en H1 con gente ajena. *Plan B:* gravedad convencional con un "techo de agua" que desciende y empuja, conservando el resto del diseño intacto. *Aguas abajo:* si se activa, se rehacen §2.2 (signo de `BUOYANCY` y tabla de alcance), §2.3 (el reposo pasa a suelos) y §4.3; el resto del documento sobrevive.
-2. **Puntería y potencia en un solo gesto puede ser demasiado para un niño de 7 años.** *Pregunta abierta:* ¿se añade una variante "solo potencia" con dirección fija oscilante como modo asistido? Debe medirse en H2. *Plan B implementado tras un flag desde H1:* mitad izquierda / mitad derecha de la pantalla como ángulo fijo de ±30°. *Aguas abajo:* solo §2.1 y `AIM_*`; el cono, la ganancia y la zona muerta desaparecen, la tabla de alcance no se toca.
+2. **Puntería y potencia en un solo gesto puede ser demasiado para un niño de 7 años.** *Pregunta abierta:* ¿se añade una variante "solo potencia" con dirección fija oscilante como modo asistido? Debe medirse en H2. *Plan B implementado tras un flag desde H1:* mitad izquierda / mitad derecha de la pantalla como ángulo fijo de ±30°. *Aguas abajo:* solo §2.1 y `AIM_*`/`PULL_*`; el cono y la zona muerta desaparecen, la tabla de alcance no se toca. (El tirachinas de la v1.2 ya reduce mucho este riesgo: potencia y dirección son **un solo vector visible**, no dos canales.)
 3. **Motor físico (riesgo cerrado por decisión, ya no abierto).** La v1.0 apostaba por Matter.js para el movimiento de Bur y a la vez exigía tests headless deterministas en `packages/core` sin importar Matter: eso obligaba a mantener **dos** físicas y a certificar niveles con una que no es la que se juega. **Decisión:** el movimiento de Bur lo simula **`packages/core`** con un integrador semi-implícito de paso fijo 1/60 y colisión de **círculo barrido contra AABB** (toda la geometría del juego son rectángulos alineados). Es código propio, corto, determinista entre dispositivos —lo que hace cierta la promesa de "la misma Inmersión 12 para todos" (§4.1)— e inmune al *tunneling* por construcción. Matter.js queda fuera del bucle jugable; Phaser dibuja. *Pendiente:* actualizar `docs/research/03-tech-stack.md`, que todavía lo lista como dependencia del núcleo.
 4. **La oscuridad de Z4 en un móvil barato a pleno sol** puede ser injugable. *Mitigación:* nunca negro puro (`#0a0e18` como mínimo), radio de luz mínimo garantizado, plataformas siempre bioluminiscentes, ajuste de "modo exterior" y prueba obligatoria en la calle.
 5. **La compresión de escala de profundidad** (10.935 m en ~21 min, con m/px distinto por zona) puede sentirse arbitraria y contradecir el argumento educativo. *Pregunta abierta para el owner:* ¿se muestran metros reales o una unidad propia? *Recomendación:* metros reales, con el suavizado y el formato localizado de §8, y **una ficha del Álbum que explique la compresión con honestidad** ("aquí el mapa está encogido; en el mar de verdad esto son cuatro horas de descenso"), que convierte el problema en contenido educativo. *Aguas abajo:* §11.1 (tabla de escalas) y el HUD; nada de física.
@@ -496,8 +500,8 @@ Stack: **Phaser 3 + TypeScript estricto + Vite + Vitest**, monorepo pnpm/Turbore
 
 ### 11.1 Sistema de coordenadas y conversión px ↔ metros
 
-- Resolución de diseño: **180 px de ancho**; altura visible `H` **elástica entre 320 y 420 px** (§8). Eje **Y positivo hacia abajo**. Origen `y = 0` en la superficie del agua.
-- El mundo es una **columna continua de 180 px de ancho y 25.920 px de alto**, ensamblada por *streaming* de chunks de **180 × 240 px**: **108 chunks = 18 Inmersiones × 6**, de los cuales **90 son jugables y 18 son estación** (§3.1). La estación es el sexto chunk de su Inmersión, no un añadido: por eso la aritmética cuadra.
+- Resolución de diseño: **ventana de 180 px de ancho** (`VIEW_W`); altura visible `H` **elástica entre 320 y 420 px** (§8). Eje **Y positivo hacia abajo**. Origen `y = 0` en la superficie del agua; `x ∈ [0, 540]`.
+- El mundo es una **columna continua de 540 px de ancho** (`WORLD_W`, tres ventanas) **y 25.920 px de alto**, ensamblada por *streaming* de chunks de **540 × 240 px**: **108 chunks = 18 Inmersiones × 6**, de los cuales **90 son jugables y 18 son estación** (§3.1). La estación es el sexto chunk de su Inmersión, no un añadido: por eso la aritmética cuadra. El ancho triplica al de la v1.1 y la altura no cambia: **la aritmética de profundidad, escalas y duración de campaña es idéntica**.
 - Cada Inmersión aporta **1.200 px jugables** y una **boya de aliento** al terminar su tercer chunk (§3.1).
 - La conversión a metros **no es global**: cada zona tiene su propia escala, y esa es la decisión que hace que 10.935 m quepan en una partida de **18–24 minutos** sin que la Zona 6 sea infinita. La transición de escala ocurre siempre **dentro de una estación de descanso**, donde el jugador no está midiendo nada.
 
@@ -526,7 +530,7 @@ Todas las entidades son estructuras planas y serializables en `core`; la capa `g
 
 | Entidad | Campos relevantes | Cuerpo físico |
 |---|---|---|
-| **`Bubble`** (Bur) | `pos`, `vel`, `radius`, `air`, `airMax`, `state`, `chargeMs`, `aimOrigin`, `aimAngle`, `lastAimValid`, `lastRestingCeilingId`, `lastBoyaId`, `invulnUntil`, `bounceChain`, `bounceChainBodies[]`, `reinflateUntil`, `ascensoUntil`, `lightRadius` | Círculo dinámico integrado en `core`. No rota (la rotación del §7 es cosmética) |
+| **`Bubble`** (Bur) | `pos`, `vel`, `radius`, `air`, `airMax`, `state`, `aimOrigin`, `pullVec`, `aimAngle`, `aimMs`, `airLaunchesLeft`, `lastRestingCeilingId`, `lastBoyaId`, `invulnUntil`, `bounceChain`, `bounceChainBodies[]`, `reinflateUntil`, `ascensoUntil`, `lightRadius` | Círculo dinámico integrado en `core`. No rota (la rotación del §7 es cosmética) |
 | **`Ceiling`** | `id`, `rect{x,y,w,h}` (`w ≥ 20`, **`h ≥ 8`**), `kind: 'posadero' \| 'impaciente' \| 'pegajosa'`, **`capturable: boolean`**, `restitution`, `maxRestMs`, **`bounceCooldownMs`**, `moving?{axis,speed,range}`, `dissolveMs?` | **Sólido por las dos caras**; solo la **cara inferior** con `capturable: true` activa reposo. `capturable: false` = trampolín (medusa, señuelo) |
 | **`Anchor`** | `id`, `ceilingId`, `pos`, `zone` | Punto de reposo declarado. Es lo que consumen la regla de alcance (§11.5.11), la reaparición (§2.4.2) y el test §11.7.7 |
 | **`Hazard`** | `id`, `catalogId (1–25)`, `shape`, `airCost (siempre 1)`, `phase`, `periodMs`, `tellMs`, `pushImpulse?`, **`pushDir: 'lateral' \| 'down' \| 'up'`** (`'up'` solo permitido en los catalogId 20 y 21) | Sensor o cuerpo estático según catálogo |
@@ -535,36 +539,35 @@ Todas las entidades son estructuras planas y serializables en `core`; la capa `g
 | **`Boya`** | `id`, `worldY`, `immersionIndex` | Sensor. Punto de reaparición silencioso a mitad de Inmersión (§3.1) |
 | **`RestStation`** | `worldY`, `zoneFrom`, `zoneTo`, `isDelivery`, `tutorialVerb?` | Banda de 240 px sin peligros = el sexto chunk de la Inmersión. Checkpoint |
 | **`Boss`** | `catalogId`, `phases[]`, `cyclePeriodMs`, `windowMs`, `resolution: 'entrega'` | Compuesto de `Ceiling` cinemáticos + `Hazard` con fase |
-| **`Chunk`** | `id`, `zone`, `difficulty 1–5`, `verbs[]`, `entry/exit: 'L'\|'C'\|'R'`, **`entryAnchorId`, `exitAnchorId`**, `airBudget`, **`targetTimeS`**, `tags[]`, `entities[]` | Contenedor, no cuerpo. **Esquema único del proyecto** (§4.1) |
-| **`Camera`** | `y`, `maxY` (monótono), **`recallPx`**, `zoom`, `shake` | — |
+| **`Chunk`** | `id`, `zone`, `difficulty 1–5`, `verbs[]`, **`entryAnchorId`, `exitAnchorId`**, `airBudget`, **`targetTimeS`**, `tags[]`, `entities[]` (3–5 `Anchor`) | Contenedor de **540 × 240 px**, no cuerpo. **Sin carriles ni boca** (v1.2). **Esquema único del proyecto** (§4.1) |
+| **`Camera`** | `y`, `maxY` (monótono), **`recallPx`**, **`x`** (sin trinquete, recortada a `[0, 360]`), `zoom`, `shake` | — |
 | **`RunState`** | `seed`, `mode: 'expedicion'\|'abismo'`, `immersionIndex`, `lastBoyaId`, `pearls`, `shells`, `failCountThisImmersion`, `mercyLevel: 0\|1\|2` | — |
 
 ### 11.3 Máquina de estados de input
 
-Cinco estados canónicos. Las transiciones son la especificación completa del control; **no existe ninguna otra ruta**.
+Cinco estados canónicos (la v1.1 llamaba `CHARGING` al segundo; en la v1.2 es **`AIMING`**, porque ya no se acumula nada con el tiempo). Las transiciones son la especificación completa del control; **no existe ninguna otra ruta**.
 
 ```
-                 pointerdown (>70 ms)
+            pointerdown (solo con doble salto disponible)
       ┌──────────────────────────────────────┐
       │                                      ▼
- ┌────────┐   pointerup      ┌──────────┐  pointerup   ┌───────────┐
- │  IDLE  │◄─────────────────│ CHARGING │─────────────►│ LAUNCHED  │
- └────────┘   (tap <70 ms:   └──────────┘  vel = dir*I └───────────┘
-   ▲   │      se ignora)          │ t>900 ms (1.800 en     │   │
-   │   │                          │ reposo): SOBRECARGA    │   │
-   │   │ |vel.y| decae            │ −1 Aire /500 ms,       │   │
-   │   │                          │ nunca el último pip    │   │
-   │   │                          │ t>2.500 ms: suelta     │   │
-   │   │                          ▼ automática             │   │
-   │   │                     (sigue en CHARGING)           │   │
+ ┌────────┐  suelta a <12 px ┌──────────┐  suelta      ┌───────────┐
+ │  IDLE  │◄─────────────────│  AIMING  │─────────────►│ LAUNCHED  │
+ └────────┘  CANCELA: sin    └──────────┘  vel = dir*I └───────────┘
+   ▲   │     tiro, sin coste,     │ aéreo: −1 Aire         │   │
+   │   │     sin evento           │ (nunca el último pip)  │   │
+   │   │ |vel.y| decae            │                        │   │
+   │   │                          │ t>6.000 ms: CANCELA,   │   │
+   │   │                          ▼ nunca dispara sola     │   │
+   │   │              (vuelve al estado del que vino)      │   │
    │   │                                                   │   │
    │   │  contacto ASCENDENTE con cara inferior capturable │   │
-   │   │  a |vel| ≤ 260 px/s                               │   │
+   │   │  a |vel| ≤ 260 px/s  → airLaunchesLeft = 1        │   │
    │   └───────────────────┐   ┌───────────────────────────┘   │
    │                       ▼   ▼                               │
    │                  ┌──────────┐  pointerdown                │
-   └──────────────────│ RESTING  │──────────────► CHARGING     │
-     maxRestMs agotado└──────────┘                             │
+   └──────────────────│ RESTING  │──────────────► AIMING       │
+     maxRestMs agotado└──────────┘ (reloj congelado)           │
      → empuje de 90      │                                     │
      px/s HACIA ABAJO    │        air === 0 (cualquier estado) │
                          ▼                                     ▼
@@ -579,10 +582,10 @@ Cinco estados canónicos. Las transiciones son la especificación completa del c
                           IDLE      (< 0,8 s desde el toque)
 ```
 
-- **IDLE**: Bur está en el agua sin input y sin contacto de reposo. La flotabilidad la sube. Es el estado de "deriva". Acepta `pointerdown`.
-- **CHARGING**: acumula `chargeMs`. **`aimOrigin` se congela en el `pointerdown`** y la dirección se recalcula cada *frame* desde el puntero **respecto a ese origen**, no respecto a Bur (§2.1); si el puntero queda por encima del origen o a menos de 18 px, se conserva la última dirección válida. **La flotabilidad se aplica al 35%.** Se puede entrar desde IDLE (cargar en el aire, permitido y necesario para corregir) y desde RESTING. Pasado el umbral de sobrecarga sigue en CHARGING, drenando Aire hasta un suelo de 1 pip y un máximo de 2 pips por mantenido; a los 2.500 ms suelta sola.
-- **LAUNCHED**: los primeros **250 ms** tras **asignar** `vel = dir · impulso` (§2.2: asignación, nunca acumulación). Durante esa ventana se ignora el reposo (para no pegarse al techo del que acabas de salir) y la amortiguación es menor. Al expirar, transición automática a IDLE.
-- **RESTING**: pegada a la cara inferior de un `Ceiling` capturable. Velocidad forzada a 0, drenaje pasivo de Aire congelado, temporizador `maxRestMs` corriendo, sobrecarga a 1.800 ms. Al agotarse el temporizador, expulsión **hacia abajo** a 90 px/s.
+- **IDLE**: Bur está en el agua sin input y sin contacto de reposo. La flotabilidad la sube. Es el estado de "deriva". Acepta `pointerdown` **solo si `airLaunchesLeft > 0` y `air > AIR_LAUNCH_COST`**; en cualquier otro caso el toque **se ignora por completo** (sin evento, sin castigo, sin guía).
+- **AIMING**: no acumula nada con el tiempo. **`aimOrigin` se congela en el `pointerdown`, en la posición del dedo**, y cada *frame* se recalculan `pullVec = pointer − aimOrigin`, la potencia `p = clamp(|pullVec|/70, 0, 1)` y la dirección **opuesta** al arrastre, recortada al cono de 90° (§2.1). Con `|pullVec| < 12` no hay tiro: soltar ahí **cancela**. **La flotabilidad se aplica al 35%.** Se entra desde RESTING (caso normal, con el temporizador de posadero **congelado**) y desde IDLE (doble salto). A los `AIM_MAX_MS = 6.000 ms` el tiro **se cancela** y Bur vuelve al estado del que vino.
+- **LAUNCHED**: los primeros **250 ms** tras **asignar** `vel = dir · impulso` (§2.2: asignación, nunca acumulación). Durante esa ventana se ignora el reposo (para no pegarse al techo del que acabas de salir) y la amortiguación es menor. Si el lanzamiento fue **aéreo**, aquí se descuenta `AIR_LAUNCH_COST` y `airLaunchesLeft` baja a 0. Al expirar, transición automática a IDLE.
+- **RESTING**: pegada a la cara inferior de un `Ceiling` capturable. Velocidad forzada a 0, drenaje pasivo de Aire congelado, `airLaunchesLeft` **reiniciado a `AIR_LAUNCHES_MAX`**, temporizador `maxRestMs` corriendo —**congelado mientras se apunta si el techo es `posadero`**, corriendo siempre en `impaciente` y `pegajosa` (§2.3)—. Al agotarse el temporizador, expulsión **hacia abajo** a 90 px/s.
 - **DEAD**: `air === 0`. Sin input durante los 700 ms del deshinchado; después aparece la pantalla de fin sobre la misma escena, y **la salida a IDLE la confirma el jugador** (o un temporizador de inactividad de 8 s). La reaparición es en la última boya o estación.
 
 **Sub-estados ortogonales** (banderas, no estados): `INVULNERABLE` (700 ms tras golpe o tras reaparecer), `RESACA` (Bur por encima del borde superior con la cámara en su límite de retorno y sin `ASCENSO`; 1.600 ms de gracia), `STUNNED` (400 ms tras golpe, input aceptado pero impulso al 60%), `REINFLATED` (12 s de radio +1 escalón), **`ASCENSO`** (dentro de un `ForceField` con `opensAscenso` y 2.000 ms después: abre la banda de retorno de la cámara a 640 px y suspende la resaca y la corriente mínima).
@@ -590,31 +593,31 @@ Cinco estados canónicos. Las transiciones son la especificación completa del c
 ### 11.4 Física: fórmulas normativas
 
 ```ts
-// Carga → potencia normalizada [0,1]
-p = min(1, chargeMs / 550) ** 1.30
+// TIRACHINAS: potencia = distancia de arrastre, LINEAL (§2.1)
+pull = pointer - aimOrigin                           // aimOrigin CONGELADO (posición del DEDO)
+p    = clamp(len(pull) / 70, 0, 1)                   // PULL_MAX_PX = 70 px
+if (len(pull) < 12) noShot = true                    // PULL_CANCEL_PX: soltar aquí CANCELA
 
-// Módulo del impulso, ya corregido por presión y por distancia de arrastre
-fine    = 1 + (clamp(dragDist, 0, 90) / 90 - 0.5) * 2 * 0.15   // ±15 % SIMÉTRICO, neutro a 45 px
-impulse = (150 + p * (430 - 150))
-        * fine                                       // rango real 373 – 494 px/s
+// Módulo del impulso, ya corregido por presión
+impulse = (90 + p * (280 - 90))                      // IMPULSE_MIN 90 – IMPULSE_MAX 280
         * (radius / 7) ** 0.35                       // penalización de presión
         * (stunned ? 0.60 : 1)
-        * chargeMulFromForceField                    // medusa fría: 0.75 durante 2 s
+        * (stickyCeiling ? 0.60 : 1)                 // superficie pegajosa (§2.3)
+        * impulseMulFromForceField                   // medusa fría: 0.75 durante 2 s
 
-// Dirección: cono descendente de ±62°, ganancia 1.5, zona muerta de ±5°
-d = pointer - aimOrigin                              // aimOrigin CONGELADO en el pointerdown
-if (d.y <= 0 || len(d) < 18) { theta = lastAimValid ?? 0 }   // sin salto, sin jitter
-else {
-  theta = clamp(atan2(d.x, d.y) * 1.5, -1.082, +1.082)       // rad; 1.082 = 62°
-  if (abs(theta) < 0.087) theta = 0                          // ~±5° → recto abajo
-  lastAimValid = theta
-}
+// Dirección: OPUESTA al arrastre, cono de 90° (cualquier dirección no ascendente)
+dir = normalize(-pull)                               // tiras hacia atrás, sale hacia delante
+theta = atan2(dir.x, dir.y)                          // 0 = recto abajo, ±90° = horizontal
+if (dir.y < 0) theta = (dir.x >= 0 ? +1 : -1) * 1.5708  // recorte a la horizontal + guía ÁMBAR
+if (abs(theta) < 0.087) theta = 0                    // ~±5° de zona muerta → recto abajo
 
-// LANZAMIENTO: asignación, NUNCA acumulación
+// LANZAMIENTO: asignación, NUNCA acumulación. Solo desde RESTING…
 vel = { x: sin(theta) * impulse, y: cos(theta) * impulse }
+// …o UN lanzamiento aéreo por fase, que cuesta 1 pip y nunca deja el Aire a 0:
+if (state === 'IDLE' && airLaunchesLeft > 0 && air > AIR_LAUNCH_COST) { air -= 1; airLaunchesLeft-- }
 
 // Integración por frame (dt fijo = 1/60 s)
-vel.y -= BUOYANCY * dt * buoyancyMul * (state === 'CHARGING' ? 0.35 : 1)
+vel.y -= BUOYANCY * dt * buoyancyMul * (state === 'AIMING' ? 0.35 : 1)
 vel.x *= exp(-DAMPING_X * dt)                        // 0.30 /s  → el horizontal se conserva
 vel.y *= exp(-DAMPING_Y * dt)                        // 0.60 /s  → terminal ascendente 167 px/s
 vel   += forceFieldVector * dt
@@ -628,7 +631,7 @@ if (contactoCaraInferior && ceiling.capturable && vel.y < 0 && abs(vel.y) <= 260
    state = 'RESTING'                                 // si no: rebote con la restitución del material
 
 // Luz (Z4+)
-lightRadius = (8 + (state === 'LAUNCHED' && lastCharge >= 1.0 ? 6 : 0)) * (1 + upgradeLight)
+lightRadius = (8 + (state === 'LAUNCHED' && lastPullPower >= 1.0 ? 6 : 0)) * (1 + upgradeLight)
 ```
 
 **Amortiguación exponencial exacta** (`exp(-k·dt)`), no la aproximación de Euler `(1 − k·dt)`: son equivalentes a 1/60 y divergen si alguien sube el paso. **Integración**: paso fijo de 1/60 s con acumulador; colisión por **barrido de círculo contra AABB**, sin sub-pasos y sin *tunneling* posible incluso a 520 px/s contra repisas de 8 px.
@@ -646,6 +649,12 @@ recall  = ascenso ? 640 : 96                               // banda de retorno (
 camY    = clamp(camY, maxCamY - recall, maxCamY)           // la vista puede volver; el progreso no
 if (zone >= 3 && !ascenso) camY += 8 * dt                  // corriente mínima
 if (abs(bur.vel.y) > 420) zoomPunchOut(0.08, 200)          // caso extremo, en ambos sentidos
+
+// Cámara en X (v1.2): zona muerta, sin trinquete, recorte duro al mundo de 540 px
+const lo = camX + 180 * 0.35, hi = camX + 180 * 0.65       // CAM_DEADZONE_X
+if (bur.x < lo) camX += (bur.x - 180 * 0.35 - camX) * k(12)
+if (bur.x > hi) camX += (bur.x - 180 * 0.65 - camX) * k(12)
+camX = clamp(camX, 0, 540 - 180)                           // [0, 360]: nunca se ve fuera del mundo
 ```
 
 `maxY` de **progreso** (profundidad, checkpoints, marcador) es una variable distinta de `camY` y **nunca disminuye**, con o sin banda de retorno.
@@ -654,7 +663,7 @@ if (abs(bur.vel.y) > 420) zoomPunchOut(0.08, 200)          // caso extremo, en a
 
 El generador es **determinista dado `(seed, immersionIndex)`** y consume sus parámetros de un **archivo de datos JSON**, no de código, para poder rebalancear sin recompilar. En el MVP estas reglas se ejecutan como **validador** de las secuencias escritas a mano (§4.1); el generador que las consume llega en H3.
 
-1. **Carriles.** `chunk[i].exit === chunk[i+1].entry`, **o carriles adyacentes** (`L↔C`, `C↔R`). Boca de entrada de **64 px de ancho mínimo**, con los carriles centrados en `x = 40 / 90 / 140`. Los 96 px de la v1.0 eran imposibles: tres bocas de 96 px necesitan 288 px en un mundo de 180, con lo que L y C se solapaban casi por completo y la restricción era a la vez vacía y asfixiante para el selector.
+1. **Continuidad por anclajes (v1.2, D3).** Desaparecen los carriles `L/C/R` y la boca de entrada: en un mundo de 540 px no hay tres pasillos, hay agua abierta. La única garantía de continuidad es la **regla de alcance 2D** de la regla 11 aplicada al par `(exitAnchor de chunk[i], entryAnchor de chunk[i+1])`. Un chunk puede declarar varios anclajes de salida candidatos; el validador certifica al menos la ruta declarada, y el selector solo admite un sucesor cuyo `entryAnchor` esté dentro del alcance del `exitAnchor` elegido.
 2. **Anti-repetición.** Un `chunk.id` no puede reaparecer dentro de una ventana de **6**. Dos chunks con el mismo `tag` no pueden encadenarse más de **2** veces seguidas.
 3. **Selección por dificultad.** Se computa `dificultad_objetivo` (§4.2, techo 4,6) y se elige entre chunks con `difficulty ∈ [round(D)−1, round(D)]`, con pesos **30/70**.
 4. **Regla del respiro.** Si `chunk[i].difficulty ≥ 4`, entonces `chunk[i+1].difficulty ≤ 3`, y como máximo **dos** chunks de dificultad ≥ 4 por Inmersión. Restricción dura del selector.
@@ -664,8 +673,8 @@ El generador es **determinista dado `(seed, immersionIndex)`** y consume sus par
 8. **Regla de misericordia.** Si `runState.failCountThisImmersion >= 2` y `mode === 'expedicion'`: `densidad_peligros *= 0.80` y se añade **1** `Pickup` de aire (`mercyLevel = 1`). A partir de **4** fallos: `*= 0.65` y **2** bolsas (`mercyLevel = 2`). Se revierte al superar la Inmersión. **Nunca se comunica al jugador ni se registra en la UI.** Siempre se dispara **antes** que cualquier oferta comercial (§6.5).
 9. **Jitter cosmético.** Cada chunk aplica un desplazamiento de ±8 px a la altura de sus repisas decorativas y sortea su flora de fondo, para que la recurrencia con solo 24 piezas por zona no se lea. **Nunca toca un `Anchor`**: el jitter es decorativo y no puede romper la regla 11.
 10. **Streaming.** Se mantienen instanciados **4 chunks** (anterior, actual, siguiente y el posterior), y **5** mientras `ASCENSO` esté activo, porque la banda de retorno de la cámara puede llegar a mostrar dos pantallas hacia arriba y porque la reaparición de la resaca debe caer siempre sobre geometría viva. Presupuesto: **< 4 ms** de construcción por chunk.
-11. **Regla de alcance vertical (nueva y crítica).** Todo `Anchor` debe ser alcanzable desde el anterior: el desnivel entre dos anclajes consecutivos **no supera `MAX_HOP_PX` de la zona** (200 / 195 / 185 / 175 / 165 / 150; §2.2), y el desplazamiento horizontal debe ser cubrible dentro del cono de ±62°. **La regla se aplica también a la junta entre chunks**: `exitAnchor` de `chunk[i]` → `entryAnchor` de `chunk[i+1]`, evaluada con velocidad de entrada **cero**, que es el caso peor. Sin esta regla —que la v1.0 no tenía— el ensamblador podía producir tramos literalmente imposibles y el test de alcanzabilidad no los veía, porque validaba cada chunk aislado.
-12. **Orden de relajación (el selector nunca se bloquea).** Si el conjunto de candidatos legales queda vacío, se relajan restricciones **en este orden exacto y determinista**, deteniéndose en cuanto haya candidato: (a) ampliar la ventana de dificultad en ±1; (b) levantar la regla de `tag`; (c) reducir la ventana anti-repetición 6 → 4 → 2; (d) insertar un **chunk de transición** (pieza corta de 120 px, sin peligros, que cambia de carril y siempre cumple la regla 11); (e) como último recurso, repetir el chunk legal más antiguo. Las reglas **4, 5, 7 y 11 nunca se relajan**. Se registra en telemetría cada relajación: si (d) o (e) aparecen a menudo, falta biblioteca.
+11. **Regla de alcance 2D (crítica).** Todo `Anchor` debe ser alcanzable desde el anterior, en las dos dimensiones: el desnivel **no supera `MAX_HOP_PX`** (110 / 105 / 100 / 95 / 90 / 80) **y** la separación horizontal **no supera `MAX_HOP_X_PX`** (200 / 190 / 180 / 170 / 160 / 140; §2.2). Esa caja es solo un filtro rápido: la certificación real es **balística, con el mismo integrador que juega el jugador**, **desde reposo, con velocidad de entrada cero y sin doble salto** —el doble salto es margen para el jugador, nunca para el diseñador—. **La regla se aplica también a la junta entre chunks** (`exitAnchor` de `chunk[i]` → `entryAnchor` de `chunk[i+1]`), que es el caso peor. Con 3–5 anclajes por chunk (§4.1), la regla también gobierna las rutas internas.
+12. **Orden de relajación (el selector nunca se bloquea).** Si el conjunto de candidatos legales queda vacío, se relajan restricciones **en este orden exacto y determinista**, deteniéndose en cuanto haya candidato: (a) ampliar la ventana de dificultad en ±1; (b) levantar la regla de `tag`; (c) reducir la ventana anti-repetición 6 → 4 → 2; (d) insertar un **chunk de transición** (pieza corta de 120 px de alto y 540 de ancho, sin peligros, con anclajes repartidos que siempre cumplen la regla 11); (e) como último recurso, repetir el chunk legal más antiguo. Las reglas **4, 5, 7 y 11 nunca se relajan**. Se registra en telemetría cada relajación: si (d) o (e) aparecen a menudo, falta biblioteca.
 
 ### 11.6 Constantes ajustables (valores iniciales)
 
@@ -678,29 +687,23 @@ Todas viven en `packages/core/src/tuning.ts`, exportadas como un único objeto c
 | `DAMPING_X` | 0,30 | /s | Amortiguación horizontal (encadenado de paredes) |
 | `TERMINAL_RISE` | 167 | px/s | **Derivada e invariante**: `BUOYANCY / DAMPING_Y` |
 | `MAX_FALL_SPEED` | 520 | px/s | Cap de seguridad de caída |
-| `IMPULSE_MIN` | 150 | px/s | Tap seco |
-| `IMPULSE_MAX` | 430 | px/s | Carga completa con arrastre neutro (rango real 373–494) |
+| `IMPULSE_MIN` | 90 | px/s | Arrastre mínimo que cuenta como tiro |
+| `IMPULSE_MAX` | 280 | px/s | Arrastre completo (70 px) |
 | `LAUNCH_MODE` | `'set'` | — | **El lanzamiento asigna la velocidad, no la suma** |
-| `CHARGE_FULL_MS` | 550 | ms | Tiempo a potencia máxima |
-| `CHARGE_EXP` | 1,30 | — | Exponente de la curva de carga |
-| `MASTERY_WINDOW_MS` | 170 | ms | Ventana final que aporta el 38% (`p(380) = 0,618`) |
-| `OVERCHARGE_MS` | 900 | ms | Umbral de sobrecarga en el agua |
-| `OVERCHARGE_MS_RESTING` | 1.800 | ms | Umbral de sobrecarga en reposo |
-| `OVERCHARGE_DRAIN_MS` | 500 | ms | Periodo de fuga de 1 Aire |
-| `OVERCHARGE_MIN_AIR` | 1 | pips | **Suelo duro: la sobrecarga nunca quita el último pip** |
-| `OVERCHARGE_MAX_DRAIN` | 2 | pips | Máximo por mantenido |
-| `AUTO_RELEASE_MS` | 2.500 | ms | Suelta automática |
-| `MIN_TAP_MS` | 70 | ms | Toque mínimo reconocido |
-| `AIM_CONE_DEG` | 62 | ° | Semiángulo del cono descendente |
+| `PULL_MAX_PX` | 70 | px | Arrastre a potencia máxima (`p` **lineal**) |
+| `PULL_CANCEL_PX` | 12 | px | Soltar dentro = cancelar, sin coste |
+| `AIM_MAX_MS` | 6.000 | ms | Tope de apuntado: **cancela**, nunca dispara |
+| `AIR_LAUNCHES_MAX` | 1 | lanzamientos | "Doble salto" por fase aérea; se reinicia al reposar |
+| `AIR_LAUNCH_COST` | 1 | pips | Coste del lanzamiento aéreo; **nunca con el último pip** |
+| `LONG_SLING_MUL` | 1,5 | — | Accesibilidad: "tirachinas largo" (`PULL_MAX_PX` → 105 px) |
+| `AIM_CONE_DEG` | 90 | ° | Semiángulo: **cualquier dirección no ascendente** |
 | `AIM_DEADZONE_DEG` | 5 | ° | Zona muerta hacia recto abajo |
-| `AIM_GAIN` | 1,5 | — | Ganancia angular (cono alcanzable desde el tercio inferior) |
-| `AIM_MIN_RADIUS` | 18 | px | Radio mínimo de puntería (anti-jitter) |
-| `CHARGING_BUOYANCY_MUL` | 0,35 | — | Cargar ancla |
-| `DRAG_FINE_TUNE` | ±0,15 | — | Simétrico, neutro a 45 px de arrastre |
+| `AIM_BUOYANCY_MUL` | 0,35 | — | Apuntar ancla: flotabilidad mientras se apunta EN EL AIRE (§2.1) |
 | `RADIUS_BASE` | 7,0 | px | Radio en superficie |
 | `ZONE_RADIUS_PCT` | [1,00 · 0,92 · 0,84 · 0,74 · 0,64 · 0,55] | — | Presión por zona |
 | `IMPULSE_RADIUS_EXP` | 0,35 | — | Exponente de penalización por presión |
-| `MAX_HOP_PX` | [200 · 195 · 185 · 175 · 165 · 150] | px | Desnivel máximo entre anclajes (§11.5.11) |
+| `MAX_HOP_PX` | [110 · 105 · 100 · 95 · 90 · 80] | px | Desnivel máximo entre anclajes (§11.5.11) |
+| `MAX_HOP_X_PX` | [200 · 190 · 180 · 170 · 160 · 140] | px | Separación lateral máxima entre anclajes (§11.5.11) |
 | `REST_CAPTURE_SPEED` | 260 | px/s | Velocidad máxima de acercamiento para capturar |
 | `REST_MAX_MS` | 3.000 / 1.200 / 600 | ms | Posadero / impaciente / pegajosa |
 | `REST_RELEASE_PUSH` | 90 | px/s **hacia abajo** | Empuje al agotarse el reposo |
@@ -729,10 +732,13 @@ Todas viven en `packages/core/src/tuning.ts`, exportadas como un único objeto c
 | `CAM_RECALL_PX` | 96 | px | Banda de retorno de la vista |
 | `CAM_RECALL_ASCENSO_PX` | 640 | px | Banda de retorno con `ASCENSO` activo |
 | `ASCENSO_TAIL_MS` | 2.000 | ms | Cola de la ventana de ascenso |
-| `CAM_DEADZONE` | [0,34 · 0,56] | fracción de H | Banda sin movimiento de cámara |
+| `CAM_DEADZONE` | [0,34 · 0,56] | fracción de H | Banda sin movimiento vertical de cámara |
+| `CAM_DEADZONE_X` | [0,35 · 0,65] | fracción de `VIEW_W` | Banda sin movimiento horizontal; `camX ∈ [0, 360]` |
 | `CAM_MIN_SCROLL` | 8 | px/s | Corriente mínima desde Z3 (suspendida en `ASCENSO`) |
-| `CHUNK_W` / `CHUNK_H` | 180 / 240 | px | Tamaño de chunk |
-| `CHUNK_MOUTH_MIN_W` | 64 | px | Boca de entrada |
+| `WORLD_W` | 540 | px | Ancho del mundo (tres ventanas) |
+| `VIEW_W` | 180 | px | Ancho de la ventana visible |
+| `CHUNK_W` / `CHUNK_H` | 540 / 240 | px | Tamaño de chunk |
+| `ANCHORS_PER_CHUNK` | 3–5 | anclajes | Densidad de contenido (§4.1) |
 | `CHUNK_REPEAT_WINDOW` | 6 | chunks | Anti-repetición |
 | `IMMERSION_CHUNKS` | 6 (5 jugables + 1 estación) | chunks | Estructura de Inmersión |
 | `BOYA_AFTER_CHUNK` | 3 | chunks | Boya de aliento a mitad de Inmersión |
@@ -742,26 +748,27 @@ Todas viven en `packages/core/src/tuning.ts`, exportadas como un único objeto c
 | `AD_OFFER_MIN_FAILS` | 4 | fallos | Primera oferta comercial, siempre después de la misericordia |
 | `DEFLATE_MS` | 700 | ms | Deshinchado antes de la pantalla de fin |
 | `RESTART_BUDGET_MS` | 800 | ms | Presupuesto duro de reinicio **desde el toque** |
-| `SLOW_CHARGE_MUL` | 1,6 | — | Accesibilidad: escala **todos** los tiempos del gesto |
 
 ### 11.7 Contratos de test (Vitest, headless, sin canvas)
 
 Estos tests son parte de la definición de "hecho" del núcleo:
 
-1. `charge(550) === 1.0` y `charge(275) ≈ 0.406`: la curva es exponencial, no lineal. Y `1 − charge(380) ≈ 0.38`: la ventana de maestría aporta lo que dice la tabla.
-2. El impulso a radio 3,9 px con carga 1,0 (**350 px/s**) es **mayor o igual** que a radio 7,0 px con carga 0,70 (**346 px/s**), y la diferencia es < 2%: la promesa de §2.6 es aritmética, no retórica.
-3. Un `pointerup` a los 60 ms no produce ningún impulso ni cambia de estado.
-4. Mantener 1.400 ms drena exactamente 1 Aire; **mantener 5 s con 1 pip no drena ninguno** (suelo de sobrecarga) y **nunca drena más de 2 en un mismo mantenido**.
+1. **Potencia por arrastre, lineal**: `power(70) === 1.0`, `power(35) === 0.5`, `power(0) === 0` y `power(140) === 1.0` (saturación). Con "tirachinas largo" (`PULL_MAX_PX = 105`), `power(70) === 2/3`.
+2. El impulso a radio 3,9 px con arrastre completo (**227 px/s**) es **mayor o igual** que a radio 7,0 px con un arrastre de 50 px (**226 px/s**), y la diferencia es < 2%: la promesa de §2.6 es aritmética, no retórica.
+3. **Cancelación**: un `pointerup` con `|pull| < 12 px` no produce impulso, no cambia de estado (Bur sigue en `RESTING`), no gasta Aire y no emite evento. A 13 px sí hay tiro, con `p ≈ 0,19` (125 px/s).
+4. **Tope de apuntado**: a los 6.000 ms el tiro **se cancela** y Bur vuelve al estado previo; en ninguna secuencia de entradas el núcleo lanza sin un `pointerup`. Y apuntando desde un `posadero`, el temporizador de reposo **no avanza**; desde `impaciente` y `pegajosa`, sí.
 5. `maxCamY` es **monótona no decreciente** en cualquier secuencia de 10.000 *ticks* aleatorios, y `camY ∈ [maxCamY − recall, maxCamY]` en todos ellos. `maxY` de progreso es monótona incluso con `ASCENSO` forzado.
 6. Ninguna transición sale de DEAD salvo a IDLE, y solo tras `DEFLATE_MS` **y** confirmación del jugador (o los 8 s de inactividad); la reaparición ocurre siempre en la última boya o estación y nunca por encima de ella.
-7. **Alcanzabilidad, con junturas.** Todo chunk de la biblioteca es resoluble desde cada uno de sus carriles de entrada declarados, **y** todo par ordenado `(exitAnchor, entryAnchor)` admisible por la regla de carriles cumple la regla de alcance §11.5.11, evaluado con velocidad de entrada cero. Búsqueda sobre la trayectoria balística del **mismo integrador que juega el jugador** (§10.3): no hay dos físicas.
+7. **Alcanzabilidad 2D, con junturas.** Todo par de anclajes consecutivos —dentro de un chunk y en la junta `(exitAnchor, entryAnchor)`— cumple `|Δy| ≤ MAX_HOP_PX` y `|Δx| ≤ MAX_HOP_X_PX`, **y** existe un tiro que lo une, evaluado con velocidad de entrada cero, **desde reposo y sin doble salto**. Búsqueda sobre la trayectoria balística del **mismo integrador que juega el jugador** (§10.3): no hay dos físicas. **El doble salto es margen, no requisito**: esta certificación se ejecuta con `AIR_LAUNCHES_MAX = 0` y debe pasar en toda la campaña.
 8. Con `failCount = 2`, la densidad generada es exactamente el 80% de la nominal; con 4, el 65%; vuelve al 100% al marcar la Inmersión como superada. Y `AD_OFFER_MIN_FAILS > MERCY_FAILS[0]`: la ayuda gratis siempre llega antes que la oferta.
 9. Ninguna entidad del catálogo inflige más de 1 Aire por contacto, y **ningún `Hazard` con `pushDir: 'up'` existe fuera de los catalogId 20 y 21** (test de invariante sobre los datos, no sobre el código).
 10. `pxToMeters` es estrictamente creciente y continua en los seis límites de zona.
 11. `TERMINAL_RISE === BUOYANCY / DAMPING_Y` (identidad, no constante suelta), y la simulación libre desde velocidad 0 converge a ese valor con error < 1%.
 12. **Invariante de capacidad de Aire**: el Aire actual nunca supera `ZONE_AIR_MAX[zone] + mejoras`, ningún cambio de capacidad ocurre fuera de una `RestStation`, y ninguna transición de zona reduce el Aire actual.
 13. **Presupuesto del pilar 3**: para toda Inmersión de la campaña, la suma de `targetTimeS` entre dos boyas consecutivas es ≤ `MAX_SEGMENT_S`.
-14. **Determinismo**: `(seed, immersionIndex)` produce la misma secuencia de chunks y la misma simulación tras 10.000 ticks de entradas grabadas, en dos ejecuciones y con dos órdenes de acumulador distintos.
+14. **Lanzamiento aéreo.** Desde `IDLE` con `airLaunchesLeft = 0` un `pointerdown` no cambia de estado ni emite evento. Con `airLaunchesLeft = 1` el tiro sale y cuesta exactamente 1 pip; con `air === 1` **no sale** (nunca el último pip). Reposar restaura `airLaunchesLeft` a 1, y nunca hay dos lanzamientos aéreos en la misma fase.
+15. **Cámara en X.** En cualquier secuencia de 10.000 *ticks*, `camX ∈ [0, WORLD_W − VIEW_W]` y Bur nunca sale de `[0, WORLD_W]`; fuera de la zona muerta `CAM_DEADZONE_X` la cámara converge a la banda, y dentro de ella `camX` no cambia. `camX` **no** tiene trinquete: puede decrecer.
+16. **Determinismo**: `(seed, immersionIndex)` produce la misma secuencia de chunks y la misma simulación tras 10.000 ticks de entradas grabadas, en dos ejecuciones y con dos órdenes de acumulador distintos.
 
 ---
 
@@ -775,26 +782,27 @@ Estos tests son parte de la definición de "hecho" del núcleo:
 - [ ] `packages/core` sin dependencias de render, con `Clock`, `RNG` y `AdProvider` como interfaces y **la física propia dentro** (integrador de paso fijo + colisión de círculo barrido contra AABB, §10.3). *Primera tarea del proyecto.*
 - [ ] Flotabilidad invertida, amortiguación anisótropa (0,60 / 0,30), cap de caída, `TERMINAL_RISE` como identidad derivada.
 - [ ] **Lanzamiento por asignación** (`vel = dir · impulso`), nunca acumulativo.
-- [ ] Máquina de estados completa: IDLE / CHARGING / LAUNCHED / RESTING / DEAD, con las banderas INVULNERABLE, RESACA, STUNNED, REINFLATED y **ASCENSO**.
-- [ ] Carga por tiempo con curva `^1,30`, cono de ±62° con **ganancia 1,5**, zona muerta de 5°, **origen de puntería congelado**, radio mínimo de puntería y ajuste fino **simétrico**.
-- [ ] Sobrecarga con fuga de Aire, **suelo de 1 pip**, máximo de 2 pips por mantenido y suelta automática (nunca tiro perdido, nunca muerte por mantener).
+- [ ] Máquina de estados completa: IDLE / **AIMING** / LAUNCHED / RESTING / DEAD, con las banderas INVULNERABLE, RESACA, STUNNED, REINFLATED y **ASCENSO**.
+- [ ] **Tirachinas**: potencia lineal por arrastre (`PULL_MAX_PX = 70`), dirección opuesta al arrastre, **origen congelado en el dedo**, cono de 90° con recorte a la horizontal, zona muerta de 5°, **cancelación a < 12 px** y tope de apuntado de 6 s que **cancela**.
+- [ ] **Lanzamiento solo desde reposo**, con **un doble salto aéreo** por fase (coste 1 pip, nunca el último) y contador reiniciado al reposar.
+- [ ] **Cámara en X** con zona muerta `[0,35 · 0,65]` y recorte a `[0, 360]` en un mundo de **540 px**.
 - [ ] **Captura de reposo por defecto** bajo techos capturables (≤ 260 px/s), superficies no capturables con enfriamiento de trampolín, expulsión hacia abajo al agotar el reposo.
 - [ ] Presión por zona: radio escalonado, penalización de impulso con exponente 0,35, **capacidad de Aire por zona aplicada solo en estación**, pips atenuados, suelo de legibilidad de 8 px.
 - [ ] Reinflar (verbo de Z3) con su duración de 12 s.
-- [ ] Cámara de trinquete **con banda de retorno**, zona muerta, `lerp` independiente de la tasa de refresco, corriente mínima y *zoom-out* de emergencia.
+- [ ] Cámara de trinquete **con banda de retorno** en Y, zona muerta, `lerp` independiente de la tasa de refresco, corriente mínima y *zoom-out* de emergencia.
 - [ ] **Panel de tuning en vivo** con sliders para las constantes de §11.6 y exportación a JSON. *Es la herramienta más importante del proyecto; se construye el primer día.*
 
 **Contenido**
 - [ ] **Zona 1 con arte real**; **Zonas 2 y 3 en *greybox*** con la paleta definitiva (el arte final de Z2–Z3 se hace en H3, §9).
-- [ ] **18 chunks** de biblioteca (6 por zona, con al menos un chunk de cada nivel de dificultad presente) + los chunks fijos: 3 de apertura, 3 de tutorial de verbo, 1 de jefe, 6 de estación, 1 de transición.
-- [ ] **Validador** de las reglas de §11.5 sobre las secuencias a mano, incluida la **alcanzabilidad con junturas** (§11.7.7). *El ensamblador procedural es H3: en el MVP no se juega ninguna Inmersión procedural.*
+- [ ] **18 chunks** de biblioteca de **540 × 240 px** con **3–5 anclajes cada uno** (6 por zona, con al menos un chunk de cada nivel de dificultad presente) + los chunks fijos: 3 de apertura, 3 de tutorial de verbo, 1 de jefe, 6 de estación, 1 de transición.
+- [ ] **Validador** de las reglas de §11.5 sobre las secuencias a mano, incluida la **alcanzabilidad 2D con junturas y sin doble salto** (§11.7.7). *El ensamblador procedural es H3: en el MVP no se juega ninguna Inmersión procedural.*
 - [ ] **6 Inmersiones jugables** (2 en Z1, 3 en Z2 más la primera de Z3), encadenadas sin pantalla de carga, cada una con su **boya de aliento**.
 - [ ] **8 peligros del catálogo**: nº 1, 2, 3, 5, 6, 7, 8, 9.
 - [ ] **1 jefe**: Don Hinchón (Z1), resuelto por entrega, no por combate. *(Pulpa pasa a H3.)*
 - [ ] Estaciones de descanso con recarga al máximo de zona, checkpoint, tutorial aislado del verbo y pantalla de fin de Inmersión.
 
 **Sistemas de juego**
-- [ ] Aire con **las 5 formas de perderlo** de §2.4 (golpe, resaca, sobrecarga, presión, ventilación por atrapamiento) y las 3 de ganarlo.
+- [ ] Aire con **las 4 formas de perderlo** de §2.4 (golpe, resaca, presión, ventilación por atrapamiento), el **coste del doble salto** y las 3 de ganarlo.
 - [ ] Perlas y las 3 conchas por Inmersión.
 - [ ] Curva de dificultad de §4.2 con las tres reglas duras y el techo de 4,6.
 - [ ] **Regla de misericordia** operativa e invisible, disparada al **segundo** fallo.
@@ -803,12 +811,12 @@ Estos tests son parte de la definición de "hecho" del núcleo:
 **Presentación**
 - [ ] HUD completo: pips de Aire, cinta de profundidad en metros con formato localizado y suavizado, pausa con área táctil de 44 pt, tercio inferior despejado, **respeto de las bandas de seguridad**.
 - [ ] Escalado de anchura fija / altura elástica, bloqueo de orientación, pausa al perder el foco, desbloqueo de audio al primer toque.
-- [ ] Indicador de carga en tres canales: squash + anillo + trayectoria punteada (6→5 puntos), más el tono de audio afinado.
+- [ ] Indicador del tirachinas en tres canales: **banda elástica** origen→dedo + **anillo de potencia** + trayectoria punteada (6→5 puntos), con el estado atenuado dentro del radio de cancelación y el ámbar del recorte a la horizontal, más el tono de audio afinado.
 - [ ] Checklist de juice de §7 completo: squash & stretch, partículas, hitstop, *screen shake* acotado, *zoom punch*.
 - [ ] **8 efectos de sonido**, ambiente de zona con paso-bajo progresivo. Sin música definitiva.
-- [ ] Tutorial sin texto de menos de 25 s, saltable, **mudo en su primer paso** y sin enseñar mantenidos largos.
+- [ ] Tutorial sin texto de menos de 25 s, saltable, **mudo en su primer paso**, que enseña el arrastre **y la cancelación**.
 - [ ] Fin de Inmersión y fin por fallo, ambos con **reinicio en < 0,8 s desde el toque** y con los huecos de vídeo recompensado **maquetados y desactivados**.
-- [ ] Accesibilidad mínima: sin temblor, **carga lenta con todos los tiempos del gesto escalados**, trayectoria asistida.
+- [ ] Accesibilidad mínima: sin temblor, **"tirachinas largo" (`PULL_MAX_PX` ×1,5)**, trayectoria asistida.
 - [ ] **Build web compartible por URL** y guardado local del progreso.
 
 ### 12.2 Checklist — FUERA del MVP
@@ -837,7 +845,7 @@ El MVP se declara superado si, y solo si, **todo** lo siguiente es cierto en un 
 5. Ningún jugador entiende "subir" como algo bueno después de su primera resaca —**salvo dentro de una ventana de ascenso**, donde debe entenderlo como algo bueno a la primera (se mide en H3, cuando existe la fumarola).
 6. El reinicio se mide por debajo de **0,8 s desde el toque** y **ningún fallo cuesta más de 35 s de progreso**, verificado con cronómetro y respaldado por el test §11.7.13.
 7. **60 fps estables** en un Android de gama media de hace cuatro años, con `apps/web` servido desde una URL.
-8. Ningún jugador pierde su último pip de Aire por mantener el dedo pulsado (suelo de sobrecarga), y ninguna sesión registra un tramo entre boyas superior a 35 s.
+8. Ningún jugador pierde Aire por apuntar o por cancelar un tiro (apuntar es gratis), ningún doble salto deja a nadie a 0 pips, y ninguna sesión registra un tramo entre boyas superior a 35 s.
 
 Si el criterio 1 o el 5 fallan, se activa el plan B de la sección 10.1 (gravedad convencional con techo de agua descendente) **antes** de construir nada más.
 
@@ -885,3 +893,44 @@ Esta versión no añade contenido: **cierra contradicciones**. Cada línea indic
 25. **Correcciones menores de coherencia**: ventana de maestría 140 → **170 ms** (el 38% ahora es cierto), esquema de `Chunk` unificado en uno solo, las **cinco** formas de perder Aire enumeradas y la anémona recalibrada, expulsión del reposo **hacia abajo**, `MAX_FALL_SPEED` 620 → **520** con su caso de uso real, restitución propia de pared hadal (0,85) para que el verbo de Z6 exista, y notas de dirección de arte para la ballena caída y el deshinchado de Bur. §1.4, §2.2, §2.3, §2.4, §4.1, §5.
 
 **Qué sigue abierto:** solo la sección 10, que ahora indica para cada punto **qué números se recalculan** si el *owner* cambia la respuesta.
+
+---
+
+## 14. Registro de revisión (v1.1 → v1.2)
+
+Esta versión **no cierra contradicciones: incorpora un playtest**. El *owner* jugó el primer jugable en móvil y las cuatro decisiones de `docs/design/DECISIONS-v1.2.md` se aplican aquí íntegras. Cada línea indica el problema observado y la decisión tomada.
+
+**El gesto**
+
+1. **El tirachinas sustituye a la carga por tiempo.** La potencia era invisible: el jugador no podía ver cuánto llevaba cargado y el pulgar no cronometra. Ahora `pointerdown` congela un **origen en el dedo**, el **arrastre es la potencia** (`p = |d| / 70`, **lineal**) y la **dirección es la opuesta** al arrastre. Desaparecen `CHARGE_FULL_MS`, `CHARGE_EXP`, `MASTERY_WINDOW_MS`, `AUTO_RELEASE_MS`, `MIN_TAP_MS`, `AIM_GAIN`, `AIM_MIN_RADIUS` y el ajuste fino `DRAG_*`. §2.1, §2.2, §11.3, §11.4, §11.6.
+2. **Cancelar es gratis y visible.** Soltar a menos de **12 px** del origen devuelve el pájaro a la horquilla: sin tiro, sin coste, sin evento; dentro de ese radio no se dibuja guía y el anillo se muestra vacío. Es lo que permite que un niño explore la puntería sin miedo. §2.1, §8, §11.7.3.
+3. **Cono abierto a 90°.** Cualquier dirección **no ascendente**, con recorte a la horizontal más cercana (guía en ámbar) en lugar de la conservación de "última dirección válida" de la v1.1. Nunca se lanza hacia arriba. §2.1, §11.4.
+4. **Tope de apuntado que cancela, nunca suelta automática.** `AIM_MAX_MS = 6.000 ms`, y **el temporizador del posadero se congela mientras se apunta** (no así en *impaciente* y *pegajosa*). Apuntar deja de competir con el anti-*camping*. §2.1, §2.3, §11.7.4.
+5. **Desaparece la sobrecarga de todo el documento.** Con potencia por distancia, castigar el mantenido no significa nada. Las formas de perder Aire pasan de **cinco a cuatro** (golpe, resaca, presión, atrapamiento) más el **coste opcional del doble salto**. §2.2, §2.4, §12.1, §12.3.8.
+6. **Accesibilidad: "tirachinas largo" en vez de "carga lenta".** `LONG_SLING_MUL = 1,5` reparte la misma potencia en 105 px de recorrido: más precisión para quien la necesita, sin tocar ninguna otra constante del gesto. §8, §11.6.
+
+**El tiro nace en el reposo**
+
+7. **Se acabó corregir en el aire.** El lanzamiento sale de `RESTING`; en el aire hay **un solo "doble salto"** por fase (`AIR_LAUNCHES_MAX = 1`), que **cuesta 1 pip** y **nunca está disponible con el último**. Un toque sin doble salto disponible no hace nada. El juego pasa de reaccionar a **calcular**, y la trayectoria punteada gana peso como andamio. §2.1, §2.2, §2.7, §11.3, §11.7.14.
+8. **El estado `CHARGING` se llama ahora `AIMING`** y no acumula nada con el tiempo; `chargeMs` desaparece de `Bubble` y entran `pullDist`, `pullTheta`, `aimMs`, `aimValid`, `cancelZone` y `airLaunchesUsed`. §11.2, §11.3.
+
+**Mundo ancho**
+
+9. **`WORLD_W = CHUNK_W = 540 px`** (tres ventanas de 180), altura de chunk sin cambios: la aritmética de profundidad, escalas y campaña (108 chunks = 25.920 px, 18–24 min) **no se toca**. §11.1, §4.1.
+10. **La cámara sigue a Bur también en X**, con zona muerta `CAM_DEADZONE_X = [0,35 · 0,65]` y recorte a `[0, 360]`. En X **no hay trinquete**: la vista va y vuelve, porque explorar de lado es el punto. En Y no cambia nada. §4.3, §11.4, §11.7.15.
+11. **Adiós a los carriles `L/C/R` y a la boca de entrada.** La continuidad la garantiza únicamente la regla de alcance entre anclajes, ahora **bidimensional**; los chunks siguen declarando `entryAnchorId` y `exitAnchorId`. Desaparecen `CHUNK_MOUTH_MIN_W` y el campo `entry/exit` del `Chunk`. §4.1, §11.2, §11.5.1, §11.5.11.
+12. **Referencia de sensación: *Hungry Shark*** — agua abierta, estructuras dispersas, coleccionables que invitan a desviarse — con el **tercio inferior de la pantalla despejado** para el pulgar y paredes laterales sólidas en `x < 0` y `x > 540`. §4.3, §8.
+
+**Menos potencia, mundo más denso**
+
+13. **`IMPULSE_MIN/MAX` 150–430 → 90–280 px/s** y **tabla de alcance recalculada** con `d = (T/D)·(x − ln(1+x))`, `T = 167`, `D = 0,60`: **193 px** en Z1 y **140 px** en Z6 a plena potencia (antes 362 y 267), **30 px** con el tirón mínimo y **101 px** a media banda. Un tiro **ya no cruza un *chunk* entero**, que es exactamente lo que se buscaba. §2.2.
+14. **`MAX_HOP_PX` 200…150 → [110 · 105 · 100 · 95 · 90 · 80]** y nueva **`MAX_HOP_X_PX` [200 · 190 · 180 · 170 · 160 · 140]**: la regla de alcance del generador es **2D** y se certifica con el **mismo integrador**, desde reposo y **sin doble salto** (el doble salto es margen del jugador, no del diseñador). El desnivel máximo queda en el **57% del alcance**, es decir, 43% de margen. §2.2, §11.5.11, §11.7.7.
+15. **3–5 anclajes por chunk** en vez de 1–2, con repisas más y más cortas (24–48 px): más rutas, más rebotes y más decisiones por pantalla. §4.1, §12.1.
+16. **La promesa de la presión se reformula con los números nuevos**: a radio 3,9 px un arrastre completo da **227 px/s**, lo mismo que 50 px de arrastre en superficie (**226 px/s**). El exponente 0,35 sigue siendo el correcto. §2.6, §11.7.2.
+
+**Contratos y alcance**
+
+17. **Los contratos de test de la carga por tiempo se sustituyen por contratos del tirachinas**: linealidad `p(70) = 1` / `p(35) = 0,5`, radio de cancelación, imposibilidad de lanzar desde `IDLE` sin doble salto, coste de 1 pip que nunca es el último, cámara X recortada y alcanzabilidad 2D. §11.7.1, .3, .4, .7, .14, .15.
+18. **El checklist del MVP se actualiza sin crecer**: el gesto de tirachinas y el doble salto sustituyen a la carga y la sobrecarga, el validador certifica en 2D, la biblioteca es de chunks de 540 px con 3–5 anclajes y la accesibilidad cambia "carga lenta" por "tirachinas largo". El alcance en semanas **no se mueve**. §12.
+
+**Qué no cambia:** pilares §0, historia y tono §1, zonas y catálogo §5, sistema de Aire (salvo la desaparición de la sobrecarga), presión, estaciones, boyas, misericordia, cámara en Y, economía §6, *juice* §7, hoja de ruta §9 y la sección 10 de riesgos abiertos.

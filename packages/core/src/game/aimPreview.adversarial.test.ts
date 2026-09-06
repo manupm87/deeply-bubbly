@@ -37,14 +37,15 @@ const MEDUSA: Ceiling = {
   catalogId: 1,
 };
 
-/** A full hold aimed straight down, with the deflated medusa already on the pass-through list. */
-function chargedOverADeflatedMedusa(): Bubble {
+/** A full pull aimed straight down, with the deflated medusa already on the pass-through list. */
+function aimedOverADeflatedMedusa(): Bubble {
   const bubble = createBubble({ x: 90, y: 100 }, 0, T);
-  bubble.state = 'CHARGING';
-  bubble.chargeMs = T.CHARGE_FULL_MS;
-  bubble.aimOrigin = { x: 90, y: 100 };
-  bubble.aimTheta = 0;
-  bubble.dragDist = T.DRAG_NEUTRAL_PX;
+  bubble.state = 'AIMING';
+  bubble.aimOrigin = { x: 90, y: 220 };
+  bubble.pullDist = T.PULL_MAX_PX;
+  bubble.pullTheta = 0;
+  bubble.aimValid = true;
+  bubble.cancelZone = false;
   bubble.holdLatched = true;
   bubble.passThrough = [{ id: MEDUSA.id, until: T.BOUNCE_COOLDOWN_MS }];
   return bubble;
@@ -52,10 +53,10 @@ function chargedOverADeflatedMedusa(): Bubble {
 
 describe('the guide is exact against the world Bur actually collides with (§2.7, §10.3)', () => {
   it('does not draw a bounce off a body on the pass-through list (§2.2 trampoline cooldown)', () => {
-    const guide = previewTrajectory(chargedOverADeflatedMedusa(), [MEDUSA], NEUTRAL_ENV, 0, 0, T);
+    const guide = previewTrajectory(aimedOverADeflatedMedusa(), [MEDUSA], NEUTRAL_ENV, 0, 0, T);
 
-    // Ground truth: release the very same hold into the very same world and let `bubbleStep` run it.
-    const bubble = chargedOverADeflatedMedusa();
+    // Ground truth: release the very same pull into the very same world and let `bubbleStep` run it.
+    const bubble = aimedOverADeflatedMedusa();
     const run = createRunState(1, 'expedicion');
     let nowMs = 0;
     for (let i = 0; i < 40; i++) {

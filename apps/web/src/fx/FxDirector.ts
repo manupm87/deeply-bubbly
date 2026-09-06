@@ -58,7 +58,7 @@ export class FxDirector {
     const snap = this.ctx.snapshot;
     if (!snap) return;
     this.syncZone(snap.zone);
-    this.particles.update(snap.camera.renderY, snap.camera.viewH);
+    this.particles.update(snap.camera.x, snap.camera.renderY, snap.camera.viewW, snap.camera.viewH);
   }
 
   destroy(): void {
@@ -74,6 +74,10 @@ export class FxDirector {
       case 'launch':
         this.targets.bubbleView.stretch(e.vel);
         this.particles.launchTail(e.at, e.vel);
+        // D1: the "double jump" is the only launch that spends a pip, so it gets a second, distinct
+        // burst, at Bur — which is where `e.at` already is (core fills it with `bubble.pos`), so the
+        // snapshot read is belt and braces for a frame in which no snapshot has been taken yet.
+        if (e.airLaunch) this.particles.airSpent(this.ctx.snapshot?.bubble.pos ?? e.at);
         break;
       case 'bounce':
         this.targets.bubbleView.impact(e.contact.normal);

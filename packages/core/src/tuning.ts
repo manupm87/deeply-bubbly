@@ -1,6 +1,6 @@
 /**
  * Tunable constants (GDD §11.6). Every value here is a *starting* value subject to playtest tuning.
- * Units: px = design pixels (world is 180 px wide), ms, s, px/s, px/s².
+ * Units: px = design pixels (the world is WORLD_W = 540 wide, the view VIEW_W = 180 of it), ms, s, px/s, px/s².
  *
  * The live tuning panel edits a `Tuning` object created by `createTuning()`; `DEFAULT_TUNING` is frozen.
  * Derived values (e.g. TERMINAL_RISE) are recomputed by `createTuning`, never stored independently.
@@ -23,23 +23,9 @@ export const DEFAULT_TUNING = defineTuning({
   DAMPING_X: 0.3, // 1/s — horizontal is preserved so wall chains work
   MAX_FALL_SPEED: 520, // px/s safety cap (positive = downward)
 
-  // --- Impulse & charge (§2.1, §2.2) ---
+  // --- Impulse (§2.2, DECISIONS-v1.2 D4) ---
   IMPULSE_MIN: 90, // px/s (minimum pull that still counts as a shot) — DECISIONS-v1.2 D4
   IMPULSE_MAX: 280, // px/s (full pull) — DECISIONS-v1.2 D4
-  CHARGE_FULL_MS: 550,
-  CHARGE_EXP: 1.3,
-  MASTERY_WINDOW_MS: 170,
-  OVERCHARGE_MS: 900,
-  OVERCHARGE_MS_RESTING: 1800,
-  OVERCHARGE_DRAIN_MS: 500,
-  OVERCHARGE_MIN_AIR: 1, // hard floor: overcharge never takes the last pip
-  OVERCHARGE_MAX_DRAIN: 2, // per hold
-  AUTO_RELEASE_MS: 2500,
-  MIN_TAP_MS: 70,
-  CHARGING_BUOYANCY_MUL: 0.35,
-  DRAG_FINE_TUNE: 0.15, // ±15 %, neutral at DRAG_NEUTRAL_PX
-  DRAG_NEUTRAL_PX: 45,
-  DRAG_MAX_PX: 90,
 
   // --- Slingshot gesture (DECISIONS-v1.2 D1, D2) ---
   PULL_MAX_PX: 70, // drag distance for full power
@@ -50,10 +36,9 @@ export const DEFAULT_TUNING = defineTuning({
   LONG_SLING_MUL: 1.5, // accessibility: longer pull for the same power
 
   // --- Aim (§2.1, revised D2: any non-upward direction) ---
-  AIM_CONE_DEG: 90,
-  AIM_DEADZONE_DEG: 5,
-  AIM_GAIN: 1.5,
-  AIM_MIN_RADIUS: 18, // px, anti-jitter
+  AIM_CONE_DEG: 90, // D2: the clamp is the horizontal, on the side the pull asked for
+  AIM_DEADZONE_DEG: 5, // snap to straight down, so the commonest shot of the game is free
+  AIM_BUOYANCY_MUL: 0.35, // §2.1 "apuntar ancla": buoyancy while an AIR aim is held (see integrator.ts)
 
   // --- Pressure (§2.6) ---
   RADIUS_BASE: 7,
@@ -120,8 +105,6 @@ export const DEFAULT_TUNING = defineTuning({
   CHUNK_W: 540,
   VIEW_W: 180, // design viewport width (fixed)
   CHUNK_H: 240,
-  CHUNK_MOUTH_MIN_W: 64,
-  LANE_X: { L: 40, C: 90, R: 140 } as Readonly<Record<'L' | 'C' | 'R', number>>,
   CHUNK_REPEAT_WINDOW: 6,
   IMMERSION_CHUNKS: 6, // 5 playable + 1 rest station
   IMMERSION_PLAYABLE_CHUNKS: 5,
@@ -138,7 +121,6 @@ export const DEFAULT_TUNING = defineTuning({
   DEFLATE_MS: 700,
   RESTART_BUDGET_MS: 800,
   DEAD_IDLE_AUTO_MS: 8000,
-  SLOW_CHARGE_MUL: 1.6,
   // "Buceo tranquilo" (§8): rest ×2 (3,0 s → 6,0 s), resaca grace ×1,5, pressure drain ×1,4.
   CALM_REST_MUL: 2,
   CALM_RESACA_GRACE_MUL: 1.5,
@@ -147,7 +129,7 @@ export const DEFAULT_TUNING = defineTuning({
   // --- Presentation hints consumed by the shell (kept here so the panel can tune them) ---
   TRAJECTORY_DOTS: [6, 6, 5, 4, 3, 2] as readonly number[],
   LIGHT_RADIUS_BASE: 8,
-  LIGHT_RADIUS_CHARGED: 14,
+  LIGHT_RADIUS_CHARGED: 14, // light of a full-power launch (§11.4)
   DEPTH_COUNTER_MAX_STEP_M: 9,
 
   // --- Simulation ---
@@ -188,14 +170,13 @@ export function withCalmDive(t: Tuning): Tuning {
   };
 }
 
-/** Accessibility: "carga lenta" scales *every* gesture time by the same factor (§8). */
-export function withSlowCharge(t: Tuning, mul: number = t.SLOW_CHARGE_MUL): Tuning {
-  return {
-    ...t,
-    CHARGE_FULL_MS: t.CHARGE_FULL_MS * mul,
-    OVERCHARGE_MS: t.OVERCHARGE_MS * mul,
-    OVERCHARGE_MS_RESTING: t.OVERCHARGE_MS_RESTING * mul,
-    OVERCHARGE_DRAIN_MS: t.OVERCHARGE_DRAIN_MS * mul,
-    AUTO_RELEASE_MS: t.AUTO_RELEASE_MS * mul,
-  };
+/**
+ * Accessibility, DECISIONS-v1.2 D2: "carga lenta" no longer means anything once power is distance
+ * instead of time, and is replaced by the LONG SLINGSHOT — the same power spread over `LONG_SLING_MUL`
+ * times more travel, so every notch of power needs a longer, and therefore more accurate, drag.
+ * It is the only gesture constant it touches: the cancel radius, the cone and the aim timeout are the
+ * same for everyone.
+ */
+export function withLongSling(t: Tuning, mul: number = t.LONG_SLING_MUL): Tuning {
+  return { ...t, PULL_MAX_PX: t.PULL_MAX_PX * mul };
 }

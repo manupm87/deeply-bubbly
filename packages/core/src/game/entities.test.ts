@@ -8,7 +8,7 @@ import type { WorldEntity } from '../types';
 const ENTITIES: WorldEntity[] = [
   { type: 'ceiling', id: 'c', rect: { x: 0, y: 0, w: 40, h: 10 }, kind: 'posadero', capturable: true, restitution: 0.55, material: 'rock' },
   { type: 'wall', id: 'w', rect: { x: 0, y: 0, w: 10, h: 200 }, restitution: 0.55, material: 'rock' },
-  { type: 'anchor', id: 'a', ceilingId: 'c', pos: { x: 20, y: 17 }, lane: 'C' },
+  { type: 'anchor', id: 'a', ceilingId: 'c', pos: { x: 20, y: 17 } },
   { type: 'hazard', id: 'h', catalogId: 6, shape: { x: 0, y: 0, w: 8, h: 8 }, airCost: 1, pushDir: 'lateral' },
   { type: 'forcefield', id: 'f', rect: { x: 0, y: 0, w: 20, h: 20 }, fieldType: 'corriente', vector: { x: 90, y: 0 }, buoyancyMul: 1, impulseMul: 1, chargeMul: 1, opensAscenso: false },
   { type: 'pickup', id: 'p', pos: { x: 5, y: 5 }, pickupType: 'aire', value: 1, radius: 6 },

@@ -93,22 +93,21 @@ describe('the mercy rule thins the world (§4.2.3, §11.5.8)', () => {
   });
 
   it('reaches the live world: two failures of an immersion thin the chunks Bur is standing in (§11.7.8)', () => {
-    // The same trick `GameWorld.test.ts` uses to die on demand: a tuning where one hold vents the bar.
+    // The same trick `GameWorld.test.ts` uses to die on demand: the §2.4.4 pressure clock in every
+    // zone at a 50 ms period, with rest windows too short to freeze it (DECISIONS-v1.2 D1 removed the
+    // overcharge, which is what this used to be written against).
     const lethal = createTuning({
-      OVERCHARGE_MS: 60,
-      OVERCHARGE_MS_RESTING: 60,
-      OVERCHARGE_DRAIN_MS: 60,
-      OVERCHARGE_MIN_AIR: 0,
-      OVERCHARGE_MAX_DRAIN: 32,
-      AUTO_RELEASE_MS: 60_000,
+      PRESSURE_DRAIN_FROM_ZONE: 0,
+      PRESSURE_DRAIN_S: 0.05,
+      REST_MAX_MS: { posadero: 50, impaciente: 50, pegajosa: 50 },
     });
     const world = createMvpWorld({ startStationIndex: 1 });
     const before = world.snapshot().entities.filter((e) => e.type === 'hazard').length;
     world.setTuning(lethal);
-    const held = { down: true, x: 90, y: 200 };
     for (let i = 0; i < 2; i++) {
-      for (let f = 0; f < 10; f++) world.update(t.FIXED_DT * 1000, POINTER_UP);
-      for (let f = 0; f < 60 * 20 && world.snapshot().phase !== 'dead'; f++) world.update(t.FIXED_DT * 1000, held);
+      for (let f = 0; f < 60 * 20 && world.snapshot().phase !== 'dead'; f++) {
+        world.update(t.FIXED_DT * 1000, POINTER_UP);
+      }
       expect(world.snapshot().phase).toBe('dead');
       world.restart();
     }

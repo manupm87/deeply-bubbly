@@ -7,7 +7,7 @@
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { bootGame, collectErrors, forceResacaDeath, holdAndRelease } from './helpers';
+import { bootGame, collectErrors, forceResacaDeath, pullReachPx, pullAndRelease } from './helpers';
 
 interface DisplayObject {
   type: string;
@@ -76,8 +76,9 @@ test('window blur pauses the simulation', async ({ page }) => {
 test('the pause menu "restart dive" option restarts the run', async ({ page }) => {
   await bootGame(page);
   const size = page.viewportSize() ?? { width: 412, height: 839 };
+  const reach = await pullReachPx(page);
   for (let i = 0; i < 3; i++) {
-    await holdAndRelease(page, size.width / 2, size.height * 0.8, 500);
+    await pullAndRelease(page, size.width / 2, size.height * 0.8, 0, -reach, 240);
     await page.waitForTimeout(800);
   }
   const restart = await evalInPage(page, (h) => {
@@ -122,16 +123,21 @@ test('Bur is visible again after a death and a restart', async ({ page }) => {
 });
 
 /** §8's revised scaling decision: the world is never sampled at a fractional zoom, not for a frame. */
-test('the camera zoom stays an integer through a whole charge', async ({ page }) => {
+test('the camera zoom stays an integer through a whole aim', async ({ page }) => {
   await bootGame(page);
   const size = page.viewportSize() ?? { width: 412, height: 839 };
+  const reach = await pullReachPx(page);
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [{ x: Math.round(size.width / 2), y: Math.round(size.height * 0.8) }],
-  });
+  const x = Math.round(size.width / 2);
+  const y = Math.round(size.height * 0.8);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
   const zooms: number[] = [];
   for (let i = 0; i < 12; i++) {
+    // The sling is drawn out while the zoom is sampled: the aim is live for every one of these frames.
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x, y: Math.round(y - (reach * Math.min(i + 1, 6)) / 6) }],
+    });
     zooms.push(await evalInPage(page, (h) => h().game.scene.getScene('Game').cameras.main.zoom));
     await page.waitForTimeout(60);
   }
@@ -140,14 +146,19 @@ test('the camera zoom stays an integer through a whole charge', async ({ page })
   expect(zooms.every((z) => Number.isInteger(z))).toBe(true);
 });
 
-/** GDD §8: the dotted guide is one of the three redundant charge channels; every dot must count. */
+/** GDD §8: the dotted guide is one of the three redundant power channels; every dot must count. */
 test('the trajectory guide draws no duplicated dot', async ({ page }) => {
   await bootGame(page);
   const size = page.viewportSize() ?? { width: 412, height: 839 };
+  const reach = await pullReachPx(page);
   const cdp = await page.context().newCDPSession(page);
+  const x = Math.round(size.width / 2);
+  const y = Math.round(size.height * 0.75);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  // D2 draws NO guide inside the cancel radius, so the sling has to be drawn out before it is read.
   await cdp.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [{ x: Math.round(size.width / 2), y: Math.round(size.height * 0.75) }],
+    type: 'touchMove',
+    touchPoints: [{ x, y: Math.round(y - reach) }],
   });
   await page.waitForTimeout(350);
   const dots = await evalInPage(page, (h) =>

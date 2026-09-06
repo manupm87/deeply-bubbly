@@ -3,17 +3,18 @@ import { solidRectAt } from '../../../physics/collision';
 import { createTuning } from '../../../tuning';
 import { buildCampaign } from '../../campaign';
 import { ChunkLibrary } from '../../library';
-import { validateCampaign, validateChunk, validateSequence } from '../../validator';
+import { validateChunk } from '../../validator';
+import { describeIssues, errorsOf, validateZoneContent } from '../zoneReport';
 import { Z1_BOSS, Z1_CHUNKS, Z1_SEQUENCES, Z1_STATION_1, Z1_STATION_2 } from './index';
-import type { ValidationIssue } from '../../validator';
 import type { Anchor, Ceiling, Chunk, Hazard, Pickup, WorldEntity } from '../../../types';
 
 const t = createTuning();
 const library = new ChunkLibrary([...Z1_CHUNKS]);
 
-const errors = (issues: readonly ValidationIssue[]): ValidationIssue[] => issues.filter((i) => i.severity === 'error');
-const describeIssues = (issues: readonly ValidationIssue[]): string[] =>
-  issues.map((i) => `${i.severity} [${i.rule}] ${i.chunkId ?? '-'}: ${i.message}`);
+const errors = errorsOf;
+
+/** Every §11.5 rule of the zone, run once (`level/content/zoneReport.ts`) and asserted field by field. */
+const report = validateZoneContent(Z1_CHUNKS, Z1_SEQUENCES, t);
 
 const entitiesOf = <T extends WorldEntity>(type: T['type']): T[] =>
   Z1_CHUNKS.flatMap((c) => c.entities.filter((e): e is T => e.type === type));
@@ -101,23 +102,19 @@ describe('Z1_SEQUENCES', () => {
   });
 
   it('validates with zero errors as a campaign (§11.5, §11.7.7)', () => {
-    expect(describeIssues(validateCampaign(library, Z1_SEQUENCES, t))).toEqual([]);
+    expect(report.campaign).toEqual([]);
   });
 
-  it('never requires more than an 80 % charge: the 362 px full shot is always headroom (§2.2)', () => {
-    // Capping IMPULSE_MAX so that a full hold delivers exactly what p = 0.8 delivers today re-runs the
-    // whole reach search with the top fifth of the charge curve amputated. Still clean = never required.
-    const capped = createTuning({ IMPULSE_MAX: t.IMPULSE_MIN + 0.8 * (t.IMPULSE_MAX - t.IMPULSE_MIN) });
-    expect(describeIssues(validateCampaign(library, Z1_SEQUENCES, capped))).toEqual([]);
+  it('never requires more than an 80 % charge: a full pull is always headroom (§2.2)', () => {
+    // The report re-flies every certificate with IMPULSE_MAX capped so a full pull delivers only what
+    // p = 0.8 delivers today. Still clean = the top fifth of the slingshot is never required.
+    expect(report.cappedImpulse).toEqual([]);
   });
 
   it('validates each immersion on its own too', () => {
     // §11.5.5 counts a catalogId's appearances over the WHOLE game ("en toda la partida"), so the
     // counter is threaded from one immersion to the next exactly as `validateCampaign` threads it.
-    const appearances = new Map<number, number>();
-    for (const sequence of Z1_SEQUENCES) {
-      expect(describeIssues(validateSequence(library, sequence, t, appearances))).toEqual([]);
-    }
+    expect(report.perImmersion).toEqual(Z1_SEQUENCES.map(() => []));
   });
 
   it('gives each Zone 1 creature its first two chunks to itself (§11.5.5)', () => {
@@ -263,17 +260,25 @@ describe('Zone 1 catalogue invariants (§11.7.9, §5)', () => {
     }
   });
 
-  it('leaves the stations free of hazards, with one wide shelf and a couple of pearls (§3.3)', () => {
+  it('leaves the stations free of hazards, with a terrace over the respawn point and two pearls (§3.3)', () => {
+    // §2.4.2 puts the station respawn in the MIDDLE of the band at WORLD_W / 2, in open water: Bur
+    // floats up from there, so the terrace has to be the ceiling she meets. That is the only reason a
+    // station carries a 240 px shelf and a 60 px inset instead of the 40 px rung everything else uses.
     for (const station of [Z1_STATION_1, Z1_STATION_2]) {
       const ceilings = station.entities.filter((e): e is Ceiling => e.type === 'ceiling');
       const pearls = station.entities.filter((e): e is Pickup => e.type === 'pickup' && e.pickupType === 'perla');
       expect(station.entities.some((e) => e.type === 'hazard'), station.id).toBe(false);
-      expect(ceilings, station.id).toHaveLength(1);
-      expect(ceilings[0]?.capturable, station.id).toBe(true);
-      expect(ceilings[0]?.rect.w, station.id).toBeGreaterThanOrEqual(80);
-      expect(['foam', 'coral']).toContain(ceilings[0]?.material);
+      for (const c of ceilings) expect(c.capturable, c.id).toBe(true);
+      const terrace = ceilings.find((c) => c.rect.w >= 200);
+      expect(terrace, station.id).toBeDefined();
+      expect(terrace!.rect.x, station.id).toBeLessThan(t.WORLD_W / 2);
+      expect(terrace!.rect.x + terrace!.rect.w, station.id).toBeGreaterThan(t.WORLD_W / 2);
+      expect(terrace!.rect.y + terrace!.rect.h, station.id).toBeLessThan(t.CHUNK_H / 2);
+      expect(['foam', 'coral']).toContain(terrace!.material);
       expect(pearls, station.id).toHaveLength(2);
-      expect(station.entryAnchorId, station.id).toBe(station.exitAnchorId);
+      // A station is a rest, but §11.1 still threads it into the one continuous column: it is a ladder
+      // like any other, because no single shelf can be inside MAX_HOP_PX of both of its seams (D4).
+      expect(station.entryAnchorId, station.id).not.toBe(station.exitAnchorId);
     }
   });
 });

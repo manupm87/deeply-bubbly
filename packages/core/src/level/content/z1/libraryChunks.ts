@@ -6,195 +6,235 @@
  * Zone 1 fauna is never a `Hazard`: nº 1 (Medusa Farolillo), nº 2 (Alga Cinta) and nº 3 (Tortuga
  * Paseante) are all `Ceiling`s of §5 carrying their `catalogId`, and nº 4 (Peces payaso) is decorative
  * and drops a pearl. Nothing here costs Air — the difficulty of Z1 is the line you choose, not the
- * damage you take — but §11.5.5 still applies to them, so each creature gets its first TWO chunks to
- * itself: alga in `z1-lib-a` and `z1-lib-d`, tortuga in `z1-lib-b` and `z1-lib-e`, medusa in
- * `z1-open-3` and `z1-lib-c`. `z1-lib-f` is the first chunk allowed to mix them.
+ * damage you take — but §11.5.5 still applies, so each creature gets its first TWO chunks to itself:
+ * alga in `z1-lib-a` and `z1-lib-d`, tortuga in `z1-lib-b` and `z1-lib-e`, medusa in `z1-open-3` and
+ * `z1-lib-c`. `z1-lib-f` is the first chunk allowed to mix them.
+ *
+ * **What the 540 px world changed here** (DECISIONS-v1.2 D3/D4). Every chunk now declares four or five
+ * rest points instead of two or three, the hops are shorter vertically (62 px, not 90) and much longer
+ * laterally (70–180 px, up to a whole screen), and the pearls sit OFF the ladder, against the reef: a
+ * detour costs seconds and buys nothing but the shell count, which is the *Hungry Shark* shape D3 asks
+ * for. `../ladder.ts` owns the geometry rule that makes each of those hops land.
  */
-import { Z1, airPocket, anchorIdOf, jellyfish, kelp, pearl, perch, sideRock, turtle } from './builders';
-import type { Anchor, Ceiling, Chunk } from '../../../types';
+import {
+  ENTRY_X_LEFT,
+  ENTRY_X_RIGHT,
+  RUNG_Y_4,
+  RUNG_Y_5,
+  airPocket,
+  exitRung,
+  jellyfish,
+  kelpRung,
+  ladder,
+  pearl,
+  reefIn,
+  rung,
+  shell,
+  turtleRung,
+} from './builders';
+import type { Chunk } from '../../../types';
 
-const VERBS = ['cargar', 'soltar', 'reposar'];
+const VERBS = ['apuntar', 'soltar', 'reposar'];
 
-/** z1-lib-a (difficulty 1) — a calm three-step descent with an Alga Cinta as the middle landing. */
-const a: Array<[Ceiling, Anchor]> = [
-  perch({ id: 'la-p1', x: 141, y: 18, w: 36, anchorX: 150, material: 'coral' }),
-  kelp('la-p2', 3, 108, 36, 30),
-  perch({ id: 'la-p3', x: 101, y: 188, w: 48, anchorX: 110 }),
-];
+const y4 = (i: number): number => RUNG_Y_4[i] ?? 18;
+const y5 = (i: number): number => RUNG_Y_5[i] ?? 18;
+
+/** z1-lib-a (difficulty 1) — a calm four-step descent with an Alga Cinta as the second landing. */
+const a = ladder('la', [
+  rung(ENTRY_X_RIGHT, y4(0)),
+  kelpRung(240, y4(1)),
+  rung(410, y4(2), { material: 'coral' }),
+  exitRung(),
+]);
 
 export const Z1_LIB_A: Chunk = {
   id: 'z1-lib-a',
-  zone: Z1,
+  zone: 0,
   difficulty: 1,
   verbs: VERBS,
-  entry: 'R',
-  exit: 'C',
-  entryAnchorId: anchorIdOf('la-p1'),
-  exitAnchorId: anchorIdOf('la-p3'),
-  airBudget: 1,
+  entryAnchorId: a.entryAnchorId,
+  exitAnchorId: a.exitAnchorId,
+  airBudget: 2,
   targetTimeS: 11,
   tags: ['alga', 'calma'],
   role: 'playable',
-  entities: [...a.flat(), airPocket('la-air', 90, 78), pearl('la-pearl', 20, 168)],
+  entities: [
+    ...a.entities,
+    ...reefIn('la', { left: [40, 170], right: [30, 120] }),
+    airPocket('la-air-1', 320, 50),
+    airPocket('la-air-2', 330, 175),
+    pearl('la-pearl', 480, 60),
+    shell('la-concha', 70, 120),
+  ],
 };
 
 /**
- * z1-lib-b (difficulty 3) — the Tortuga Paseante carries the middle landing 60 px sideways while you
+ * z1-lib-b (difficulty 3) — the Tortuga Paseante carries the second landing 60 px sideways while you
  * aim. Her shell is 76 px wide and the rest point is at its centre, so the walk never leaves the anchor
- * hanging in open water (§11.2).
+ * hanging in open water (§11.2) — and her rest point is 38 px past her near edge, which is why the hop
+ * that reaches her is one of the longest of the zone.
  */
-const b: Array<[Ceiling, Anchor]> = [
-  perch({ id: 'lb-p1', x: 3, y: 18, w: 36, anchorX: 30 }),
-  turtle('lb-p2', 70, 108),
-  perch({ id: 'lb-p3', x: 1, y: 188, w: 40, anchorX: 32, material: 'coral' }),
-];
+const b = ladder('lb', [
+  rung(ENTRY_X_LEFT, y4(0)),
+  turtleRung(300, y4(1)),
+  rung(430, y4(2), { material: 'coral' }),
+  exitRung(),
+]);
 
 export const Z1_LIB_B: Chunk = {
   id: 'z1-lib-b',
-  zone: Z1,
+  zone: 0,
   difficulty: 3,
   verbs: VERBS,
-  entry: 'L',
-  exit: 'L',
-  entryAnchorId: anchorIdOf('lb-p1'),
-  exitAnchorId: anchorIdOf('lb-p3'),
-  airBudget: 1,
+  entryAnchorId: b.entryAnchorId,
+  exitAnchorId: b.exitAnchorId,
+  airBudget: 2,
   targetTimeS: 11,
   tags: ['tortuga', 'movil'],
   role: 'playable',
   entities: [
-    ...b.flat(),
-    sideRock('lb-rock', 0, 60, 8, 36),
-    airPocket('lb-air', 86, 168),
-    pearl('lb-pearl-1', 30, 84),
-    pearl('lb-pearl-2', 156, 200),
+    ...b.entities,
+    ...reefIn('lb', { left: [60, 150], right: [150, 80] }),
+    airPocket('lb-air-1', 240, 50),
+    airPocket('lb-air-2', 200, 190),
+    pearl('lb-pearl-1', 70, 60),
+    pearl('lb-pearl-2', 470, 195),
   ],
 };
 
 /**
- * z1-lib-c (difficulty 2) — four steps, and the second appearance of the Medusa Farolillo. §11.5.5 gives
+ * z1-lib-c (difficulty 2) — five rungs and the second appearance of the Medusa Farolillo. §11.5.5 gives
  * her this chunk to herself, so there is no alga and no tortuga here: just the jellyfish, parked on the
- * line of the second hop at the depth of its landing.
+ * line of the second hop at the depth Bur rises back through.
  */
-const c: Array<[Ceiling, Anchor]> = [
-  perch({ id: 'lc-p1', x: 3, y: 18, w: 36, anchorX: 30 }),
-  perch({ id: 'lc-p2', x: 141, y: 78, w: 36, anchorX: 150, material: 'coral' }),
-  perch({ id: 'lc-p3', x: 5, y: 133, w: 40, anchorX: 36 }),
-  perch({ id: 'lc-p4', x: 101, y: 188, w: 48, anchorX: 110 }),
-];
+const c = ladder('lc', [
+  rung(ENTRY_X_LEFT, y5(0)),
+  rung(90, y5(1)),
+  rung(250, y5(2), { material: 'coral' }),
+  rung(ENTRY_X_RIGHT, y5(3)),
+  exitRung(),
+]);
 
 export const Z1_LIB_C: Chunk = {
   id: 'z1-lib-c',
-  zone: Z1,
+  zone: 0,
   difficulty: 2,
   verbs: VERBS,
-  entry: 'L',
-  exit: 'C',
-  entryAnchorId: anchorIdOf('lc-p1'),
-  exitAnchorId: anchorIdOf('lc-p4'),
+  entryAnchorId: c.entryAnchorId,
+  exitAnchorId: c.exitAnchorId,
   airBudget: 2,
-  targetTimeS: 10,
+  targetTimeS: 11,
   tags: ['medusa', 'zigzag'],
   role: 'playable',
   entities: [
-    ...c.flat(),
-    jellyfish('lc-medusa', 95, 78, 40),
-    airPocket('lc-air-1', 96, 118),
-    airPocket('lc-air-2', 62, 218),
-    pearl('lc-pearl', 168, 160),
+    ...c.entities,
+    ...reefIn('lc', { left: [140, 90], right: [40, 150] }),
+    jellyfish('lc-medusa', 148, 100, 40),
+    airPocket('lc-air-1', 330, 40),
+    airPocket('lc-air-2', 190, 190),
+    pearl('lc-pearl', 472, 100),
+    shell('lc-concha', 60, 200),
   ],
 };
 
 /**
- * z1-lib-d (difficulty 4) — the long-hop chunk: two 80–90 px drops with an Alga Cinta as the middle
- * landing, which absorbs 82 % of the arrival speed and leaves you no momentum to work with (§5 nº 2).
+ * z1-lib-d (difficulty 4) — the long-drop chunk: a 100 px fall (D4 puts `MAX_HOP_PX` at 110 in Zone 1)
+ * onto an Alga Cinta, which absorbs 82 % of the arrival speed and leaves nothing to work with (§5 nº 2).
  * Second appearance of the alga, so it is alone here too.
  */
-const d: Array<[Ceiling, Anchor]> = [
-  perch({ id: 'ld-p1', x: 3, y: 18, w: 36, anchorX: 30 }),
-  kelp('ld-p2', 141, 108, 36, 150),
-  perch({ id: 'ld-p3', x: 31, y: 188, w: 48, anchorX: 70 }),
-];
+const d = ladder('ld', [
+  rung(ENTRY_X_RIGHT, 18),
+  kelpRung(230, 118),
+  rung(390, 160, { material: 'coral' }),
+  exitRung(),
+]);
 
 export const Z1_LIB_D: Chunk = {
   id: 'z1-lib-d',
-  zone: Z1,
+  zone: 0,
   difficulty: 4,
   verbs: VERBS,
-  entry: 'L',
-  exit: 'C',
-  entryAnchorId: anchorIdOf('ld-p1'),
-  exitAnchorId: anchorIdOf('ld-p3'),
-  airBudget: 1,
+  entryAnchorId: d.entryAnchorId,
+  exitAnchorId: d.exitAnchorId,
+  airBudget: 2,
   targetTimeS: 12,
   tags: ['alga', 'salto-largo'],
   role: 'playable',
   entities: [
-    ...d.flat(),
-    sideRock('ld-rock', 172, 150, 8, 40),
-    airPocket('ld-air', 92, 152),
-    pearl('ld-pearl', 20, 130),
+    ...d.entities,
+    ...reefIn('ld', { left: [30, 200], right: [60, 120] }),
+    airPocket('ld-air-1', 320, 70),
+    airPocket('ld-air-2', 300, 190),
+    pearl('ld-pearl', 80, 90),
   ],
 };
 
 /**
- * z1-lib-e (difficulty 3) — the second Tortuga Paseante, this time as the MIDDLE landing of a
- * right-to-left descent: you arrive on a shell that is already walking away from where you aimed.
- * The exit is a fixed ledge on purpose — a respawn point (§2.4.2) that moves is not a point.
+ * z1-lib-e (difficulty 3) — the second Tortuga Paseante, this time in the middle of a left-to-right
+ * sweep that crosses the whole world: you arrive on a shell that is already walking away from where you
+ * aimed, and the next rung is 130 px further right. The exit is a fixed cornice on purpose — a respawn
+ * point (§2.4.2) that moves is not a point.
  */
-const e: Array<[Ceiling, Anchor]> = [
-  perch({ id: 'le-p1', x: 141, y: 18, w: 36, anchorX: 150, material: 'coral' }),
-  turtle('le-p2', 30, 108),
-  perch({ id: 'le-p3', x: 101, y: 188, w: 48, anchorX: 110 }),
-];
+const e = ladder('le', [
+  rung(ENTRY_X_LEFT, y4(0), { material: 'coral' }),
+  turtleRung(320, y4(1)),
+  rung(450, y4(2)),
+  exitRung(),
+]);
 
 export const Z1_LIB_E: Chunk = {
   id: 'z1-lib-e',
-  zone: Z1,
+  zone: 0,
   difficulty: 3,
   verbs: VERBS,
-  entry: 'R',
-  exit: 'C',
-  entryAnchorId: anchorIdOf('le-p1'),
-  exitAnchorId: anchorIdOf('le-p3'),
-  airBudget: 1,
+  entryAnchorId: e.entryAnchorId,
+  exitAnchorId: e.exitAnchorId,
+  airBudget: 2,
   targetTimeS: 11,
   tags: ['tortuga', 'movil'],
   role: 'playable',
-  entities: [...e.flat(), airPocket('le-air', 150, 74), pearl('le-pearl', 168, 148)],
+  entities: [
+    ...e.entities,
+    ...reefIn('le', { left: [50, 160], right: [10, 60] }),
+    airPocket('le-air-1', 230, 40),
+    airPocket('le-air-2', 240, 190),
+    pearl('le-pearl', 80, 130),
+    shell('le-concha', 472, 130),
+  ],
 };
 
 /**
  * z1-lib-f (difficulty 5) — the hardest line of the zone and the first chunk allowed to mix creatures
  * (§11.5.5: every one of them is past its second appearance by now). Two Medusa Farolillo, each on the
- * line of one hop, and a narrow Alga Cinta as the only landing in between.
+ * line of one hop, and an Alga Cinta as the landing in between.
  */
-const f: Array<[Ceiling, Anchor]> = [
-  perch({ id: 'lf-p1', x: 9, y: 18, w: 30, anchorX: 30 }),
-  kelp('lf-p2', 141, 108, 36, 150),
-  perch({ id: 'lf-p3', x: 31, y: 188, w: 48, anchorX: 70 }),
-];
+const f = ladder('lf', [
+  rung(ENTRY_X_RIGHT, y5(0)),
+  kelpRung(230, y5(1)),
+  rung(360, y5(2), { material: 'coral' }),
+  rung(440, y5(3)),
+  exitRung(),
+]);
 
 export const Z1_LIB_F: Chunk = {
   id: 'z1-lib-f',
-  zone: Z1,
+  zone: 0,
   difficulty: 5,
   verbs: VERBS,
-  entry: 'L',
-  exit: 'C',
-  entryAnchorId: anchorIdOf('lf-p1'),
-  exitAnchorId: anchorIdOf('lf-p3'),
-  airBudget: 1,
+  entryAnchorId: f.entryAnchorId,
+  exitAnchorId: f.exitAnchorId,
+  airBudget: 2,
   targetTimeS: 12,
   tags: ['medusa', 'preciso'],
   role: 'playable',
   entities: [
-    ...f.flat(),
-    jellyfish('lf-medusa-1', 95, 108, 40),
-    jellyfish('lf-medusa-2', 86, 150, 40),
-    sideRock('lf-rock', 0, 96, 8, 32),
-    airPocket('lf-air', 110, 78),
-    pearl('lf-pearl-1', 168, 60),
-    pearl('lf-pearl-2', 24, 214),
+    ...f.entities,
+    ...reefIn('lf', { left: [30, 180], right: [140, 90] }),
+    jellyfish('lf-medusa-1', 308, 50, 40),
+    jellyfish('lf-medusa-2', 274, 100, 40),
+    airPocket('lf-air-1', 120, 60),
+    airPocket('lf-air-2', 200, 190),
+    pearl('lf-pearl-1', 472, 60),
+    pearl('lf-pearl-2', 70, 200),
   ],
 };

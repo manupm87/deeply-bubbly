@@ -24,8 +24,6 @@ function makeChunk(id: string, role: Chunk['role'], zone: ZoneIndex = 0): Chunk 
     zone,
     difficulty: 1,
     verbs: [],
-    entry: 'C',
-    exit: 'C',
     entryAnchorId: 'a-in',
     exitAnchorId: 'a-out',
     airBudget: 1,
