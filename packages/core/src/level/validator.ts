@@ -11,7 +11,7 @@
  */
 import { launchVelocity } from '../control/aim';
 import { impulseMagnitude, zoneRadius } from '../control/charge';
-import { degToRad } from '../math/vec';
+import { circleRectOverlap, degToRad } from '../math/vec';
 import { solidRectAt } from '../physics/collision';
 import { launchLockSteps, physicsStep } from '../physics/step';
 import { instantiateChunk } from './campaign';
@@ -22,6 +22,8 @@ import type {
   Ceiling,
   Chunk,
   Contact,
+  ForceField,
+  Hazard,
   Lane,
   PlacedChunk,
   SolidEntity,
@@ -285,8 +287,19 @@ interface ProbeFlight {
  * Flies one probe shot with the SAME fixed step the player runs (§10.3, §11.4): force fields → velocity
  * → swept move, once per 1/60 s, stopping at the first contact. `predictTrajectory` is the same loop with
  * the contact discarded; the reach rule needs it, so the loop is written out here.
+ *
+ * The `fields` really are sampled. From Zone 2 the verb of the zone IS a force field (§3.2, §5 nº 8), so
+ * a certificate flown in still water would certify a line the current no longer allows — the exact class
+ * of "tramo literalmente imposible" that §11.5.11 exists to rule out.
  */
-function flyProbe(from: Vec2, vel: Vec2, radius: number, solids: readonly SolidEntity[], t: Tuning): ProbeFlight {
+function flyProbe(
+  from: Vec2,
+  vel: Vec2,
+  radius: number,
+  solids: readonly SolidEntity[],
+  fields: readonly ForceField[],
+  t: Tuning,
+): ProbeFlight {
   const dt = t.FIXED_DT;
   const flight: ProbeFlight = { points: [{ x: from.x, y: from.y }], contact: null, contactStep: -1 };
   if (!(dt > 0)) return flight;
@@ -301,7 +314,7 @@ function flyProbe(from: Vec2, vel: Vec2, radius: number, solids: readonly SolidE
     const launched = i < lockSteps;
     const stepped = physicsStep(
       { pos, vel: v, radius, state: launched ? 'LAUNCHED' : 'IDLE' },
-      { solids, fields: [] },
+      { solids, fields },
       {
         dt,
         timeMs: i * stepMs,
@@ -448,41 +461,91 @@ export function findReachTrajectory(
   solids: readonly SolidEntity[],
   t: Tuning,
   targetCeilingId?: string,
+  fields: readonly ForceField[] = [],
 ): ReachResult {
   const radius = zoneRadius(zone, t);
-  const tolerance = reachTolerance(zone, t);
   const target = targetCeiling(to, radius, solids, targetCeilingId);
   let best: ReachResult = { ok: false, bestDistance: Infinity, power: 0, thetaDeg: 0 };
 
   for (const probe of orderedProbes(from, to, radius, t)) {
-    const speed = impulseMagnitude(
-      { power: probe.power, dragDist: t.DRAG_NEUTRAL_PX, radius, stunned: false, externalMul: 1 },
-      t,
-    );
-    const flight = flyProbe(from, launchVelocity(degToRad(probe.thetaDeg), speed), radius, solids, t);
-
-    let closest = Infinity;
-    for (let i = 1; i < flight.points.length; i++) {
-      const a = flight.points[i - 1];
-      const b = flight.points[i];
-      if (a === undefined || b === undefined) continue;
-      const d = distanceToSegment(to, a, b);
-      if (d < closest) closest = d;
-    }
-
-    const landed = flight.points[flight.points.length - 1];
-    const ok =
-      target !== null &&
-      landed !== undefined &&
-      capturesOn(flight, target.id, t) &&
-      Math.hypot(landed.x - to.x, landed.y - to.y) <= tolerance;
-
-    if (ok) return { ok: true, bestDistance: closest, power: probe.power, thetaDeg: probe.thetaDeg };
-    if (closest < best.bestDistance) {
-      best = { ok: false, bestDistance: closest, power: probe.power, thetaDeg: probe.thetaDeg };
+    const shot = flyOneProbe(from, to, zone, probe, target, solids, fields, t);
+    if (shot.ok) return { ok: true, bestDistance: shot.closest, power: probe.power, thetaDeg: probe.thetaDeg };
+    if (shot.closest < best.bestDistance) {
+      best = { ok: false, bestDistance: shot.closest, power: probe.power, thetaDeg: probe.thetaDeg };
     }
   }
   return best;
+}
+
+/** One probe shot, flown and judged: did it LAND on the target anchor, and how close did it pass? */
+function flyOneProbe(
+  from: Vec2,
+  to: Vec2,
+  zone: ZoneIndex,
+  probe: Probe,
+  target: Ceiling | null,
+  solids: readonly SolidEntity[],
+  fields: readonly ForceField[],
+  t: Tuning,
+): { ok: boolean; closest: number; flight: ProbeFlight } {
+  const radius = zoneRadius(zone, t);
+  const speed = impulseMagnitude({ power: probe.power, dragDist: t.DRAG_NEUTRAL_PX, radius, stunned: false, externalMul: 1 }, t);
+  const flight = flyProbe(from, launchVelocity(degToRad(probe.thetaDeg), speed), radius, solids, fields, t);
+
+  let closest = Infinity;
+  for (let i = 1; i < flight.points.length; i++) {
+    const a = flight.points[i - 1];
+    const b = flight.points[i];
+    if (a === undefined || b === undefined) continue;
+    const d = distanceToSegment(to, a, b);
+    if (d < closest) closest = d;
+  }
+
+  const landed = flight.points[flight.points.length - 1];
+  const ok =
+    target !== null &&
+    landed !== undefined &&
+    capturesOn(flight, target.id, t) &&
+    Math.hypot(landed.x - to.x, landed.y - to.y) <= reachTolerance(zone, t);
+  return { ok, closest, flight };
+}
+
+/** A shot that lands on the target anchor: the charge and aim it needs, and what it meets on the way. */
+export interface LandingLine {
+  power: number;
+  thetaDeg: number;
+  /** True when the arc passes through the box of one of `hazards` before it lands. */
+  touchesHazard: boolean;
+}
+
+/**
+ * EVERY shot in the ±AIM_CONE_DEG cone that lands on the target anchor, not just the first one
+ * `findReachTrajectory` reports. The reach rule only needs one certificate; a level DESIGN question —
+ * does this band change which shot works? does any hazard sit on a line that would otherwise have
+ * succeeded? — needs the whole set, and asking it with the same integrator is the only way the answer
+ * means anything. Used by the Zone 2 content tests (§3.3.3, §4.2).
+ */
+export function findLandingLines(
+  from: Vec2,
+  to: Vec2,
+  zone: ZoneIndex,
+  solids: readonly SolidEntity[],
+  t: Tuning,
+  targetCeilingId?: string,
+  fields: readonly ForceField[] = [],
+  hazards: readonly Hazard[] = [],
+): LandingLine[] {
+  const radius = zoneRadius(zone, t);
+  const target = targetCeiling(to, radius, solids, targetCeilingId);
+  const boxes = hazards.map((h) => sweptRect(h.shape, h.moving?.axis, h.moving?.range ?? 0));
+  const out: LandingLine[] = [];
+  for (const probe of orderedProbes(from, to, radius, t)) {
+    const shot = flyOneProbe(from, to, zone, probe, target, solids, fields, t);
+    if (!shot.ok) continue;
+    const touchesHazard = boxes.some((box) => shot.flight.points.some((p) => circleRectOverlap(p, radius, box)));
+    out.push({ power: probe.power, thetaDeg: probe.thetaDeg, touchesHazard });
+  }
+  return out;
 }
 
 /** The two solid side walls of the world column (§4.3: "en X no hay scroll ... paredes laterales sólidas"). */
@@ -504,6 +567,83 @@ export function sideWalls(yTop: number, yBottom: number, t: Tuning): Wall[] {
       material: 'rock',
     },
   ];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Trap escapability (§2.4.5, §5 nº 7: "recurso, no muerte")
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * How far (px) from the trap's own box a shot must end up before it counts as an escape. Bur's radius
+ * plus a whole body: close enough that the number is geometry rather than taste, far enough that the
+ * next thing buoyancy does cannot put her back inside the crown.
+ */
+const TRAP_ESCAPE_CLEAR_PX = 20;
+
+/** The charge that buys the escape (§2.4.5). Same constant the runtime uses, re-declared nowhere. */
+const TRAP_ESCAPE_POWER = 0.6;
+
+/** Distance from a point to a rect (0 inside it). */
+function distanceToRect(p: Vec2, r: Rect): number {
+  const dx = Math.max(r.x - p.x, 0, p.x - (r.x + r.w));
+  const dy = Math.max(r.y - p.y, 0, p.y - (r.y + r.h));
+  return Math.hypot(dx, dy);
+}
+
+/**
+ * The poses a trap can leave Bur in when it lets go (`game/hazards.ts`): the vent frees her exactly where
+ * it pinned her, and the pin is wherever her centre was when the crown closed. That is any point of the
+ * crown's box (a corner of her body is enough to arm it, but the box itself is the honest sample) that is
+ * not already inside a solid — a crown grown under a shelf's lip has half of its box behind the rock, and
+ * Bur was never there.
+ */
+function trapReleasePoses(crown: Rect, radius: number, solids: readonly SolidEntity[]): Vec2[] {
+  const poses: Vec2[] = [];
+  for (const fx of [1 / 6, 1 / 2, 5 / 6]) {
+    for (const fy of [1 / 6, 1 / 2, 5 / 6]) {
+      const p = { x: crown.x + crown.w * fx, y: crown.y + crown.h * fy };
+      if (solids.some((s) => circleRectOverlap(p, radius, s.rect))) continue;
+      poses.push(p);
+    }
+  }
+  return poses;
+}
+
+/**
+ * §2.4.5 and §5 nº 7 promise the anemone is "recurso, no muerte": the pip it takes buys a way out. That
+ * is a claim about GEOMETRY, not only about code — a crown placed where every shot in the ±AIM_CONE_DEG
+ * cone falls straight back inside it costs a pip every time it re-arms, which is a death sentence with
+ * extra steps. This flies the escape the player is told to buy (a charge of TRAP_ESCAPE_POWER or more,
+ * the same integrator as the reach rule) from each release pose and asks that at least one of them ends
+ * clear of the crown.
+ *
+ * Zone 2 shipped five anemones that failed it, so the rule exists.
+ */
+function trapEscapes(
+  crown: Rect,
+  zone: ZoneIndex,
+  solids: readonly SolidEntity[],
+  fields: readonly ForceField[],
+  t: Tuning,
+): boolean {
+  const radius = zoneRadius(zone, t);
+  const powers = REACH_POWERS.filter((p) => p >= TRAP_ESCAPE_POWER - 1e-9);
+  const degrees: number[] = [];
+  // Widest first: the escape from a crown against a wall, when it exists at all, is a wide-angle shot.
+  for (let d = t.AIM_CONE_DEG; d >= 0; d -= REACH_THETA_STEP_DEG) degrees.push(-d, d);
+
+  const poses = trapReleasePoses(crown, radius, solids);
+  if (poses.length === 0) return false; // a crown entirely inside rock can never be met, nor left
+  return poses.every((from) =>
+    powers.some((power) => {
+      const speed = impulseMagnitude({ power, dragDist: t.DRAG_NEUTRAL_PX, radius, stunned: false, externalMul: 1 }, t);
+      return degrees.some((thetaDeg) => {
+        const flight = flyProbe(from, launchVelocity(degToRad(thetaDeg), speed), radius, solids, fields, t);
+        const end = flight.points[flight.points.length - 1];
+        return end !== undefined && distanceToRect(end, crown) - radius >= TRAP_ESCAPE_CLEAR_PX;
+      });
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -533,6 +673,8 @@ export function validateChunk(chunk: Chunk, t: Tuning): ValidationIssue[] {
   const ceilings = new Map<string, Ceiling>();
   const anchors: Anchor[] = [];
   const solids: SolidEntity[] = [];
+  const fields: ForceField[] = [];
+  const traps: Hazard[] = [];
   let hazardCount = 0;
   let airFromPickups = 0;
 
@@ -556,6 +698,16 @@ export function validateChunk(chunk: Chunk, t: Tuning): ValidationIssue[] {
         add('pushDir', `hazard '${e.id}' (catalogId ${e.catalogId}) pushes 'up'; only catalogId 20 and 21 may (§11.7.9)`);
       }
       if (e.catalogId < 1 || e.catalogId > 25) add('schema', `hazard '${e.id}' has catalogId ${e.catalogId} outside 1..25`);
+      if (e.trap === true) traps.push(e);
+    } else if (e.type === 'forcefield') {
+      fields.push(e);
+      // §5's direction rule and §11.7.9 are about the PUSH, not about the entity that carries it: a
+      // force field with a negative y is an upward push exactly like a hazard with pushDir 'up', and
+      // only the Burbuja de Metano (nº 20) and the Fumarola (nº 21) may do it — they open the ascenso
+      // window (§4.3), which is what makes them safe in a game that punishes rising.
+      if (e.vector.y < 0 && e.catalogId !== 20 && e.catalogId !== 21) {
+        add('pushDir', `force field '${e.id}' (catalogId ${e.catalogId ?? 'none'}) accelerates upward (y=${e.vector.y}); only catalogId 20 and 21 may (§11.7.9)`);
+      }
     } else if (e.type === 'pickup') {
       if (e.pickupType === 'aire') airFromPickups += e.value;
       if (e.pickupType === 'aireGrande') airFromPickups += e.value;
@@ -633,6 +785,20 @@ export function validateChunk(chunk: Chunk, t: Tuning): ValidationIssue[] {
     add('schema', `station chunk carries ${hazardCount} hazard(s) (§3.3: 4 s sin peligro)`);
   }
 
+  // --- traps are a resource, never a death (§2.4.5, §5 nº 7) --------------------------------------
+  if (traps.length > 0) {
+    const context = [...solids, ...sideWalls(-REACH_CONTEXT_ABOVE_PX, t.CHUNK_H + REACH_CONTEXT_BELOW_PX, t)];
+    for (const trap of traps) {
+      const crown = sweptRect(trap.shape, trap.moving?.axis, trap.moving?.range ?? 0);
+      if (trapEscapes(crown, chunk.zone, context, fields, t)) continue;
+      add(
+        'trap',
+        `trap '${trap.id}' has no escape: no charge of ${TRAP_ESCAPE_POWER} or more in the ±${t.AIM_CONE_DEG}° cone ` +
+          `leaves its crown from the pose it releases Bur in, so venting a pip only feeds it the next one (§2.4.5, §5 nº 7)`,
+      );
+    }
+  }
+
   if (airFromPickups !== chunk.airBudget) {
     issues.push(
       warning(
@@ -684,12 +850,15 @@ function checkMouth(
 /** Per-chunk geometry of a sequence, in world coordinates (chunk i placed at y = i * CHUNK_H). */
 interface SequenceGeometry {
   solids: SolidEntity[][];
+  /** Force fields of each chunk: the reach probes fly through them, exactly as the player does. */
+  fields: ForceField[][];
   /** Anchors of each chunk, sorted top-down: the ladder §11.5.11 walks. */
   anchors: Anchor[][];
 }
 
 function placeSequence(chunks: readonly Chunk[], t: Tuning): SequenceGeometry {
   const solids: SolidEntity[][] = [];
+  const fields: ForceField[][] = [];
   const anchors: Anchor[][] = [];
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -697,21 +866,29 @@ function placeSequence(chunks: readonly Chunk[], t: Tuning): SequenceGeometry {
     const placed: PlacedChunk = { chunk, index: i, worldY: i * t.CHUNK_H, immersionIndex: 0 };
     const entities = instantiateChunk(placed);
     solids.push(entities.filter((e): e is SolidEntity => e.type === 'ceiling' || e.type === 'wall'));
+    fields.push(entities.filter((e): e is ForceField => e.type === 'forcefield'));
     anchors.push(entities.filter((e): e is Anchor => e.type === 'anchor').sort((a, b) => a.pos.y - b.pos.y));
   }
-  return { solids, anchors };
+  return { solids, fields, anchors };
 }
 
-/** Solids a probe shot between two anchors can meet: every chunk overlapping the flight band, plus walls. */
-function reachContext(geometry: SequenceGeometry, from: Vec2, to: Vec2, t: Tuning): SolidEntity[] {
+/** What a probe shot between two anchors can meet: every chunk overlapping the flight band, plus walls. */
+interface ReachContext {
+  solids: SolidEntity[];
+  fields: ForceField[];
+}
+
+function reachContext(geometry: SequenceGeometry, from: Vec2, to: Vec2, t: Tuning): ReachContext {
   const top = from.y - REACH_CONTEXT_ABOVE_PX;
   const bottom = to.y + REACH_CONTEXT_BELOW_PX;
   const first = Math.max(0, Math.floor(top / t.CHUNK_H));
   const last = Math.min(geometry.solids.length - 1, Math.floor(bottom / t.CHUNK_H));
-  const out: SolidEntity[] = [...sideWalls(top, bottom, t)];
+  const out: ReachContext = { solids: [...sideWalls(top, bottom, t)], fields: [] };
   for (let i = first; i <= last; i++) {
     const chunkSolids = geometry.solids[i];
-    if (chunkSolids !== undefined) out.push(...chunkSolids);
+    if (chunkSolids !== undefined) out.solids.push(...chunkSolids);
+    const chunkFields = geometry.fields[i];
+    if (chunkFields !== undefined) out.fields.push(...chunkFields);
   }
   return out;
 }
@@ -768,8 +945,16 @@ function checkRung(a: Rung, b: Rung, geometry: SequenceGeometry, t: Tuning): Val
     return [error('reach', `${label}: vertical gap ${dy} px exceeds MAX_HOP_PX ${maxHop} for zone ${a.chunk.zone} (§11.5.11)`, b.chunk.id)];
   }
 
-  const solids = reachContext(geometry, a.anchor.pos, b.anchor.pos, t);
-  const found = findReachTrajectory(a.anchor.pos, b.anchor.pos, a.chunk.zone, solids, t, b.anchor.ceilingId);
+  const context = reachContext(geometry, a.anchor.pos, b.anchor.pos, t);
+  const found = findReachTrajectory(
+    a.anchor.pos,
+    b.anchor.pos,
+    a.chunk.zone,
+    context.solids,
+    t,
+    b.anchor.ceilingId,
+    context.fields,
+  );
   if (found.ok) return [];
   return [
     error(
@@ -859,15 +1044,16 @@ function rotationIssues(chunks: readonly Chunk[], t: Tuning, keep: (i: number, j
 }
 
 /**
- * Every §5 catalogue entity of a chunk, in entity order: the `Hazard`s, plus the `Ceiling`s that ARE a
- * catalogue creature (§5 nº 1-3 of Zone 1 cost no Air and are ceilings, §11.2). §11.5.5 is a didactic
- * rule about meeting a creature for the first time, not about damage, so both count as "peligros".
+ * Every §5 catalogue entity of a chunk, in entity order: the `Hazard`s, plus the `Ceiling`s and
+ * `ForceField`s that ARE a catalogue entry (§5 nº 1-3 of Zone 1 cost no Air and are ceilings, nº 8 of
+ * Zone 2 is a force field, §11.2). §11.5.5 is a didactic rule about meeting something for the first
+ * time, not about damage, so all three count as "peligros".
  */
 function catalogEntries(chunk: Chunk): number[] {
   const out: number[] = [];
   for (const e of chunk.entities) {
     if (e.type === 'hazard') out.push(e.catalogId);
-    else if (e.type === 'ceiling' && e.catalogId !== undefined) out.push(e.catalogId);
+    else if ((e.type === 'ceiling' || e.type === 'forcefield') && e.catalogId !== undefined) out.push(e.catalogId);
   }
   return out;
 }

@@ -150,6 +150,14 @@ export interface Anchor {
 
 export type PushDir = 'lateral' | 'down' | 'up';
 
+/**
+ * Which face of its ledge a crown grows from (§5 nº 6, nº 7). Authoring vocabulary lives in
+ * `level/content/builders.ts`; the type is here because the RENDERER reads it — a crown on a lip hangs
+ * downward and its art has to be turned over (§8, silhouette first) — and because the trap-escape rule
+ * of §2.4.5 is about exactly this choice.
+ */
+export type CrownGrowth = 'shoulder' | 'lip';
+
 export interface Hazard {
   type: 'hazard';
   id: EntityId;
@@ -169,6 +177,8 @@ export interface Hazard {
   moving?: MovingSpec;
   /** Anemone-style trap: holds Bur, then vents air (§2.4.5). */
   trap?: boolean;
+  /** Seat on its ledge (§5 nº 6/7). Absent means 'shoulder', the ledge's top face. */
+  growth?: CrownGrowth;
 }
 
 export type ForceFieldType = 'corriente' | 'fumarola' | 'salmuera' | 'frio' | 'descendente';
@@ -184,6 +194,13 @@ export interface ForceField {
   impulseMul: number;
   chargeMul: number;
   opensAscenso: boolean;
+  /**
+   * GDD §5 catalogue number 1-25 when this field IS a catalogue entry (Corriente de Arrecife nº 8,
+   * Fumarola nº 21 ...). Same reason as `Ceiling.catalogId`: §11.5.5 ("las dos primeras apariciones de
+   * un peligro nuevo salen solas") is a DIDACTIC rule, not a damage one, and the verb of Zone 2 is a
+   * force field. Without this the rule cannot see the first new thing Zone 2 teaches.
+   */
+  catalogId?: number;
 }
 
 export type PickupType = 'aire' | 'aireGrande' | 'perla' | 'perlaGrande' | 'concha';

@@ -68,7 +68,7 @@ export class GameScene extends Phaser.Scene {
 
     const s = ctx.scale;
     this.background = new Background(this, snapshot.zone, s.viewW, s.viewH);
-    this.worldRenderer = new WorldRenderer(this, snapshot.zone);
+    this.worldRenderer = new WorldRenderer(this, snapshot.zone, () => this.tuning);
     this.bubbleView = new BubbleView(this, () => this.tuning);
     this.ring = new ChargeRing(this);
     this.orbit = new ChargeOrbit(this);

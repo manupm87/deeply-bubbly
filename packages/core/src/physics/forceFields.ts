@@ -4,7 +4,29 @@
  */
 import { circleRectOverlap } from '../math/vec';
 import type { Vec2 } from '../math/vec';
+import type { Tuning } from '../tuning';
 import type { ForceField } from '../types';
+
+/**
+ * The one identity behind every horizontal band of the game (GDD §5 nº 8, §11.4). A `ForceField.vector`
+ * is an ACCELERATION and §11.4 damps the horizontal every step by `exp(-DAMPING_X · dt)`, so the steady
+ * state of `v <- v · exp(-k · dt) + a · dt` is
+ *
+ *     v_term = a / DAMPING_X
+ *
+ * Both directions of that identity are needed and neither may be written twice: content authors a band
+ * from the drift the GDD promises (±90 px/s → ±27 px/s²), and the renderer moves the band's particles
+ * at the drift the physics will actually deliver. The 1/60 s discrete fixed point is 0,25 % above this
+ * continuous limit, which is well inside what an eye or a playtest can tell.
+ */
+export function terminalDriftX(accelX: number, t: Pick<Tuning, 'DAMPING_X'>): number {
+  return t.DAMPING_X > 0 ? accelX / t.DAMPING_X : 0;
+}
+
+/** The inverse: the acceleration a band must carry to settle at `driftX` px/s. */
+export function accelForDriftX(driftX: number, t: Pick<Tuning, 'DAMPING_X'>): number {
+  return driftX * t.DAMPING_X;
+}
 
 /**
  * Read-only view of a sampled environment. Consumers that only READ the environment (the integrator,

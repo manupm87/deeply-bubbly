@@ -1,12 +1,14 @@
 import { chromium, devices } from '@playwright/test';
 const out = process.argv[2];
+// Optional extra query string, e.g. '&start=1' to boot at a station checkpoint (main.ts `?start=`).
+const extraQuery = process.argv[3] ?? '';
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ ...devices['Pixel 7'] });
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push('pageerror: ' + e.message));
 page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.type() + ': ' + m.text()); });
-await page.goto('http://localhost:4173/?debug=1');
+await page.goto(`http://localhost:4173/?debug=1${extraQuery}`);
 await page.waitForFunction(() => window.__db && window.__db.world.snapshot().phase !== '', undefined, { timeout: 20000 });
 await page.waitForTimeout(800);
 const cdp = await ctx.newCDPSession(page);

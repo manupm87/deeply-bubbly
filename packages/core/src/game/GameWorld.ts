@@ -10,7 +10,7 @@ import { loadSave, writeSave } from '../run/save';
 import { previewTrajectory, trajectoryDots } from './aimPreview';
 import { advanceZone, createCheckpointState, crossBoyas, enterStation, reachedStation } from './checkpoints';
 import { createBuckets, fillBuckets } from './entities';
-import { TRAP_ESCAPE_POWER, createTrapState, escapeTrap, stepHazards } from './hazards';
+import { TRAP_ESCAPE_POWER, createTrapState, escapeTrap, resetTrapState, stepHazards } from './hazards';
 import { stepPickups } from './pickups';
 import { placeBubble } from './respawnFlow';
 import { updateResaca } from './resaca';
@@ -125,7 +125,7 @@ export class GameWorld {
 
     this.run = createRunState(deps.seed, deps.mode ?? 'expedicion');
     const start = this.startPoint(deps.startStationIndex ?? -1);
-    this.zone = zoneAt(start.y).index;
+    this.zone = this.zoneOf(start.y);
     this.bubble = createBubble(start, this.zone, deps.tuning);
     this.bubble.air = Math.min(deps.tuning.AIR_START, this.bubble.airMax);
     this.camera = createCamera(start.y, deps.viewH, deps.tuning);
@@ -211,7 +211,7 @@ export class GameWorld {
     this.bubble.air = Math.min(this.t.AIR_START, this.bubble.airMax);
     // O(1): the campaign is already built and the streamer only re-instantiates the window it moves to.
     this.camera = createCamera(point.pos.y, this.camera.viewH, this.t);
-    this.zone = zoneAt(point.pos.y).index;
+    this.zone = this.zoneOf(point.pos.y);
     this.streamer.update(point.pos.y, false);
     this.resetTrap();
     this.endAscenso();
@@ -273,7 +273,7 @@ export class GameWorld {
     // 1. Streaming window and the bodies of this step.
     this.streamer.update(bubble.pos.y, bubble.flags.ascensoUntil > nowMs);
     fillBuckets(this.buckets, this.streamer.entities());
-    this.zone = zoneAt(bubble.pos.y).index;
+    this.zone = this.zoneOf(bubble.pos.y);
     const solids = this.buildSolids();
 
     // 2. Force fields, sampled ONCE at the pre-move position and reused by everything below.
@@ -448,11 +448,18 @@ export class GameWorld {
     this.push([{ type: 'ascensoEnd' }]);
   }
 
+  /**
+   * The zone a world y belongs to, clamped to the campaign's own column. Past `bottomY` the §11.1 table
+   * still has zones — the MVP ends exactly on the Z2/Z3 border — but the run does not: without the clamp
+   * the last fall of the campaign announced a `zoneChange` into a Zone 3 that does not exist yet and the
+   * shell repainted to its palette for the frame before `campaignComplete`.
+   */
+  private zoneOf(worldY: number): ZoneIndex {
+    return zoneAt(Math.min(worldY, this.campaign.bottomY - 1)).index;
+  }
+
   private resetTrap(): void {
-    this.trap.hazardId = null;
-    this.trap.pinUntil = 0;
-    this.trap.pos = null;
-    this.trap.escapedFrom = null;
+    resetTrapState(this.trap);
   }
 
   /**
@@ -481,6 +488,9 @@ export class GameWorld {
       data: { immersionIndex: station.immersionIndex, depthM: this.depthM(), elapsedMs: this.run.elapsedMs },
     });
     this.persist(station.immersionIndex, station.immersionIndex, this.run.shells - this.immersionShells);
+    // "Se revierte al superarla" (§4.2.3): `enterStation` cleared the mercy level, so the world thickens
+    // again for the next immersion.
+    this.streamer.bindRun(this.run);
     this.immersionPearls = this.run.pearls;
     this.immersionShells = this.run.shells;
     this.phase = 'station';
@@ -497,6 +507,8 @@ export class GameWorld {
     if (this.bubble.deadMs + TIME_EPS_MS < this.t.DEFLATE_MS) return;
     this.phase = 'dead';
     registerFailure(this.run, this.t);
+    // §11.7.8: the free, silent help arrives here — before any commercial offer, and without a word.
+    this.streamer.bindRun(this.run);
     this.push([{ type: 'gameOver' }]);
     this.telemetry.track({
       name: 'gameOver',

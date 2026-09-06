@@ -6,7 +6,7 @@
  * context in the registry, scenes started. Everything else lives in its own module.
  */
 import * as Phaser from 'phaser';
-import { DEFAULT_TUNING, GameWorld, buildZ1Campaign, loadSave, noopAds, writeSave } from '@deeply-bubbly/core';
+import { DEFAULT_TUNING, GameWorld, buildMvpCampaign, loadSave, noopAds, writeSave } from '@deeply-bubbly/core';
 import type { KeyValueStore, SaveData, Telemetry, Tuning } from '@deeply-bubbly/core';
 import { CTX_KEY } from './context';
 import type { GameContext, Settings } from './context';
@@ -29,17 +29,33 @@ interface Ports {
   telemetry: Telemetry;
 }
 
-/** The one recipe for "the game", shared with `createTestWorld` in core: Z1 campaign + real ports. */
+/**
+ * Debug entry point: `?start=<stationIndex>` boots the run at that station's checkpoint instead of at
+ * the player's own unlocked one. It is how a QA pass or a screenshot bot reaches Zone 2 without
+ * replaying Zone 1, and it is gated behind the same flag as `__db` (a dev build, or `?debug=1`), so a
+ * plain production load can never be talked into skipping the campaign. Never persisted: the save is
+ * only ever written by core, at a checkpoint actually reached.
+ */
+function debugStartStation(): number | null {
+  const params = new URLSearchParams(globalThis.location.search);
+  if (!import.meta.env.DEV && !params.has('debug')) return null;
+  const raw = params.get('start');
+  if (raw === null) return null;
+  const index = Number.parseInt(raw, 10);
+  return Number.isFinite(index) && index >= 0 ? index : null;
+}
+
+/** The one recipe for "the game", shared with `createMvpWorld` in core: MVP campaign + real ports. */
 function buildWorld(tuning: Tuning, save: SaveData, viewH: number, ports: Ports): GameWorld {
   return new GameWorld({
-    campaign: buildZ1Campaign(tuning),
+    campaign: buildMvpCampaign(tuning),
     tuning,
     telemetry: ports.telemetry,
     ads: noopAds,
     store: ports.store,
     viewH,
     seed: SEED,
-    startStationIndex: save.unlockedStation,
+    startStationIndex: debugStartStation() ?? save.unlockedStation,
   });
 }
 

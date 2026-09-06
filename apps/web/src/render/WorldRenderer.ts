@@ -5,7 +5,7 @@
  */
 import type * as Phaser from 'phaser';
 import { hazardRectAt, solidRectAt } from '@deeply-bubbly/core';
-import type { EntityId, WorldSnapshot, ZoneIndex } from '@deeply-bubbly/core';
+import type { EntityId, Tuning, WorldSnapshot, ZoneIndex } from '@deeply-bubbly/core';
 import { DEPTH } from './depth';
 import { createEntityView, type EntityView } from './EntityViews';
 import { UI } from '../palette';
@@ -18,11 +18,14 @@ export class WorldRenderer {
   private readonly seen = new Set<EntityId>();
   private readonly dead: EntityId[] = [];
   private zone: ZoneIndex;
+  private readonly tuning: () => Tuning;
   private debug: Phaser.GameObjects.Graphics | null = null;
 
-  constructor(scene: Phaser.Scene, zone: ZoneIndex) {
+  /** `tuning` is read per frame, never captured: the §11.6 panel can change it mid-session. */
+  constructor(scene: Phaser.Scene, zone: ZoneIndex, tuning: () => Tuning) {
     this.scene = scene;
     this.zone = zone;
+    this.tuning = tuning;
   }
 
   /**
@@ -44,7 +47,7 @@ export class WorldRenderer {
       this.seen.add(id);
       let view = this.views.get(id);
       if (view === undefined) {
-        const created = createEntityView(this.scene, entity, this.zone);
+        const created = createEntityView(this.scene, entity, this.zone, this.tuning);
         if (created === null) continue; // anchors have no visual of their own
         this.views.set(id, created);
         view = created;

@@ -18,6 +18,7 @@ export * from './level/campaign';
 export * from './level/streaming';
 export * from './level/validator';
 export * from './level/content/z1';
+export * from './level/content/z2';
 export * from './run/runState';
 export * from './run/respawn';
 export * from './run/save';

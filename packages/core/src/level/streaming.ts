@@ -3,6 +3,8 @@ import type { Tuning } from '../tuning';
 import type { Boya, PlacedChunk, RestStation, WorldEntity } from '../types';
 import type { Campaign } from './campaign';
 import { campaignMarkers, chunkIndexAt, instantiateChunk } from './campaign';
+import { applyMercy } from './mercy';
+import type { RunState } from '../types';
 
 /** Chunks kept below the current one (current + next + next+1); the rest of the budget is kept above. */
 const CHUNKS_AT_OR_BELOW = 3;
@@ -22,6 +24,10 @@ export class WorldStreamer {
   private readonly consumed = new Set<string>();
   /** Campaign-level markers (boyas, stations); constant for the whole run. */
   private readonly markers: readonly (Boya | RestStation)[];
+  /** Live run state: the streamer reads `mercyLevel` from it when it instantiates a chunk (§4.2.3). */
+  private run: RunState | null = null;
+  /** Mercy level the cached entities were built with; a change re-instantiates the window. */
+  private mercyLevel = 0;
   private windowIndices: number[] = [];
   private currentIndex = 0;
   private ascenso = false;
@@ -34,6 +40,20 @@ export class WorldStreamer {
     const { boyas, stations } = campaignMarkers(campaign, t);
     this.markers = [...boyas, ...stations];
     this.rebuild(0, false);
+  }
+
+  /**
+   * Binds the run whose `mercyLevel` thins the world (§4.2.3, §11.5.8), and re-instantiates the window
+   * when that level changes — on the second failure of an immersion, and back to 0 when it is beaten.
+   * Idempotent: calling it with an unchanged level costs nothing.
+   */
+  bindRun(run: RunState): void {
+    const changed = this.run !== run || this.mercyLevel !== run.mercyLevel;
+    this.run = run;
+    if (!changed) return;
+    this.mercyLevel = run.mercyLevel;
+    this.cache.clear();
+    this.rebuild(this.currentIndex, this.ascenso);
   }
 
   /** Recompute the window for Bur's position. Cheap when the current chunk did not change. */
@@ -107,11 +127,21 @@ export class WorldStreamer {
       if (this.cache.has(i)) continue;
       const placed = this.campaign.placed[i];
       if (!placed) continue;
-      this.cache.set(i, instantiateChunk(placed));
+      this.cache.set(i, this.instantiate(placed));
     }
 
     this.windowIndices = next;
     this.liveDirty = true;
+  }
+
+  /** One placed chunk in world coordinates, thinned by the mercy rule when one is running (§4.2.3). */
+  private instantiate(placed: PlacedChunk): WorldEntity[] {
+    const entities = instantiateChunk(placed);
+    const run = this.run;
+    if (run === null || run.mercyLevel === 0) return entities;
+    const immersion = this.campaign.immersions[placed.immersionIndex];
+    const first = immersion === undefined ? placed.index : immersion.startY / this.t.CHUNK_H;
+    return applyMercy(entities, run, { chunkIndex: placed.index, positionInImmersion: placed.index - first }, this.t);
   }
 
   private windowTopY(): number {

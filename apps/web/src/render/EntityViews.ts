@@ -4,8 +4,8 @@
  * and the danger window from `hazardActiveAt`, so the tell can never disagree with the simulation.
  */
 import type * as Phaser from 'phaser';
-import { hazardActiveAt, hazardRectAt, solidRectAt } from '@deeply-bubbly/core';
-import type { Ceiling, ForceField, Hazard, Pickup, Wall, WorldEntity } from '@deeply-bubbly/core';
+import { hazardActiveAt, hazardRectAt, solidRectAt, terminalDriftX } from '@deeply-bubbly/core';
+import type { Ceiling, ForceField, Hazard, Pickup, Tuning, Wall, WorldEntity } from '@deeply-bubbly/core';
 import { DEPTH } from './depth';
 import { drawGlowLine, drawSolidBody, type SolidMaterial } from './solids';
 
@@ -27,7 +27,10 @@ function solidView(scene: Phaser.Scene, entity: Ceiling | Wall, p: ZonePalette):
   const capturable = entity.type === 'ceiling' && entity.capturable;
   const material: SolidMaterial = entity.material;
   const { w, h } = entity.rect;
-  drawSolidBody(g, w, h, material, p);
+  // §5 nº 9's whole trick is that he IS a ledge, so he arrives here and not in `hazardView`; the
+  // catalogue number is what lets the body drawer give him his own silhouette (§8: silhouette first).
+  const catalogId = entity.type === 'ceiling' ? entity.catalogId : undefined;
+  drawSolidBody(g, w, h, material, p, catalogId);
   drawGlowLine(glow, w, h, material, capturable, p);
   const bright = capturable && material !== 'jelly';
   return {
@@ -83,6 +86,9 @@ function hazardView(scene: Phaser.Scene, entity: Hazard, zone: number, p: ZonePa
   }
 
   const sprite = scene.add.sprite(cx, cy, key).setDepth(DEPTH.hazard);
+  // A crown grown on a shelf's LIP hangs from it: same art, turned over, so the arms still point away
+  // from the rock they are attached to (§8: the silhouette has to say where the thing is anchored).
+  sprite.setFlipY(entity.growth === 'lip');
   const multiFrame = entity.catalogId === 5;
   return {
     update(e, timeMs) {
@@ -124,20 +130,46 @@ const FIELD_TONES: Readonly<Record<ForceField['fieldType'], number>> = {
   descendente: 0x4f7a9a,
 };
 
-/** A translucent band whose drifting dots show the flow direction at a glance (§5 nº 8). */
-function fieldView(scene: Phaser.Scene, entity: ForceField): EntityView {
+/**
+ * A translucent band whose drifting dots show the flow direction at a glance (§5 nº 8).
+ *
+ * A `corriente` is the VERB of Zone 2 ("leer y usar las corrientes", §3.2), not scenery, so it is the
+ * one field that has to be legible in a glance from a moving bubble: a denser stream of dots, a
+ * visible tint, and two edge lines with a chevron rhythm that says which way the water goes even in
+ * greyscale (§8: never colour alone).
+ */
+function fieldView(scene: Phaser.Scene, entity: ForceField, tuning: () => Tuning): EntityView {
   const tone = FIELD_TONES[entity.fieldType];
+  const flow = entity.fieldType === 'corriente';
   const g = scene.add.graphics().setDepth(DEPTH.forcefield).setPosition(entity.rect.x, entity.rect.y);
-  g.fillStyle(tone, 0.14);
+  g.fillStyle(tone, flow ? 0.2 : 0.14);
   g.fillRect(0, 0, entity.rect.w, entity.rect.h);
-  g.fillStyle(tone, 0.35);
+  g.fillStyle(tone, flow ? 0.5 : 0.35);
   g.fillRect(0, 0, entity.rect.w, 1);
   g.fillRect(0, entity.rect.h - 1, entity.rect.w, 1);
 
   const speed = Math.hypot(entity.vector.x, entity.vector.y) || 1;
   const dirX = entity.vector.x / speed;
   const dirY = entity.vector.y / speed;
-  const count = Math.max(4, Math.min(14, Math.round((entity.rect.w * entity.rect.h) / 900)));
+
+  if (flow && entity.rect.h > 8) {
+    // 3 px chevrons along both edges, pointing downstream: the shape of the arrow, not a colour, so
+    // the direction survives greyscale and a colour-blind reader (§8).
+    g.fillStyle(tone, 0.6);
+    const apex = dirX >= 0 ? 1 : 0;
+    const tail = dirX >= 0 ? 0 : 1;
+    for (let x = 4; x < entity.rect.w - 4; x += 12) {
+      for (const y of [2, entity.rect.h - 5]) {
+        g.fillRect(x + tail, y, 1, 1);
+        g.fillRect(x + apex, y + 1, 1, 1);
+        g.fillRect(x + tail, y + 2, 1, 1);
+      }
+    }
+  }
+
+  const density = flow ? 380 : 900;
+  const cap = flow ? 30 : 14;
+  const count = Math.max(4, Math.min(cap, Math.round((entity.rect.w * entity.rect.h) / density)));
   const dots: Phaser.GameObjects.Image[] = [];
   const px: number[] = [];
   const py: number[] = [];
@@ -145,12 +177,17 @@ function fieldView(scene: Phaser.Scene, entity: ForceField): EntityView {
     px.push(entity.rect.x + ((i * 37) % Math.max(1, entity.rect.w)));
     py.push(entity.rect.y + ((i * 53) % Math.max(1, entity.rect.h)));
     const dot = scene.add.image(px[i] ?? 0, py[i] ?? 0, TEXTURE_KEYS.particle);
-    dots.push(dot.setDepth(DEPTH.forcefield).setTint(tone).setAlpha(0.7));
+    dots.push(dot.setDepth(DEPTH.forcefield).setTint(tone).setAlpha(flow ? 0.85 : 0.7));
   }
   let last = -1;
-  const drift = Math.min(40, 6 + speed * 0.15);
+  // A `corriente`'s dots travel at the terminal drift the physics settles at, so what the eye reads is
+  // the speed Bur is about to be given. The identity lives in core (`terminalDriftX`) and is never
+  // restated here. Every other field keeps the old cosmetic rate; none of them is a verb.
   return {
     update(_e, timeMs) {
+      // Read per frame, from the LIVE tuning: the panel of §11.6 can move DAMPING_X mid-session, and a
+      // drift frozen at load would draw the water at a speed the simulation no longer gives Bur.
+      const drift = flow ? terminalDriftX(speed, tuning()) : Math.min(40, 6 + speed * 0.15);
       const dt = last < 0 ? 0 : Math.min(0.1, (timeMs - last) / 1000);
       last = timeMs;
       for (let i = 0; i < dots.length; i++) {
@@ -230,7 +267,12 @@ function stationView(scene: Phaser.Scene, worldY: number, p: ZonePalette): Entit
 }
 
 /** Returns null for entities with no visual of their own (anchors: authoring data, debug-only). */
-export function createEntityView(scene: Phaser.Scene, entity: WorldEntity, zone: number): EntityView | null {
+export function createEntityView(
+  scene: Phaser.Scene,
+  entity: WorldEntity,
+  zone: number,
+  tuning: () => Tuning,
+): EntityView | null {
   const p = paletteOf(zone);
   switch (entity.type) {
     case 'ceiling':
@@ -239,7 +281,7 @@ export function createEntityView(scene: Phaser.Scene, entity: WorldEntity, zone:
     case 'hazard':
       return hazardView(scene, entity, zone, p);
     case 'forcefield':
-      return fieldView(scene, entity);
+      return fieldView(scene, entity, tuning);
     case 'pickup':
       return pickupView(scene, entity, zone);
     case 'boya':

@@ -33,10 +33,37 @@ export interface TrapState {
    * Cleared as soon as she is out of that hazard.
    */
   escapedFrom: EntityId | null;
+  /**
+   * Trap that has just SPENT its pip, and the time until which it may not close again (§5 nº 7:
+   * "recurso, no muerte"). `escapedFrom` is not enough on its own: it ends with the overlap, and an
+   * anemone growing on a ledge is directly below the point the vent leaves Bur in, so the very next
+   * launch drops her back into the same crown. Without a cooldown that is a pip every TRAP_VENT_MS
+   * until the bar is empty — the anemone becomes the deadliest thing in the game, which is the exact
+   * opposite of what the catalogue promises. The jellyfish (§5 nº 1) deflates after a bounce for the
+   * same reason; this is the trap's `bounceCooldownMs`.
+   */
+  spentId: EntityId | null;
+  spentUntil: number;
 }
 
 export function createTrapState(): TrapState {
-  return { hazardId: null, pinUntil: 0, pos: null, escapedFrom: null };
+  return { hazardId: null, pinUntil: 0, pos: null, escapedFrom: null, spentId: null, spentUntil: 0 };
+}
+
+/** Back to "no trap in progress and nothing spent": a respawn, a restart, a new run. */
+export function resetTrapState(trap: TrapState): void {
+  trap.hazardId = null;
+  trap.pinUntil = 0;
+  trap.pos = null;
+  trap.escapedFrom = null;
+  trap.spentId = null;
+  trap.spentUntil = 0;
+}
+
+/** Whether `hazard` may close on Bur right now: not the one she just left, and not one still spent. */
+function canArm(trap: TrapState, hazard: Hazard, nowMs: number): boolean {
+  if (hazard.id === trap.escapedFrom) return false;
+  return !(hazard.id === trap.spentId && nowMs < trap.spentUntil);
 }
 
 export interface HazardStepInput {
@@ -167,6 +194,9 @@ export function stepHazards(
       events.push(...change.events);
       out.died = change.died;
       trap.escapedFrom = active.id;
+      // It has had its pip: it stays open for TRAP_REARM_MS, so the escape is a cost and never a loop.
+      trap.spentId = active.id;
+      trap.spentUntil = input.nowMs + t.TRAP_REARM_MS;
       clearTrap(bubble, trap);
       if (change.died) return out;
     }
@@ -197,7 +227,7 @@ function beginTrap(
   nowMs: number,
   t: Tuning,
 ): Hazard | undefined {
-  const hazard = overlapping.find((h) => h.trap === true && h.id !== trap.escapedFrom);
+  const hazard = overlapping.find((h) => h.trap === true && canArm(trap, h, nowMs));
   if (hazard === undefined) return undefined;
   trap.hazardId = hazard.id;
   trap.pinUntil = nowMs + t.TRAP_HOLD_MS;

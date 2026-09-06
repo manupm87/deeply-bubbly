@@ -86,6 +86,7 @@ export const DEFAULT_TUNING = defineTuning({
   BOUNCE_CHAIN_REWARD: 5,
   TRAP_VENT_MS: 1500, // anemone: vents 1 air if still trapped
   TRAP_HOLD_MS: 800,
+  TRAP_REARM_MS: 1500, // an anemone that just vented stays open that long (§5 nº 7: "recurso, no muerte")
 
   // --- Camera (§4.3, §11.4) ---
   CAM_LAMBDA: 12, // 1/s

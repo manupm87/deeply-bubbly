@@ -17,9 +17,13 @@ const DARK = 0x101820;
 /** Body colour pair (fill, lit) per material. */
 function tones(m: SolidMaterial, p: ZonePalette): [number, number] {
   switch (m) {
+    // Coral rock is a MUTED rose, not the coral hue itself. §5 nº 6 sells the Erizo Coralino on
+    // "su naranja rompe la paleta a propósito", and a shelf painted in the same saturated orange is
+    // exactly what stops it breaking anything: a review found every ledge in Zone 2 wearing the
+    // urchin's colour. Pulled halfway to the rock so the one orange ball on screen is the hazard.
     case 'coral':
     case 'reef':
-      return [p.coral, mixColor(p.coral, p.foam, 0.35)];
+      return [mixColor(p.coral, p.rock, 0.45), mixColor(p.coral, p.foam, 0.3)];
     case 'kelp':
       return [p.kelp, mixColor(p.kelp, p.foam, 0.3)];
     case 'jelly':
@@ -76,17 +80,22 @@ function speckle(g: G, w: number, h: number, colour: number, count: number, seed
   }
 }
 
-/** Small branching polyps sprouting from the top edge of a coral shelf. */
+/**
+ * Rounded polyp knobs along the top edge of a coral shelf.
+ *
+ * They used to be a row of 1 px spikes with a bright tip, which gave a harmless shelf the same two
+ * signals as the Erizo Coralino — orange, and spiky — and made several ledges look pricklier than the
+ * hazard. Silhouette is the primary channel (§8), so the shelf keeps knobs and the urchin keeps spikes.
+ */
 function polyps(g: G, w: number, p: ZonePalette): void {
   const rand = mulberry32(w * 17 + 3);
-  const tip = mixColor(p.coral, p.foam, 0.5);
-  for (let x = 2; x < w - 2; x += 4 + Math.floor(rand() * 3)) {
-    const tall = 1 + Math.round(rand() * 2);
-    g.fillStyle(p.coral, 1);
-    g.fillRect(x, -tall, 1, tall);
-    if (tall > 1) g.fillRect(x + 1, -tall + 1, 1, 1); // the branch
-    g.fillStyle(tip, 0.9);
-    g.fillRect(x, -tall, 1, 1);
+  const knob = mixColor(p.coral, p.rock, 0.3);
+  const lit = mixColor(p.coral, p.foam, 0.35);
+  for (let x = 2; x < w - 3; x += 5 + Math.floor(rand() * 3)) {
+    g.fillStyle(knob, 1);
+    g.fillRect(x, -1, 2, 1); // one flat bump, never a point
+    g.fillStyle(lit, 0.8);
+    g.fillRect(x, -1, 1, 1);
   }
 }
 
@@ -246,8 +255,40 @@ function shellBody(g: G, w: number, h: number, fill: number, lit: number, p: Zon
   g.fillRect(w - 8, h + 2, 3, 1);
 }
 
+/**
+ * Pulpo Camuflado (`creature` + §5 catalogue nº 9). His whole design is "parece repisa", so the BODY
+ * is a plain rock slab — the same one every ledge of the zone wears — and the only things that give
+ * him away are a pair of eyes tucked under the top edge and eight short arms hanging BELOW the ledge,
+ * which is exactly where Bur looks when she is picking a place to hang. Drawing him as a turtle (the
+ * other `creature`) would have been the one unreadable thing: two different rules, one silhouette.
+ */
+function octopusBody(g: G, w: number, h: number, fill: number, lit: number, p: ZonePalette): void {
+  slab(g, w, h, fill, lit, p);
+  speckle(g, w, h, mixColor(fill, DARK, 0.4), Math.round(w / 5), w * 17 + h, 0.75);
+
+  const skin = mixColor(fill, p.coral, 0.35);
+  const arms = Math.max(4, Math.min(9, Math.round(w / 5)));
+  for (let i = 0; i < arms; i++) {
+    const x = Math.round(((i + 0.5) / arms) * w);
+    const len = 3 + (i % 3);
+    for (let j = 0; j < len; j++) {
+      g.fillStyle(skin, 0.85 - (j / len) * 0.5);
+      g.fillRect(x + (j > 1 && i % 2 === 0 ? 1 : 0), h + j, 1, 1);
+    }
+  }
+
+  // Two eyes on the upper third, wide apart: a face at ledge scale, and the only bright thing on him.
+  const ey = Math.max(1, Math.round(h * 0.3));
+  for (const ex of [Math.round(w * 0.32), Math.round(w * 0.62)]) {
+    g.fillStyle(p.foam, 0.92);
+    g.fillRect(ex, ey, 3, 2);
+    g.fillStyle(DARK, 1);
+    g.fillRect(ex + 1, ey, 1, 2);
+  }
+}
+
 /** Draws a solid in LOCAL coordinates (0,0 .. w,h). The glow line is NOT drawn here. */
-export function drawSolidBody(g: G, w: number, h: number, m: SolidMaterial, p: ZonePalette): void {
+export function drawSolidBody(g: G, w: number, h: number, m: SolidMaterial, p: ZonePalette, catalogId?: number): void {
   const [fill, lit] = tones(m, p);
   g.clear();
   if (m === 'jelly') {
@@ -259,7 +300,8 @@ export function drawSolidBody(g: G, w: number, h: number, m: SolidMaterial, p: Z
     return;
   }
   if (m === 'creature') {
-    shellBody(g, w, h, fill, lit, p);
+    if (catalogId === 9) octopusBody(g, w, h, fill, lit, p);
+    else shellBody(g, w, h, fill, lit, p);
     return;
   }
   slab(g, w, h, fill, lit, p);

@@ -223,6 +223,42 @@ describe('the anemone (§2.4.5, §5 nº 7)', () => {
     expect(trap.hazardId).toBe('anemone');
   });
 
+  it('stays open for TRAP_REARM_MS after venting, so it can never chain a second pip (§5 nº 7)', () => {
+    // The shipped Zone 2 killed naive bots with this: the vent frees Bur a few px above the crown, the
+    // escape is a DOWNWARD launch and the anemone is right below it, so she fell straight back in and
+    // paid again every TRAP_VENT_MS until the bar was empty. "Recurso, no muerte" is the contract.
+    const { bubble, run } = world();
+    const trap = createTrapState();
+    stepHazards(bubble, run, trap, { hazards: [anemone], nowMs: 0 }, T);
+    stepHazards(bubble, run, trap, { hazards: [anemone], nowMs: T.TRAP_VENT_MS }, T);
+    expect(bubble.air).toBe(T.AIR_START - 1);
+
+    // She leaves the crown (so `escapedFrom` clears) and comes back inside it right away.
+    bubble.pos = { x: 10, y: 10 };
+    stepHazards(bubble, run, trap, { hazards: [anemone], nowMs: T.TRAP_VENT_MS + 100 }, T);
+    bubble.pos = { x: 90, y: 100 };
+    for (let ms = T.TRAP_VENT_MS + 200; ms < T.TRAP_VENT_MS + T.TRAP_REARM_MS; ms += 100) {
+      stepHazards(bubble, run, trap, { hazards: [anemone], nowMs: ms }, T);
+      expect(trap.hazardId).toBeNull();
+    }
+    expect(bubble.air).toBe(T.AIR_START - 1); // one pip for one anemone, whatever she does meanwhile
+
+    // Once it has closed again it is a hazard like any other: the cooldown is a grace, not immunity.
+    stepHazards(bubble, run, trap, { hazards: [anemone], nowMs: T.TRAP_VENT_MS + T.TRAP_REARM_MS }, T);
+    expect(trap.hazardId).toBe('anemone');
+  });
+
+  it('the cooldown belongs to the anemone that fed, not to the next one', () => {
+    const other = hazard({ id: 'anemone-2', catalogId: 7, trap: true, pushDir: 'down' });
+    const { bubble, run } = world();
+    const trap = createTrapState();
+    stepHazards(bubble, run, trap, { hazards: [anemone], nowMs: 0 }, T);
+    stepHazards(bubble, run, trap, { hazards: [anemone], nowMs: T.TRAP_VENT_MS }, T);
+    const caught = stepHazards(bubble, run, trap, { hazards: [other], nowMs: T.TRAP_VENT_MS + 100 }, T);
+    expect(caught.events).toHaveLength(0);
+    expect(trap.hazardId).toBe('anemone-2');
+  });
+
   it('a launch of 60 % or more is the escape, and it holds while she is still inside', () => {
     const { bubble, run } = world();
     const trap = createTrapState();

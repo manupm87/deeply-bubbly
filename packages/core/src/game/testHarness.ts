@@ -11,11 +11,12 @@ import { MemoryStore, noopAds, noopTelemetry } from '../ports';
 import { ChunkLibrary } from '../level/library';
 import { buildCampaign } from '../level/campaign';
 import { Z1_CHUNKS, Z1_SEQUENCES } from '../level/content/z1';
+import { Z2_CHUNKS, Z2_SEQUENCES } from '../level/content/z2';
 import { GameWorld } from './GameWorld';
 import type { Tuning } from '../tuning';
 import type { AdProvider, KeyValueStore, Telemetry } from '../ports';
 import type { Campaign } from '../level/campaign';
-import type { GameMode, PointerInput } from '../types';
+import type { Chunk, GameMode, PointerInput } from '../types';
 
 /** Design height used when nothing else is asked for: the middle of the 320–420 band of §11.1. */
 export const HARNESS_VIEW_H = 400;
@@ -36,11 +37,42 @@ export function buildZ1Campaign(t: Tuning = DEFAULT_TUNING): Campaign {
   return buildCampaign(new ChunkLibrary(Z1_CHUNKS), Z1_SEQUENCES, t);
 }
 
+/**
+ * Every chunk the MVP ships (§12.1: "Zona 1 con arte real; Zonas 2 y 3 en greybox"), and the campaign
+ * built from them. One continuous 30-chunk column: Z1's two immersions (world px 0..2 880, exactly the
+ * §11.1 span of "Superficie") followed by Z2's three (2 880..7 200, exactly "Borde de arrecife"), so
+ * the zone the §11.1 table reports at a depth and the zone the chunk was authored for are the same
+ * zone at every y — which is what makes the station at the end of Z1's second immersion a real
+ * `zoneTo: 1` transition and not a bookkeeping accident.
+ */
+export const MVP_CHUNKS: readonly Chunk[] = [...Z1_CHUNKS, ...Z2_CHUNKS];
+export const MVP_SEQUENCES: readonly (readonly string[])[] = [...Z1_SEQUENCES, ...Z2_SEQUENCES];
+
+/** The campaign the shipped game plays: Zone 1 + Zone 2 (§12.1). */
+export function buildMvpCampaign(t: Tuning = DEFAULT_TUNING): Campaign {
+  return buildCampaign(new ChunkLibrary(MVP_CHUNKS), MVP_SEQUENCES, t);
+}
+
+/**
+ * Kept under its own name because it is what the shell and the Z2 tests ask for by that name; it is
+ * the MVP campaign, and there is only one.
+ */
+export const buildCampaignZ1Z2 = buildMvpCampaign;
+
 /** A ready-to-step `GameWorld` on the Z1 campaign. Every option has a deterministic default. */
 export function createTestWorld(options: TestWorldOptions = {}): GameWorld {
+  return createWorldOnCampaign(buildZ1Campaign, options);
+}
+
+/** The same, on the full MVP campaign (Z1 + Z2): what `apps/web` boots and what the Z2 tests play. */
+export function createMvpWorld(options: TestWorldOptions = {}): GameWorld {
+  return createWorldOnCampaign(buildMvpCampaign, options);
+}
+
+function createWorldOnCampaign(build: (t: Tuning) => Campaign, options: TestWorldOptions): GameWorld {
   const tuning = options.tuning ?? DEFAULT_TUNING;
   return new GameWorld({
-    campaign: buildZ1Campaign(tuning),
+    campaign: build(tuning),
     tuning,
     telemetry: options.telemetry ?? noopTelemetry,
     ads: options.ads ?? noopAds,
