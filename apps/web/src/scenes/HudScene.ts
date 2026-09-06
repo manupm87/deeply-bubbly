@@ -9,6 +9,7 @@ import type { GameEvent } from '@deeply-bubbly/core';
 import type { GameContext } from '../context';
 import { getContext } from '../context';
 import { Hud } from '../ui/Hud';
+import { Minimap } from '../ui/Minimap';
 import { PauseMenu } from '../ui/PauseMenu';
 import { ScreensController } from '../ui/ScreensController';
 import { ResacaWarning } from '../ui/ResacaWarning';
@@ -22,6 +23,7 @@ export class HudScene extends Phaser.Scene {
   private ctx!: GameContext;
   private layoutRef!: HudLayout;
   private hud!: Hud;
+  private minimap!: Minimap;
   private screens!: ScreensController;
   private pauseMenu!: PauseMenu;
   private tutorial!: Tutorial;
@@ -37,19 +39,13 @@ export class HudScene extends Phaser.Scene {
     this.applyCamera();
 
     this.hud = new Hud(this, this.layoutRef, () => this.ctx.tuning);
+    // D5: the minimap is a HUD widget AND the peek control; it talks to the world only through
+    // `setPeek`, which is presentation, so no rule crosses this scene.
+    this.minimap = new Minimap(this, this.ctx, this.layoutRef);
     this.screens = new ScreensController(this, this.ctx, this.layoutRef);
     this.pauseMenu = new PauseMenu(this, this.ctx, this.layoutRef);
     this.tutorial = new Tutorial(this, this.ctx, this.layoutRef);
     this.resaca = new ResacaWarning(this, this.layoutRef);
-
-    // GDD §3.1: a returning player chooses where the dive starts BEFORE it starts. The world is
-    // already built at their unlocked station, so the pause menu's title state is enough — it freezes
-    // the world with the same 'pause' every other overlay uses, and closing it is what starts play.
-    // §8: a first-ever player (`unlockedStation < 0`) never sees a modal; `titlePending` is false.
-    if (this.ctx.titlePending) {
-      this.ctx.titlePending = false;
-      this.pauseMenu.openTitle();
-    }
 
     this.scene.bringToTop();
     this.ctx.bus.on('gameEvent', this.onBusEvent, this);
@@ -73,6 +69,7 @@ export class HudScene extends Phaser.Scene {
     this.layoutRef = computeLayout(this.ctx.scale);
     this.applyCamera();
     this.hud.layout(this.layoutRef);
+    this.minimap.layout(this.layoutRef);
     this.screens.layout(this.layoutRef);
     this.pauseMenu.layout(this.layoutRef);
     this.tutorial.layout(this.layoutRef);
@@ -101,8 +98,12 @@ export class HudScene extends Phaser.Scene {
     this.pauseMenu.setBlocked(this.screens.anyVisible);
     const clear = this.screens.anyVisible || this.pauseMenu.open;
     this.hud.setVisible(!clear);
+    this.minimap.setVisible(!clear);
     this.pauseMenu.setButtonVisible(!clear);
-    if (!clear) this.hud.sync(snapshot);
+    if (!clear) {
+      this.hud.sync(snapshot);
+      this.minimap.sync(snapshot, delta);
+    }
     this.tutorial.setHidden(clear);
     this.tutorial.update(delta, snapshot);
     this.resaca.sync(snapshot, clear);
@@ -115,6 +116,7 @@ export class HudScene extends Phaser.Scene {
     this.tutorial.destroy();
     this.pauseMenu.destroy();
     this.screens.destroy();
+    this.minimap.destroy();
     this.hud.destroy();
   }
 }

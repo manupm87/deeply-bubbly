@@ -88,7 +88,7 @@ export class GameScene extends Phaser.Scene {
     this.pointerAdapter.attach();
     this.tuning = ctx.tuning;
 
-    layoutCamera(this.cameras.main, s, snapshot.camera.y, snapshot.camera.x);
+    layoutCamera(this.cameras.main, s, snapshot.camera.renderY, snapshot.camera.renderX);
     // FX is built last: it must find the bubble view and a laid-out camera already in place.
     this.fx = new FxDirector(ctx, { bubbleView: this.bubbleView, camera: this.cameras.main, scene: this });
     this.tuningPanel = createTuningPanel(this, ctx);
@@ -130,7 +130,7 @@ export class GameScene extends Phaser.Scene {
     });
     on('scaleChanged', () => {
       const snap = ctx.snapshot;
-      layoutCamera(this.cameras.main, ctx.scale, snap ? snap.camera.y : 0, snap ? snap.camera.x : 0);
+      layoutCamera(this.cameras.main, ctx.scale, snap ? snap.camera.renderY : 0, snap ? snap.camera.renderX : 0);
       this.background.resize(ctx.scale.viewW, ctx.scale.viewH);
     });
   }
@@ -179,6 +179,9 @@ export class GameScene extends Phaser.Scene {
 
     // Hitstop (§7: 40 ms on Air loss, 90 ms on pop) freezes the SIMULATION, not the presentation:
     // tweens and ambient life keep running so the frame does not look broken.
+    // D5: the owned pointer is re-read here, not only from its events — a finger on the minimap can
+    // swallow the DOM event that carried the pull's own move (see `PointerAdapter.sync`).
+    this.pointerAdapter.sync();
     const frozen = this.paused || time < this.hitstopUntil;
     if (!frozen) ctx.world.update(delta, ctx.pointer);
 
@@ -193,7 +196,7 @@ export class GameScene extends Phaser.Scene {
     this.orbit.update(snapshot, delta);
     this.band.update(snapshot, ctx.pointer);
     this.trajectoryView.update(snapshot);
-    this.background.update(snapshot.timeMs, snapshot.camera.x, snapshot.camera.renderY, delta);
+    this.background.update(snapshot.timeMs, snapshot.camera.renderX, snapshot.camera.renderY, delta);
     this.fx.update();
     this.placeCamera(snapshot, time);
   }
@@ -218,9 +221,11 @@ export class GameScene extends Phaser.Scene {
       if (amplitude > 0) shake = (Math.random() * 2 - 1) * amplitude;
     }
 
-    // D3: the camera also follows in X. `cam.x` is already clamped by core to [0, WORLD_W - viewW],
-    // so the shell places it exactly as given — the shake is the only thing it is allowed to add.
-    scrollCameraTo(this.cameras.main, this.ctx.scale, cam.renderY + shake, cam.x);
+    // D3: the camera also follows in X, and D5 lets the player peek sideways with the minimap. Both
+    // are already resolved and clamped by core in `renderX` / `renderY` (the peek is a presentation
+    // offset, never a rule), so the shell places exactly what it is given — the shake is the only
+    // thing it is allowed to add.
+    scrollCameraTo(this.cameras.main, this.ctx.scale, cam.renderY + shake, cam.renderX);
   }
 
   private teardown(): void {

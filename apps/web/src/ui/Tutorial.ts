@@ -135,7 +135,7 @@ export class Tutorial {
   private drawArc(snapshot: WorldSnapshot | null, reveal: number): void {
     // The HUD is in VIEWPORT px and the world is WORLD_W wide (D3), so both axes of Bur's world
     // position have to come back through the camera before they mean anything on this layer.
-    const originX = snapshot ? snapshot.bubble.pos.x - snapshot.camera.x : this.layoutRef.viewW * 0.5;
+    const originX = snapshot ? snapshot.bubble.pos.x - snapshot.camera.renderX : this.layoutRef.viewW * 0.5;
     // `renderY`, not `y`: it is the top of the view as actually DRAWN (core's ratchet plus the §7
     // lookahead), so the arc cannot slide away from Bur during a fast descent.
     const originY = snapshot

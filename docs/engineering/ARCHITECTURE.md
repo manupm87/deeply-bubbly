@@ -31,12 +31,16 @@ math/vec.ts          Vec2, Rect, clamp, smoothK
 physics/             forceFields (muestreo de campos) · collision (barrido, moveCircle) · integrator (velocidad, alcance analítico)
 control/             pull (potencia = distancia de arrastre, impulso; `charge.ts` es un re-export) · aim (origen congelado del dedo, cono a la horizontal) · trajectory (predicción con el MISMO integrador)
 bubble/              air (única entrada para perder/ganar Aire) · bubbleStep (máquina de estados IDLE/AIMING/LAUNCHED/RESTING/DEAD, presupuesto de doble salto)
-camera/              cámara de trinquete con banda de retorno
-level/               depth (px↔m por zona) · library · campaign (colocación) · streaming (ventana de chunks) · validator (§11.5)
+camera/              cámara de trinquete con banda de retorno · peek.ts (ojeo D5: offset de presentación hacia el punto del minimapa; `GameWorld.setPeek` lo pide, `clearPeek` lo borra sin transición cuando el mundo deja de avanzar)
+level/               depth (px↔m por zona) · library · campaign (colocación) · streaming (ventana de chunks) · validator (§11.5) ·
+                     worlds.ts (mapa del mundo, v1.3: `worlds()`/`amberOcean()` registran mundos y niveles, `levelStatuses()`
+                     deriva el estado de cada nodo — sin contenido/bloqueado/disponible/completado, conchas — a partir del save;
+                     única fuente de verdad del desbloqueo, `MapScene` solo la pinta)
 level/content/       ladder (geometría de la escalera de 540 px: columnas de entrada/salida, cornisa, bandas de arrecife) ·
                      builders (vocabulario de autoría: repisas, fauna del §5) · layout + zoneReport (informes que los tests de zona afirman) ·
                      z1/ y z2/ (los chunks a mano de las zonas 1 y 2)
 run/                 runState (fallos, misericordia) · respawn (cadena a→b→c) · save
+game/minimap.ts      Modelo puro del minimapa (D5): entidades + cámara → `MinimapModel` en px de minimapa
 game/GameWorld.ts    Fachada que compone todo. Es lo único que usa el shell.
 game/autoPlayer.ts   Autojugador headless: elige cada tiro con la MISMA búsqueda del validador (§11.5.11) y lo ejecuta
                      como gesto D2. Desde D1/D3/D4 un dedo de cadencia fija falla todos los saltos por diseño, así que es
@@ -47,7 +51,7 @@ Dependencias permitidas (flechas = "importa a"): `game → {bubble, camera, leve
 
 ## Convenciones
 
-- **Coordenadas**: x ∈ [0, `WORLD_W`] (540 desde DECISIONES v1.2 D3, tres pantallas de `VIEW_W` = 180), y crece hacia abajo, y=0 superficie. Chunks de 540×240 en coordenadas locales; `instantiateChunk` los lleva a mundo (solo desplaza en y). La cámara sigue a Bur también en X con zona muerta y recorte a `[0, WORLD_W − viewW]`; el puerto viewport→mundo es `game/pointer.ts`.
+- **Coordenadas**: x ∈ [0, `WORLD_W`] (540 desde DECISIONES v1.2 D3, tres pantallas de `VIEW_W` = 180), y crece hacia abajo, y=0 superficie. Chunks de 540×240 en coordenadas locales; `instantiateChunk` los lleva a mundo (solo desplaza en y). La cámara sigue a Bur también en X con zona muerta y recorte a `[0, WORLD_W − viewW]`; el puerto viewport→mundo es `game/pointer.ts`. **El shell coloca la cámara en `renderX/renderY`** (D5, `camera.x/y + peek`), nunca en `x/y`: son la única posición válida para dibujar. La conversión dedo→mundo incluye el ojeo (`peekX/peekY`, congelado con el resto del contacto) pero no el *lookahead* de §7, que es puramente de dibujo y no afecta a dónde apunta el jugador.
 - **Tiempo**: la simulación usa `nowMs` propio (suma de pasos fijos), nunca `Date.now()`.
 - **Mutación**: los `step*` mutan la entidad que reciben (rendimiento y claridad); las funciones de cálculo (`pullPower`, `computeAim`, `sweepCircleAabb`…) son puras.
 - **Eventos**: se devuelven en arrays, nunca se emiten por callbacks desde módulos internos; `GameWorld` los agrega.

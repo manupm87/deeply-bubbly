@@ -58,7 +58,7 @@ export class FxDirector {
     const snap = this.ctx.snapshot;
     if (!snap) return;
     this.syncZone(snap.zone);
-    this.particles.update(snap.camera.x, snap.camera.renderY, snap.camera.viewW, snap.camera.viewH);
+    this.particles.update(snap.camera.renderX, snap.camera.renderY, snap.camera.viewW, snap.camera.viewH);
   }
 
   destroy(): void {

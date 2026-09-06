@@ -97,8 +97,9 @@ export class Trajectory {
     g.clear();
     if (!last) return;
     const cam = snapshot.camera;
-    const left = cam.x;
-    const right = cam.x + cam.viewW;
+    // The DRAWN view (D5 peek included): the chevron marks the edge of what the player can see.
+    const left = cam.renderX;
+    const right = cam.renderX + cam.viewW;
     if (last.x >= left && last.x <= right) return;
 
     const toRight = last.x > right;

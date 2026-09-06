@@ -6,7 +6,8 @@ import type Phaser from 'phaser';
 import type { GameEvent, WorldSnapshot } from '@deeply-bubbly/core';
 import type { GameContext } from '../context';
 import type { HudLayout } from './layout';
-import { CampaignCompleteScreen, DeadScreen, StationScreen, clampShells } from './Screens';
+import { CampaignCompleteScreen } from './CampaignScreen';
+import { DeadScreen, StationScreen, clampShells } from './Screens';
 import { strings } from './strings';
 
 export class ScreensController {
@@ -20,11 +21,11 @@ export class ScreensController {
 
   constructor(scene: Phaser.Scene, ctx: GameContext, layout: HudLayout) {
     const s = strings();
-    this.station = new StationScreen(scene, ctx, layout, { giant: s.keepDiving, slot: s.doublePearls });
+    this.station = new StationScreen(scene, ctx, layout, { giant: s.keepDiving, slot: s.doublePearls, map: s.map });
     this.dead = new DeadScreen(scene, ctx, layout, { giant: s.again, slot: s.secondBreath });
     this.complete = new CampaignCompleteScreen(scene, ctx, layout, {
       title: s.bottomReached,
-      giant: s.again,
+      giant: s.map,
     });
   }
 

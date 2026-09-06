@@ -14,6 +14,12 @@ import type { ScaleState } from './context';
 export interface DebugButtonInfo {
   id: string;
   label: string;
+  /**
+   * What the control IS, when its look is its meaning and the label cannot say it: a world-map node
+   * reports 'locked' / 'available' / 'completed' / 'noContent' so a test can assert the state core
+   * computed instead of reading pixels. Optional; ordinary buttons leave it out.
+   */
+  state?: string;
   /** Centre of the button in design px. */
   x: number;
   y: number;

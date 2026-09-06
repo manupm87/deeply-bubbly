@@ -76,7 +76,9 @@ function sanitize(raw: unknown): SaveData {
   if (raw['version'] !== SAVE_VERSION) return d; // unknown/legacy schema: start clean
   return {
     version: 1,
-    unlockedStation: Math.max(-1, Math.trunc(num(raw['unlockedStation'], d.unlockedStation))),
+    // floor, not trunc: Math.trunc(-0.5) is -0, and -0 passes every `>= 0` test the map's unlock
+    // rule makes, so a corrupt fraction in (-1, 0) would hand out a station nobody ever reached.
+    unlockedStation: Math.max(-1, Math.floor(num(raw['unlockedStation'], d.unlockedStation))),
     bestDepthM: Math.max(0, num(raw['bestDepthM'], d.bestDepthM)),
     pearls: Math.max(0, Math.trunc(num(raw['pearls'], d.pearls))),
     shellsByImmersion: shellsRecord(raw['shellsByImmersion']),

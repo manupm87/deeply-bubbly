@@ -59,6 +59,18 @@ export function textResolution(zoom: number): number {
   return Math.min(MAX_TEXT_RESOLUTION, Math.max(1, wanted));
 }
 
+/**
+ * Breaks a label into at most two lines of `maxChars`, at the last space that fits. The world map
+ * names its islands in a 44 px column ("Océano de Ámbar" is 15 characters of 8 px text), and a name
+ * that has to be shrunk to fit stops being pixel art.
+ */
+export function wrapLabel(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const cut = text.lastIndexOf(' ', maxChars);
+  if (cut <= 0) return text;
+  return `${text.slice(0, cut)}\n${text.slice(cut + 1)}`;
+}
+
 let formatter: Intl.NumberFormat | null = null;
 
 function numberFormat(): Intl.NumberFormat {

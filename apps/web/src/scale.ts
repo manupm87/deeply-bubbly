@@ -36,7 +36,8 @@ export function computeScale(cssW: number, cssH: number): ScaleState {
 
 /**
  * Places a camera so that world coordinates `(leftX..leftX+viewW, topY..topY+viewH)` fill the
- * letterboxed area. `leftX` is `snapshot.camera.x` (D3): the world is wider than the view.
+ * letterboxed area. `leftX` is `snapshot.camera.renderX` (D3 + D5): the world is wider than the view,
+ * and what the shell places is always the camera as DRAWN — the peek included.
  *
  * `setScroll` alone is wrong once `zoom > 1`: Phaser centres `worldView` on `scroll + size/2` and then
  * divides by the zoom, so the top-left of the view drifts by `size * (zoom - 1) / (2 * zoom)`.

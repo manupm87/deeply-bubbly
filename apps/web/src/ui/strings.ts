@@ -24,10 +24,15 @@ export interface StringTable {
   assistedTrajectory: string;
   slowCharge: string;
   calmDive: string;
-  /** Start screen: dive at the deepest station already unlocked (GDD §3.1, a choice). */
-  dive: string;
-  /** Start screen: throw the checkpoint away for this run and dive from 0 m. */
-  fromSurface: string;
+  /** World map: the small button that leaves a station, the pause menu or the last screen for it. */
+  map: string;
+  /**
+   * World map: the name of each world (WORLD-MAP.md §2). Only the first is playable; the other two are
+   * locked silhouettes, and their names are all the design they get for now.
+   */
+  worldAmberOcean: string;
+  worldVolcano: string;
+  worldLochNess: string;
   /** Depth unit appended to the metres counter. */
   metres: string;
   /** DOM curtain shown on a landscape phone (web cannot lock the orientation). */
@@ -52,8 +57,10 @@ const ES: StringTable = {
   // beside it. This names the same thing by the part of it the player can see getting longer.
   slowCharge: 'Goma larga',
   calmDive: 'Tranquilo',
-  dive: 'Bajar',
-  fromSurface: 'Desde la superficie',
+  map: 'Mapa',
+  worldAmberOcean: 'Océano de Ámbar',
+  worldVolcano: 'Volcán',
+  worldLochNess: 'Lago Ness',
   metres: 'm',
   rotate: 'Gira el móvil',
 };
@@ -72,8 +79,10 @@ const EN: StringTable = {
   assistedTrajectory: 'Guide',
   slowCharge: 'Long slingshot',
   calmDive: 'Calm',
-  dive: 'Dive',
-  fromSurface: 'From the surface',
+  map: 'Map',
+  worldAmberOcean: 'Amber Ocean',
+  worldVolcano: 'Volcano',
+  worldLochNess: 'Loch Ness',
   metres: 'm',
   rotate: 'Rotate your phone',
 };

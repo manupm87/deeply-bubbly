@@ -52,7 +52,7 @@ export class ResacaWarning {
     const l = this.layoutRef;
     const above = snapshot.bubble.pos.y < snapshot.camera.renderY;
     // Viewport px: Bur's world x is up to WORLD_W (D3), the arrow lives on the 180 px HUD column.
-    const burX = snapshot.bubble.pos.x - snapshot.camera.x;
+    const burX = snapshot.bubble.pos.x - snapshot.camera.renderX;
     const x = Math.round(Math.min(l.viewW - 8, Math.max(8, burX)));
     const y = above ? l.top + l.bandH + 6 : Math.round(l.viewH * 0.62);
     const dir = above ? -1 : 1;

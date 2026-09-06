@@ -12,7 +12,7 @@ await page.goto(`http://localhost:4173/?debug=1${extraQuery}`);
 await page.waitForFunction(() => window.__db && window.__db.world.snapshot().phase !== '', undefined, { timeout: 20000 });
 await page.waitForTimeout(800);
 const cdp = await ctx.newCDPSession(page);
-const snap = () => page.evaluate(() => { const s = window.__db.world.snapshot(); return { t: Math.round(s.timeMs), st: s.bubble.state, y: Math.round(s.bubble.pos.y), x: Math.round(s.bubble.pos.x), air: s.bubble.air, m: Math.round(s.hud.depthM), ph: s.phase, camY: Math.round(s.camera.y), camX: Math.round(s.camera.x), ents: s.entities.length }; });
+const snap = () => page.evaluate(() => { const s = window.__db.world.snapshot(); return { t: Math.round(s.timeMs), st: s.bubble.state, y: Math.round(s.bubble.pos.y), x: Math.round(s.bubble.pos.x), air: s.bubble.air, m: Math.round(s.hud.depthM), ph: s.phase, camY: Math.round(s.camera.y), camX: Math.round(s.camera.x), rx: Math.round(s.camera.renderX), ry: Math.round(s.camera.renderY), ents: s.entities.length }; });
 const vp = page.viewportSize();
 let shots = 0; const log = [];
 // DECISIONS-v1.2 D2: the shot is a SLINGSHOT. Press, drag the sling BACKWARDS (up the screen for a
@@ -54,5 +54,5 @@ while (Date.now() - start < 75000) {
   i++;
 }
 console.log(JSON.stringify({ errors: errors.slice(0, 10), last: log.at(-1), maxY: Math.max(...log.map(l => l.y)), xRange: [Math.min(...log.map(l => l.x)), Math.max(...log.map(l => l.x))], camXRange: [Math.min(...log.map(l => l.camX)), Math.max(...log.map(l => l.camX))], states: [...new Set(log.map(l => l.st))], phases: [...new Set(log.map(l => l.ph))], minAir: Math.min(...log.map(l => l.air)) }));
-console.log(log.filter((_, k) => k % 6 === 0).map(l => `${l.t}ms ${l.st} y=${l.y} x=${l.x} camX=${l.camX} air=${l.air} ${l.m}m ${l.ph}`).join('\n'));
+console.log(log.filter((_, k) => k % 6 === 0).map(l => `${l.t}ms ${l.st} y=${l.y} x=${l.x} camX=${l.camX} rx=${l.rx} ry=${l.ry} air=${l.air} ${l.m}m ${l.ph}`).join('\n'));
 await browser.close();
