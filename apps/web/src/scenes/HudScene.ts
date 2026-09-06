@@ -47,15 +47,6 @@ export class HudScene extends Phaser.Scene {
     this.tutorial = new Tutorial(this, this.ctx, this.layoutRef);
     this.resaca = new ResacaWarning(this, this.layoutRef);
 
-    // GDD §3.1: a returning player chooses where the dive starts BEFORE it starts. The world is
-    // already built at their unlocked station, so the pause menu's title state is enough — it freezes
-    // the world with the same 'pause' every other overlay uses, and closing it is what starts play.
-    // §8: a first-ever player (`unlockedStation < 0`) never sees a modal; `titlePending` is false.
-    if (this.ctx.titlePending) {
-      this.ctx.titlePending = false;
-      this.pauseMenu.openTitle();
-    }
-
     this.scene.bringToTop();
     this.ctx.bus.on('gameEvent', this.onBusEvent, this);
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this);

@@ -108,8 +108,10 @@ export class Button implements DebugButtonSource {
       label: this.label?.text ?? this.cfg.label ?? '',
       x: m.tx,
       y: m.ty,
-      w: this.cfg.w,
-      h: this.cfg.h,
+      // The interactive zone, not the plate: what a test measures has to be what a finger presses,
+      // so a target that stopped being 44 css pt shows up in the registry instead of hiding there.
+      w: this.zone.width,
+      h: this.zone.height,
       visible: effectivelyVisible(this.root),
     };
   }

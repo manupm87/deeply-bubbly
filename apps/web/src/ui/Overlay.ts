@@ -36,6 +36,14 @@ export function bottomSlots(layout: HudLayout, withSecondary = true): { giant: S
   };
 }
 
+/**
+ * The small secondary action, centred above the action row of `bottomSlots` and clear of its 44 pt
+ * touch target: it must never be the button a thumb reaching for "Seguir bajando" lands on.
+ */
+export function secondarySlot(layout: HudLayout): { x: number; y: number; w: number; h: number } {
+  return { x: Math.round(layout.viewW / 2), y: Math.round(layout.viewH * 0.68), w: 46, h: 16 };
+}
+
 export const FADE_MS = 220;
 
 export class Overlay {

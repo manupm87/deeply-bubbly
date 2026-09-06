@@ -1,6 +1,6 @@
-# Menú principal: el mapa del mundo (propuesta v1.3)
+# Menú principal: el mapa del mundo (v1.3)
 
-Fecha: 2026-09-06. Estado: **propuesta pendiente de aprobación del owner**; se construye después del ojeo (D5). Origen: el owner quiere un menú principal con mapa del mundo al estilo *Super Mario Bros.*, con los niveles que ya existen desbloqueados, los demás bloqueados hasta que se desarrollen, y sitio para otros mundos futuros (volcán, piscina, olla, otros océanos, ríos, lagos como el Ness…). Por ahora el foco es el primer mundo con un par de niveles jugables para pulir conceptos.
+Fecha: 2026-09-06. Estado: **aprobado por el owner el 2026-09-06** (respuestas por defecto de §6); **implementado en v1.3**. Origen: el owner quiere un menú principal con mapa del mundo al estilo *Super Mario Bros.*, con los niveles que ya existen desbloqueados, los demás bloqueados hasta que se desarrollen, y sitio para otros mundos futuros (volcán, piscina, olla, otros océanos, ríos, lagos como el Ness…). Por ahora el foco es el primer mundo con un par de niveles jugables para pulir conceptos.
 
 ## 1. Vocabulario
 
@@ -41,8 +41,10 @@ Se descarta llamar "nivel" a la zona: dos niveles jugables serían muy poco para
 
 Diseño de mundos nuevos, modo Abismo en el mapa, tienda, valoración de tienda (que el GDD §3.3 sitúa en el menú principal tras la Zona 3: el hueco queda reservado pero no se implementa).
 
-## 6. Preguntas para el owner
+## 6. Decisiones tomadas
 
-1. ¿Nivel = Inmersión (5 hoy) te vale, o prefieres que el mapa muestre solo dos nodos grandes (Superficie y Arrecife)?
-2. ¿Al terminar un nivel: seguir bajando por defecto con "Mapa" como opción secundaria (propuesto), o volver siempre al mapa como en Mario?
-3. ¿Primera partida directa al nivel 1 sin pasar por el mapa (propuesto)?
+El owner respondió "adelante" con las tres respuestas por defecto propuestas:
+
+1. **Nivel = Inmersión.** El mapa muestra un nodo por Inmersión (18 en el Océano de Ámbar, 5 jugables hoy), no dos nodos grandes por zona.
+2. **"Seguir bajando" sigue siendo el botón grande por defecto** al terminar un nivel; "Mapa" es la opción pequeña secundaria. No se vuelve siempre al mapa como en *Mario*.
+3. **La primera partida entra directa al nivel 1**, sin pasar por el mapa; el mapa aparece por primera vez al llegar a la primera estación.

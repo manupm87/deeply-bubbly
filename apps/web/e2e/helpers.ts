@@ -8,6 +8,8 @@ import type { Page } from '@playwright/test';
 export interface DebugButtonRect {
   id: string;
   label: string;
+  /** World-map nodes report the state core computed ('locked', 'available', 'completed', 'noContent'). */
+  state?: string;
   x: number;
   y: number;
   w: number;
@@ -48,8 +50,12 @@ declare global {
       ctx: {
         scale: { zoom: number; viewW: number; viewH: number; offsetX: number; offsetY: number };
         save: { unlockedStation: number };
+        /** The campaign being played; the map specs read where each immersion and station sits. */
+        campaign: { immersions: Array<{ startY: number; stationY: number }> };
       };
       buttons(): DebugButtonRect[];
+      /** Keys of the running scenes: 'Map' for the world map, 'Game' + 'Hud' for a live run. */
+      scenes?(): string[];
       /** The shot core would take from here (`game/autoPlayer.pickShot`); used by `e2e/tools/bot.mjs`. */
       nextShot?(): { power: number; thetaDeg: number } | null;
       /** The LIVE tuning; `gestureTuning` reads the gesture constants the drags below assume. */
@@ -111,6 +117,60 @@ export async function tapButton(page: Page, id: string): Promise<void> {
     throw new Error(`no visible button '${id}' (on screen: ${seen || 'none'})`);
   }
   await holdAndRelease(page, button.x, button.y, 80);
+}
+
+/** Keys of the scenes running right now. The world map is a scene, not an overlay (WORLD-MAP.md §4). */
+export async function activeScenes(page: Page): Promise<string[]> {
+  return page.evaluate(() => window.__db?.scenes?.() ?? []);
+}
+
+/** True while the world map owns the screen. */
+export async function onMap(page: Page): Promise<boolean> {
+  return (await activeScenes(page)).includes('Map');
+}
+
+/** Where each immersion begins and where its station sits, as the campaign placed them. */
+export async function immersionAnchors(page: Page): Promise<Array<{ startY: number; stationY: number }>> {
+  return page.evaluate(() =>
+    (window.__db?.ctx.campaign.immersions ?? []).map((i) => ({ startY: i.startY, stationY: i.stationY })),
+  );
+}
+
+/**
+ * Walks Bur down to the next rest station and waits for the 'station' phase.
+ *
+ * A station is crossed BY DEPTH (`core/game/checkpoints.ts`), so the fastest honest way there is to
+ * keep moving her down through the streamed window — in 120 px steps rather than one 1 400 px jump,
+ * because the chunk streamer follows the camera and a teleport past the end of it would arrive at a
+ * station that is not loaded. Air is topped up each step: the point is the checkpoint, not survival.
+ */
+export async function forceStationReached(page: Page, timeout = 25_000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const phase = await page.evaluate(() => {
+      const world = window.__db?.world as unknown as {
+        snapshot(): {
+          phase: string;
+          bubble: Record<string, unknown> & { pos: { y: number }; vel: { x: number; y: number } };
+        };
+      };
+      const sn = world.snapshot();
+      if (sn.phase !== 'playing') return sn.phase;
+      sn.bubble.air = 9;
+      sn.bubble.state = 'LAUNCHED';
+      sn.bubble.restingOnId = null;
+      sn.bubble.restMs = 0;
+      sn.bubble.launchedMs = 0;
+      sn.bubble.vel.x = 0;
+      sn.bubble.vel.y = 0;
+      sn.bubble.pos.y += 120;
+      return sn.phase;
+    });
+    if (phase === 'station') return;
+    if (phase !== 'playing') throw new Error(`phase '${phase}' before any station was reached`);
+    await page.waitForTimeout(50);
+  }
+  throw new Error('no station was reached in time');
 }
 
 export async function burY(page: Page): Promise<number> {

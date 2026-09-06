@@ -32,7 +32,10 @@ physics/             forceFields (muestreo de campos) · collision (barrido, mov
 control/             pull (potencia = distancia de arrastre, impulso; `charge.ts` es un re-export) · aim (origen congelado del dedo, cono a la horizontal) · trajectory (predicción con el MISMO integrador)
 bubble/              air (única entrada para perder/ganar Aire) · bubbleStep (máquina de estados IDLE/AIMING/LAUNCHED/RESTING/DEAD, presupuesto de doble salto)
 camera/              cámara de trinquete con banda de retorno · peek.ts (ojeo D5: offset de presentación hacia el punto del minimapa; `GameWorld.setPeek` lo pide, `clearPeek` lo borra sin transición cuando el mundo deja de avanzar)
-level/               depth (px↔m por zona) · library · campaign (colocación) · streaming (ventana de chunks) · validator (§11.5)
+level/               depth (px↔m por zona) · library · campaign (colocación) · streaming (ventana de chunks) · validator (§11.5) ·
+                     worlds.ts (mapa del mundo, v1.3: `worlds()`/`amberOcean()` registran mundos y niveles, `levelStatuses()`
+                     deriva el estado de cada nodo — sin contenido/bloqueado/disponible/completado, conchas — a partir del save;
+                     única fuente de verdad del desbloqueo, `MapScene` solo la pinta)
 level/content/       ladder (geometría de la escalera de 540 px: columnas de entrada/salida, cornisa, bandas de arrecife) ·
                      builders (vocabulario de autoría: repisas, fauna del §5) · layout + zoneReport (informes que los tests de zona afirman) ·
                      z1/ y z2/ (los chunks a mano de las zonas 1 y 2)

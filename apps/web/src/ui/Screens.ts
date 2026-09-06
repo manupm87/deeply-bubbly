@@ -8,7 +8,7 @@ import type { GameContext } from '../context';
 import { UI } from '../palette';
 import { Button } from './Button';
 import type { HudLayout } from './layout';
-import { Overlay, bottomSlots } from './Overlay';
+import { Overlay, bottomSlots, secondarySlot } from './Overlay';
 import { formatMeters, pixelText } from './text';
 import { TEX, ensureUiTextures } from './uiTextures';
 
@@ -20,6 +20,12 @@ interface ResultConfig {
   slotLabel: string;
   showShells: boolean;
   onGiant: () => void;
+  /**
+   * Optional small ghost button above the action row. The station uses it for "Mapa" (WORLD-MAP.md
+   * §3): the descent stays continuous — the giant button is still "Seguir bajando" — and closing the
+   * session is a second, deliberately smaller choice beside it.
+   */
+  secondary?: { id: string; label: string; onTap: () => void };
 }
 
 /** Shared layout of the station and fail screens (GDD §8: identical framing, different verb). */
@@ -30,6 +36,7 @@ class ResultScreen extends Overlay {
   private readonly shells: Phaser.GameObjects.Image[] = [];
   private readonly giant: Button;
   private readonly slot: Button;
+  private readonly secondary: Button | null;
   private readonly cfg: ResultConfig;
   /** Whether the secondary (rewarded) slot is on screen; it decides where the giant button sits. */
   private slotShown = true;
@@ -85,7 +92,21 @@ class ResultScreen extends Overlay {
       size: 8,
       tone: 'disabled',
     });
+    this.secondary = cfg.secondary
+      ? new Button(scene, {
+          id: cfg.secondary.id,
+          ...secondarySlot(layout),
+          zoom: layout.zoom,
+          touch: layout.touch,
+          label: cfg.secondary.label,
+          size: 8,
+          tone: 'ghost',
+          input: ctx,
+          onTap: cfg.secondary.onTap,
+        })
+      : null;
     this.add(this.giant.root, this.slot.root);
+    if (this.secondary) this.add(this.secondary.root);
     this.place(layout);
   }
 
@@ -107,6 +128,8 @@ class ResultScreen extends Overlay {
     const slots = bottomSlots(layout, this.slotShown);
     this.giant.setPosition(slots.giant.x, slots.giant.y);
     this.slot.setPosition(slots.slot.x, slots.slot.y);
+    const secondary = secondarySlot(layout);
+    this.secondary?.setPosition(secondary.x, secondary.y);
   }
 
   /** Fills in the numbers and replays the shell animation. */
@@ -148,13 +171,23 @@ class ResultScreen extends Overlay {
   override destroy(): void {
     this.giant.destroy();
     this.slot.destroy();
+    this.secondary?.destroy();
     super.destroy();
   }
 }
 
-/** Phase 'station': depth, three shells, pearls and the giant "keep diving" button. */
+/**
+ * Phase 'station': depth, three shells, pearls, the giant "keep diving" button — and, since v1.3, the
+ * small "Mapa" beside it. §3.1's single continuous plunge is what makes the giant one giant; the map
+ * is where a session ends, so it is the one other way out of this screen.
+ */
 export class StationScreen extends ResultScreen {
-  constructor(scene: Phaser.Scene, ctx: GameContext, layout: HudLayout, labels: { giant: string; slot: string }) {
+  constructor(
+    scene: Phaser.Scene,
+    ctx: GameContext,
+    layout: HudLayout,
+    labels: { giant: string; slot: string; map: string },
+  ) {
     super(scene, ctx, layout, {
       giantLabel: labels.giant,
       slotLabel: labels.slot,
@@ -163,6 +196,7 @@ export class StationScreen extends ResultScreen {
         ctx.world.continueDescent();
         ctx.bus.emit('continue');
       },
+      secondary: { id: 'station.map', label: labels.map, onTap: () => ctx.bus.emit('toMap') },
     });
   }
 }
@@ -210,76 +244,6 @@ export class DeadScreen extends ResultScreen {
 
   override destroy(): void {
     this.scene.input.off('pointerdown', this.onActivity);
-    super.destroy();
-  }
-}
-
-/** Phase 'campaignComplete': placeholder celebration with a restart button. */
-export class CampaignCompleteScreen extends Overlay {
-  private readonly title: Phaser.GameObjects.Text;
-  private readonly depthText: Phaser.GameObjects.Text;
-  private readonly button: Button;
-
-  constructor(scene: Phaser.Scene, ctx: GameContext, layout: HudLayout, labels: { title: string; giant: string }) {
-    super(scene, layout, ctx.pointer, 0.85);
-    this.title = pixelText(scene, {
-      x: 0,
-      y: 0,
-      text: labels.title,
-      size: 12,
-      zoom: layout.zoom,
-      color: UI.amber,
-      originX: 0.5,
-      originY: 0.5,
-    });
-    this.depthText = pixelText(scene, {
-      x: 0,
-      y: 0,
-      text: '',
-      size: 10,
-      zoom: layout.zoom,
-      color: UI.white,
-      originX: 0.5,
-      originY: 0.5,
-    });
-    const slots = bottomSlots(layout);
-    this.button = new Button(scene, {
-      ...slots.giant,
-      zoom: layout.zoom,
-        touch: layout.touch,
-      label: labels.giant,
-      size: 10,
-      tone: 'primary',
-      input: ctx,
-      onTap: () => {
-        ctx.world.restart();
-        ctx.bus.emit('restart');
-      },
-    });
-    this.add(this.title, this.depthText, this.button.root);
-    this.place(layout);
-  }
-
-  override layout(layout: HudLayout): void {
-    super.layout(layout);
-    this.place(layout);
-  }
-
-  private place(layout: HudLayout): void {
-    const cx = layout.viewW / 2;
-    this.title.setPosition(cx, Math.round(layout.viewH * 0.34));
-    this.depthText.setPosition(cx, Math.round(layout.viewH * 0.46));
-    const slots = bottomSlots(layout);
-    this.button.setPosition(slots.giant.x, slots.giant.y);
-  }
-
-  present(snapshot: WorldSnapshot): void {
-    this.depthText.setText(formatMeters(snapshot.hud.depthM));
-    this.show();
-  }
-
-  override destroy(): void {
-    this.button.destroy();
     super.destroy();
   }
 }

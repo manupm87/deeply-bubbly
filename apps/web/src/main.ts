@@ -17,6 +17,7 @@ import { attachOrientationOverlay } from './orientation';
 import { BootScene, SCENE_KEYS } from './scenes/BootScene';
 import { GameScene } from './scenes/GameScene';
 import { HudScene } from './scenes/HudScene';
+import { MapScene } from './scenes/MapScene';
 import { createStore } from './platform/LocalStorageStore';
 import { createTelemetry } from './platform/Telemetry';
 import { applySettingsToTuning, settingsFromSave, settingsToSave } from './platform/settings';
@@ -32,7 +33,8 @@ interface Ports {
 
 /**
  * Debug entry point: `?start=<stationIndex>` boots the run at that station's checkpoint instead of at
- * the player's own unlocked one. It is how a QA pass or a screenshot bot reaches Zone 2 without
+ * the player's own unlocked one — and, being a request for a RUN, it also skips the world map the
+ * boot would otherwise open on. It is how a QA pass or a screenshot bot reaches Zone 2 without
  * replaying Zone 1, and it is gated behind the same flag as `__db` (a dev build, or `?debug=1`), so a
  * plain production load can never be talked into skipping the campaign. Never persisted: the save is
  * only ever written by core, at a checkpoint actually reached.
@@ -86,9 +88,10 @@ function buildContext(ports: Ports): GameContext {
   const scale = computeScale(globalThis.innerWidth, globalThis.innerHeight);
   let base: Tuning = DEFAULT_TUNING;
   const tuning = applySettingsToTuning(base, settings);
-  // A returning player's world is built at their unlocked station, so "Seguir" on the start screen is
-  // instant: the choice is offered over a world that is already the one it promises.
-  const built = buildWorld(tuning, debugStartStation() ?? save.unlockedStation, scale.viewH, ports);
+  const debugStart = debugStartStation();
+  // A returning player's world is built at their unlocked station: the map may well be answered with
+  // "the level I was on", and that world is then already the one the node promises.
+  const built = buildWorld(tuning, debugStart ?? save.unlockedStation, scale.viewH, ports);
 
   const ctx: GameContext = {
     world: built.world,
@@ -98,9 +101,9 @@ function buildContext(ports: Ports): GameContext {
     save,
     tuning,
     snapshot: null,
-    // §8: the first-ever run opens on the wordless tutorial, never on a modal. The title is only owed
-    // to someone who already has a checkpoint to choose between.
-    titlePending: save.unlockedStation >= 0,
+    // §8: the first-ever run opens on the wordless tutorial, never on a menu. The map is only owed to
+    // someone who already has a checkpoint — and never to `?start=`, which asks for a run by name.
+    mapPending: debugStart === null && save.unlockedStation >= 0,
     // A single mutable sample, written in place by PointerAdapter and read by GameScene every frame.
     pointer: { down: false, x: scale.viewW / 2, y: scale.viewH * 0.8 },
     // Published by GameScene's PointerAdapter while it is attached (see `ui/swallow.ts`).
@@ -163,14 +166,14 @@ interface NewRun {
 /**
  * The ONE way to start another run: throw the world away and build one at the requested station.
  * Core has no API for it (`restart()` returns early outside dead/gameOver, and a live run cannot be
- * re-based on another checkpoint), so this is the shell's only move — and it is the same move for the
- * start screen's "Desde la superficie", its "Seguir" after a campaign was finished, and the
- * "campaña completa" screen. Everything scene-side is rebuilt by Boot, so no listener survives the swap.
+ * re-based on another checkpoint), so this is the shell's only move — and since v1.3 it has exactly
+ * one caller: a node tapped on the world map (`MapScene`), which is where every choice of where to
+ * dive is now made. Everything scene-side is rebuilt by Boot, so no listener survives the swap.
  *
  * The save is NOT touched: `save.unlockedStation` is permanent meta-progression (§6.1) and core's
  * `persist` only ever raises it, so a run from the surface that dives past a station still banks it.
  */
-function attachNewRun(game: Phaser.Game, ctx: GameContext, ports: Ports): void {
+function attachRunRouting(game: Phaser.Game, ctx: GameContext, ports: Ports): void {
   ctx.bus.on('newRun', ({ startStationIndex }: NewRun) => {
     // The run being thrown away may have banked a station: core writes that straight to the store, so
     // the shell's copy of the save is refreshed here rather than drifting for the rest of the session.
@@ -179,19 +182,25 @@ function attachNewRun(game: Phaser.Game, ctx: GameContext, ports: Ports): void {
     ctx.world = built.world;
     ctx.campaign = built.campaign;
     ctx.snapshot = null;
-    // The player has just chosen; the boot title would be the same question asked twice.
-    ctx.titlePending = false;
+    // The player has just chosen; the boot map would be the same question asked twice.
+    ctx.mapPending = false;
+    game.scene.stop(SCENE_KEYS.map);
     game.scene.stop(SCENE_KEYS.hud);
     game.scene.stop(SCENE_KEYS.game);
     game.scene.start(SCENE_KEYS.boot);
   });
-  // "Campaña completa" keeps its meaning — a new campaign from the checkpoint the player owns — but it
-  // is no longer a second implementation of it. The store is re-read rather than trusting `ctx.save`:
-  // core banks a station straight into the store, and the shell's copy is only refreshed when the
-  // player happens to touch a setting, so a session that unlocked Zone 3 would restart back at Zone 1.
-  ctx.bus.on('restart', () => {
-    if (ctx.snapshot?.phase !== 'campaignComplete') return;
-    ctx.bus.emit('newRun', { startStationIndex: loadSave(ports.store).unlockedStation });
+  /**
+   * The way OUT of a run (WORLD-MAP.md §3): the station screen's small "Mapa", the pause menu's
+   * "Salir" and the campaign-complete screen all land here. The world is left exactly as it stands —
+   * the next 'newRun' throws it away anyway — and the save is re-read first, because core banks a
+   * station straight into the store and the map paints the node the player has just finished.
+   */
+  ctx.bus.on('toMap', () => {
+    Object.assign(ctx.save, loadSave(ports.store));
+    ctx.mapPending = false;
+    game.scene.stop(SCENE_KEYS.hud);
+    game.scene.stop(SCENE_KEYS.game);
+    game.scene.start(SCENE_KEYS.map);
   });
 }
 
@@ -220,6 +229,8 @@ function exposeDebugHandle(game: Phaser.Game, ctx: GameContext): void {
       },
       /** Live HUD buttons as CSS-px rects, so a test can press the real thing (see `debug.ts`). */
       buttons: () => debugButtons(ctx.scale),
+      /** Keys of the running scenes: how a test tells the world map from a live run. */
+      scenes: (): string[] => game.scene.getScenes(true).map((scene) => scene.scene.key),
       /**
        * The shot core would take from where Bur is standing (`game/autoPlayer.pickShot`), for the
        * screenshot bot of `e2e/tools/bot.mjs`. It is a READ of a core rule, not a rule: since
@@ -253,7 +264,7 @@ function start(): Phaser.Game {
   const ports: Ports = { store, telemetry: createTelemetry(store) };
   const ctx = buildContext(ports);
 
-  const game = new Phaser.Game(gameConfig([BootScene, GameScene, HudScene]));
+  const game = new Phaser.Game(gameConfig([BootScene, GameScene, HudScene, MapScene]));
   // Must be set before any scene's `create()` runs; the first scene step is a frame away.
   game.registry.set(CTX_KEY, ctx);
 
@@ -263,7 +274,7 @@ function start(): Phaser.Game {
   attachOrientationOverlay(strings().rotate, (landscape) => {
     if (landscape) ctx.bus.emit('autoPause');
   });
-  attachNewRun(game, ctx, ports);
+  attachRunRouting(game, ctx, ports);
   attachTelemetryFlush(ports);
   exposeDebugHandle(game, ctx);
   return game;

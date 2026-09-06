@@ -40,7 +40,8 @@ export interface WorldDef {
 export type LevelState = 'noContent' | 'locked' | 'available' | 'completed';
 
 export interface LevelStatus {
-  level: LevelDef;
+  /** The level itself, aliased from the world (not a copy): read-only for every caller. */
+  level: Readonly<LevelDef>;
   state: LevelState;
   /** Shells banked in this level's immersion (0-3), 0 when not completed. */
   shells: number;
@@ -59,11 +60,14 @@ export const IMMERSIONS_PER_ZONE: readonly number[] = [2, 3, 3, 3, 3, 4];
  * cannot start). Extra authored immersions beyond 18 are ignored.
  */
 export function amberOcean(playableImmersions: number): WorldDef {
+  // A count is a number of authored immersions: never fractional, never negative, never NaN. A
+  // fractional one would otherwise build ceil(n) levels and promise a run the campaign cannot start.
+  const built = Number.isFinite(playableImmersions) ? Math.max(0, Math.floor(playableImmersions)) : 0;
   const levels: LevelDef[] = [];
   let index = 0;
   IMMERSIONS_PER_ZONE.forEach((count, zone) => {
     for (let i = 0; i < count; i++) {
-      levels.push({ index, zone: zone as ZoneIndex, immersionIndex: index < playableImmersions ? index : null });
+      levels.push({ index, zone: zone as ZoneIndex, immersionIndex: index < built ? index : null });
       index++;
     }
   });
@@ -84,13 +88,16 @@ export function levelStatuses(
   world: WorldDef,
   save: Pick<SaveData, 'unlockedStation' | 'shellsByImmersion'>,
 ): LevelStatus[] {
-  const unlocked = Number.isFinite(save.unlockedStation) ? Math.floor(save.unlockedStation) : -1;
+  // Clamped like the save sanitizer: anything below -1 (or non-finite) means "nothing unlocked",
+  // so level 0 stays available instead of locking the player out of the map.
+  const unlocked = Number.isFinite(save.unlockedStation) ? Math.max(-1, Math.floor(save.unlockedStation)) : -1;
   const statuses: LevelStatus[] = world.levels.map((level) => {
     const n = level.immersionIndex;
     let state: LevelState = 'noContent';
     if (n !== null) state = unlocked >= n ? 'completed' : unlocked >= n - 1 ? 'available' : 'locked';
     const banked = n === null ? undefined : save.shellsByImmersion[n];
-    const shells = state === 'completed' && typeof banked === 'number' ? Math.max(0, Math.min(3, Math.floor(banked))) : 0;
+    // Number.isFinite, not typeof: a NaN in a hand-edited save would otherwise reach the map as NaN shells.
+    const shells = state === 'completed' && Number.isFinite(banked) ? Math.max(0, Math.min(3, Math.floor(banked as number))) : 0;
     return { level, state, shells, current: false, startStationIndex: n === null ? -1 : n - 1 };
   });
   // The deepest enterable node: the first 'available' if there is one, else the last 'completed'.

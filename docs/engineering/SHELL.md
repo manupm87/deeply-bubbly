@@ -14,7 +14,8 @@ El shell **no contiene reglas de juego**. Convierte input táctil en `PointerInp
 ## Escenas
 
 ```
-BootScene      genera las texturas procedurales (ver abajo) y arranca GameScene + HudScene
+BootScene      genera las texturas procedurales (ver abajo) y arranca GameScene + HudScene, o MapScene si save.unlockedStation >= 0
+MapScene       menú principal (v1.3): mapa vertical desplazable, islas por mundo, nodos de nivel; emite 'newRun'; ver docs/design/WORLD-MAP.md
 GameScene      mundo: fondo por zona (parallax + paredes de arrecife del mundo), entidades del snapshot, Bur, partículas, trayectoria, goma del tirachinas, anillo de potencia
 HudScene       overlay: pips de Aire, cinta de profundidad + metros, pausa; pantallas de estación / fin / pausa; tutorial de primera partida
 ```
@@ -58,7 +59,7 @@ Indicador del tirachinas (D2, tres canales redundantes del mismo número): **gom
 
 **Minimapa** (v1.3, D5, `ui/Minimap.ts`, propiedad de `HudScene`): dibujado con Phaser Graphics a partir de `snapshot.minimap` cada frame, en `layout.top + layout.bandH + 2`, centrado horizontalmente y recolocado en cada *resize*. Panel `UI.panel` a ~0,55 alpha con borde de 1 px; marcas solo con los colores reservados de UI (blanco, ámbar, cian): repisa capturable = línea/rect cian UI 1 px, incapturable = cian UI a media alpha, peligro = ámbar, coleccionable = blanco 1 px, campo = relleno cian UI a baja alpha, boya/estación = líneas/banda ámbar a baja alpha; Bur = 2×2 blanco dentro de un filo oscuro de 1 px (una forma que ninguna marca tiene: con la vista ojeada lejos, el mapa es el único sitio donde Bur se ve, y un 2×2 blanco a secas se lee igual que un coleccionable) y **sujeta al panel**, porque el modelo da su centro real y Bur sale del mapa siempre que esté más de `MINIMAP_ABOVE_PX` por encima de la cámara viva; marco de la vista = rectángulo blanco 1 px, también recortado al panel. Alpha del conjunto: 1 mientras `bubble.state` es `RESTING` o `AIMING` o hay un ojeo activo, 0,45 el resto del tiempo, con *tween* de ~200 ms. Se oculta junto con el HUD cuando una pantalla o la pausa ocupan la escena. Registrado para e2e con `debug.ts` (`registerDebugButton('minimap', …)`) para que los tests sepan dónde tocar.
 
-Pantallas: **inicio** (título "Deeply Bubbly" y, para quien ya tiene estación desbloqueada, dos botones en el tercio inferior: "Seguir · N m" y "Desde la superficie" — §3.1 la estación es una *opción*, no un arranque forzado; quien juega por primera vez no la ve nunca, §8: sin modales en la primera partida; también se llega desde «Salir» del menú de pausa, y ahí «Seguir» reanuda la partida que hay en pantalla: solo lleva profundidad cuando esa partida arranca de verdad en esa estación, si no dice «Bajar»), **estación** (profundidad, 3 conchas animadas, perlas, botón gigante "Seguir bajando" bajo el pulgar, hueco gris "Perlas dobles" desactivado), **fallo** (700 ms tras deshinchar, mismo layout, "Otra vez"; hueco "Segundo aliento" oculto salvo `run.failCountThisImmersion >= 4`, y aun así desactivado), **pausa** (Seguir, Reiniciar Inmersión, Sonido, Salir), **campaña completa** (placeholder). Textos en pantalla < 40 palabras en total.
+Pantallas: **mapa** (v1.3, `MapScene`; ver `docs/design/WORLD-MAP.md`): menú principal, no una pantalla de inicio aparte. Título "Deeply Bubbly" en una banda superior; una fila de islas por mundo (Océano de Ámbar activo, Volcán y Lago Ness bloqueados con candado, wobble de "no" al tocarlos, sin modal); un camino de 18 burbujas-nodo para el Océano de Ámbar, cada tramo teñido con la paleta de su zona (`palette.ts`), la silueta de la ballena al fondo; nodo por estado — sin contenido: gris con "?", bloqueado: candado, disponible: número (brillo si es el más profundo alcanzable), completado: lleno con 0–3 conchas debajo. Objetivos táctiles ≥ 44 pt; desplazable por arrastre (rueda en escritorio); arranca centrado en el nodo `current`. Botón pequeño "Sonido" arriba-derecha. Tocar un nodo disponible/completado emite `'newRun'` con su `startStationIndex`, igual que antes la pantalla de inicio; quien juega por primera vez no la ve nunca (§8: sin modales en la primera partida) y entra directa a la Inmersión 1 — el mapa aparece por primera vez al llegar a la primera estación, y desde ahí el juego arranca siempre en él. También se llega desde «Salir» del menú de pausa y desde el botón «Mapa» de la estación y de la pantalla de campaña completa. **estación** (profundidad, 3 conchas animadas, perlas, botón gigante "Seguir bajando" bajo el pulgar, hueco gris "Perlas dobles" desactivado, y un botón fantasma pequeño "Mapa" → `'toMap'`), **fallo** (700 ms tras deshinchar, mismo layout, "Otra vez"; hueco "Segundo aliento" oculto salvo `run.failCountThisImmersion >= 4`, y aun así desactivado), **pausa** (Seguir, Reiniciar Inmersión, Sonido, Salir → `'toMap'`), **campaña completa** (placeholder, botón → `'toMap'`). Textos en pantalla < 40 palabras en total.
 
 Tutorial de primera partida (< 25 s, sin texto): mano fantasma que se apoya, **arrastra hacia arriba `PULL_MAX_PX`** y suelta (nunca un tiro hacia arriba); se salta con un toque; `save.tutorialDone`.
 
@@ -77,11 +78,14 @@ apps/web/src/
   main.ts               Phaser.Game config + escalado + bootstrap del GameWorld (testHarness de core o campaña real)
   scale.ts              cálculo de zoom/H y listeners de resize
   input/PointerAdapter.ts
-  scenes/BootScene.ts · GameScene.ts · HudScene.ts
+  scenes/BootScene.ts · GameScene.ts · HudScene.ts · MapScene.ts (menú principal, v1.3)
   render/WorldRenderer.ts (sync snapshot→sprites) · BubbleView.ts · EntityViews.ts · Background.ts · reef.ts
   render/Trajectory.ts · ChargeRing.ts (anillo de potencia) · SlingBand.ts (goma + X de cancelación) · ChargeOrbit.ts
   fx/Particles.ts · Juice.ts (squash/stretch/hitstop/shake) · Audio.ts
-  ui/Hud.ts · Screens.ts · StartScreen.ts · Tutorial.ts · TuningPanel.ts · Minimap.ts (D5: mapa + zona táctil del ojeo)
+  ui/Hud.ts · Screens.ts · Tutorial.ts · TuningPanel.ts · Minimap.ts (D5: minimapa del HUD + zona táctil del ojeo)
+  ui/soundToggle.ts     el interruptor de sonido, compartido por el menú de pausa y el mapa
+  ui/map/               piezas del mapa: geometry.ts (dónde va cada cosa, puro) · mapTextures.ts (arte procedural) ·
+                        MapPath.ts (agua por zona, camino, superficie, fosa) · MapNode.ts (un nivel) · WorldIslands.ts (los mundos)
   platform/LocalStorageStore.ts · Telemetry.ts
   debug.ts              registro de botones para e2e; inerte sin `?debug=1` ni build de dev
   palette.ts

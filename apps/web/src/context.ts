@@ -43,11 +43,11 @@ export interface GameContext {
   /** Latest snapshot read this frame by GameScene; HudScene reads it after (scene order guarantees it). */
   snapshot: WorldSnapshot | null;
   /**
-   * True while the boot title screen is still owed to a returning player (GDD §3.1). `HudScene`
-   * consumes it on the first `create()`, so the scene restart a new run goes through drops straight
-   * into the game instead of asking the same question again.
+   * True while the world map — the main menu since v1.3 (WORLD-MAP.md §3) — is still owed to a
+   * returning player. `BootScene` consumes it on the first `create()`, so the scene restart a new run
+   * goes through drops straight into the game instead of asking the same question again.
    */
-  titlePending: boolean;
+  mapPending: boolean;
   /** Current pointer sample in design px of the viewport. Written by PointerAdapter. */
   pointer: PointerInput;
   /**
@@ -57,9 +57,14 @@ export interface GameContext {
    */
   pointerOwner: PointerOwner | null;
   /**
-   * Cross-scene bus: 'pause', 'resume', 'restart', 'continue', 'settingsChanged', 'tuningChanged',
-   * and 'newRun' — `{ startStationIndex }`, -1 = surface — the one channel that throws the world away
-   * and builds another one (`main.ts`).
+   * Cross-scene bus. Two channels are wired to something: 'newRun' — `{ startStationIndex }`, -1 =
+   * surface — the one channel that throws the world away and builds another one, and 'toMap', which
+   * leaves the run for the world map (both in `main.ts`). 'pause', 'resume', 'settingsChanged' and
+   * 'tuningChanged' are read by the HUD and the scenes.
+   *
+   * 'restart' and 'continue' are announcements with NO subscriber today: the screens that emit them
+   * (the fail screen, the pause menu, the station) do the real work themselves on `ctx.world` and only
+   * say so on the bus, for whoever wants to listen (analytics, a future sound cue).
    */
   bus: Phaser.Events.EventEmitter;
   /** Replace tuning at runtime (tuning panel, settings). Updates `tuning` and emits 'tuningChanged'. */
