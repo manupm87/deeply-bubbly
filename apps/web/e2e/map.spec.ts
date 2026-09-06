@@ -80,8 +80,14 @@ async function tutorialHandVisible(page: Page): Promise<boolean> {
  */
 async function expectSimulationRunning(page: Page): Promise<void> {
   const before = await simulationTimeMs(page);
-  await page.waitForTimeout(600);
-  expect(await simulationTimeMs(page)).toBeGreaterThan(before + 300);
+  // Polled, not timed: on a loaded CI runner the fixed-step accumulator drops time on slow frames
+  // (MAX_STEPS_PER_FRAME), so 600 ms of wall clock can be well under 300 ms of simulation. A paused
+  // world never advances at all, which is what this guards against, and the poll still catches it.
+  await page.waitForFunction(
+    (floor) => (window.__db?.world.snapshot().timeMs ?? 0) > floor,
+    before + 300,
+    { timeout: 8_000 },
+  );
 }
 
 test('a first-ever player gets no map, just the game and the tutorial', async ({ page }) => {
