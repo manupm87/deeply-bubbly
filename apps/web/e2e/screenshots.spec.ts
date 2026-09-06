@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { OPEN_WATER_X, bootGame, collectErrors, pullReachPx } from './helpers';
+import { OPEN_WATER_X, bootGame, collectErrors, minimapRect, pullReachPx, waitForResting } from './helpers';
 
 /**
- * Not an assertion suite: these four frames are committed artefacts a human looks at to judge the art
- * and the layout (boot, mid-pull, mid-flight, and the open water of the wide D3 world). They are tiny
- * and they are the fastest review loop we have for the pixel work.
+ * Not an assertion suite: these five frames are committed artefacts a human looks at to judge the art
+ * and the layout (boot, mid-pull, mid-flight, the open water of the wide D3 world, and a held peek).
+ * They are tiny and they are the fastest review loop we have for the pixel work.
  */
 const DIR = 'e2e/__screenshots__';
 
@@ -44,6 +44,23 @@ test('captures boot, aiming, flight and open-water frames', async ({ page }) => 
   }, OPEN_WATER_X);
   await page.waitForTimeout(700);
   await page.screenshot({ path: `${DIR}/wide.png` });
+
+  // D5: the minimap held down on its right edge. The map stays put, the white frame walks to the
+  // right edge of the world and the view follows it — this is the frame that says whether a 54 px
+  // map is legible enough to aim a look with.
+  await page.reload();
+  await bootGame(page);
+  await waitForResting(page);
+  const rect = await minimapRect(page);
+  const peekCdp = await page.context().newCDPSession(page);
+  await peekCdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: Math.round(rect.x + rect.w * 0.42), y: Math.round(rect.y), id: 1 }],
+  });
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `${DIR}/peek.png` });
+  await peekCdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await peekCdp.detach();
 
   expect(errors).toEqual([]);
 });

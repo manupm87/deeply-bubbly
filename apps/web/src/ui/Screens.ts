@@ -75,7 +75,7 @@ class ResultScreen extends Overlay {
       size: 10,
       tone: 'primary',
       onTap: cfg.onGiant,
-      pointer: ctx.pointer,
+      input: ctx,
     });
     this.slot = new Button(scene, {
       ...slots.slot,
@@ -250,7 +250,7 @@ export class CampaignCompleteScreen extends Overlay {
       label: labels.giant,
       size: 10,
       tone: 'primary',
-      pointer: ctx.pointer,
+      input: ctx,
       onTap: () => {
         ctx.world.restart();
         ctx.bus.emit('restart');

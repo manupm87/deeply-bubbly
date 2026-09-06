@@ -21,8 +21,24 @@ declare global {
       world: {
         snapshot(): {
           timeMs: number;
-          bubble: { pos: { x: number; y: number }; state: string; restingOnId: string | null };
-          camera: { x: number; y: number; renderY: number; viewW: number };
+          bubble: {
+            pos: { x: number; y: number };
+            state: string;
+            restingOnId: string | null;
+            /** D2: the frozen origin of a live gesture; null when no pull is in flight. */
+            aimOrigin: { x: number; y: number } | null;
+          };
+          camera: {
+            x: number;
+            y: number;
+            /** D5: the camera as DRAWN — `x + peekX` / `y + lookaheadPx + peekY`. */
+            renderX: number;
+            renderY: number;
+            peekX: number;
+            peekY: number;
+            viewW: number;
+            viewH: number;
+          };
           phase: string;
           /** Streamed entities, as `WorldSnapshot.entities`; a spec only ever reads shape and position. */
           entities: Array<{ type: string; id: string; pos?: { x: number; y: number } }>;
@@ -37,7 +53,9 @@ declare global {
       /** The shot core would take from here (`game/autoPlayer.pickShot`); used by `e2e/tools/bot.mjs`. */
       nextShot?(): { power: number; thetaDeg: number } | null;
       /** The LIVE tuning; `gestureTuning` reads the gesture constants the drags below assume. */
-      tuning: { PULL_MAX_PX: number; PULL_CANCEL_PX: number };
+      tuning: { PULL_MAX_PX: number; PULL_CANCEL_PX: number; PEEK_DOWN_PX: number; WORLD_W: number };
+      /** D5: the streamed chunk window (`?debug=1` only); `peek.spec.ts` asserts the view stays in it. */
+      streamWindow?(): { topY: number; bottomY: number };
     };
   }
 }
@@ -206,11 +224,43 @@ export async function burX(page: Page): Promise<number> {
 }
 
 /** The camera as core publishes it (the shell must place it, never compute it). */
-export async function cameraState(page: Page): Promise<{ x: number; renderY: number; viewW: number }> {
+export interface CameraState {
+  x: number;
+  y: number;
+  renderX: number;
+  renderY: number;
+  viewW: number;
+  viewH: number;
+}
+
+export async function cameraState(page: Page): Promise<CameraState> {
   return page.evaluate(() => {
     const c = window.__db?.world.snapshot().camera;
-    return { x: c?.x ?? Number.NaN, renderY: c?.renderY ?? Number.NaN, viewW: c?.viewW ?? Number.NaN };
+    const n = Number.NaN;
+    return {
+      x: c?.x ?? n,
+      y: c?.y ?? n,
+      renderX: c?.renderX ?? n,
+      renderY: c?.renderY ?? n,
+      viewW: c?.viewW ?? n,
+      viewH: c?.viewH ?? n,
+    };
   });
+}
+
+/**
+ * The minimap's rect in CSS px, from the same debug registry the HUD buttons use (`debug.ts`). It is
+ * how a peek test knows where to put the finger: the map is the camera control (D5).
+ */
+export async function minimapRect(page: Page): Promise<DebugButtonRect> {
+  const rect = (await visibleButtons(page)).find((b) => b.id === 'minimap');
+  if (!rect) throw new Error('the minimap is not on screen');
+  return rect;
+}
+
+/** Waits until Bur is resting on a ledge, the only state a shot can leave from (D1). */
+export async function waitForResting(page: Page, timeout = 15_000): Promise<void> {
+  await page.waitForFunction(() => window.__db?.world.snapshot().bubble.state === 'RESTING', undefined, { timeout });
 }
 
 /**

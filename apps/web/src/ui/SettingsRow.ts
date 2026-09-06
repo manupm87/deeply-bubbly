@@ -44,7 +44,7 @@ export class SettingsRow {
         label: this.labelOf(label, flag),
         size: 8,
         tone: 'ghost',
-        pointer: ctx.pointer,
+        input: ctx,
         onTap: () => this.toggle(flag),
       });
       this.buttons.push({ flag, label, button });

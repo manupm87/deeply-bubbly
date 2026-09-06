@@ -87,7 +87,7 @@ export class StartScreen extends Overlay {
       label: this.continueLabel(),
       size: 10,
       tone: 'primary',
-      pointer: ctx.pointer,
+      input: ctx,
       onTap: actions.onContinue,
     });
     this.surfaceButton = new Button(scene, {
@@ -100,7 +100,7 @@ export class StartScreen extends Overlay {
       label: s.fromSurface,
       size: 10,
       tone: 'ghost',
-      pointer: ctx.pointer,
+      input: ctx,
       onTap: actions.onSurface,
     });
 

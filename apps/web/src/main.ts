@@ -103,6 +103,8 @@ function buildContext(ports: Ports): GameContext {
     titlePending: save.unlockedStation >= 0,
     // A single mutable sample, written in place by PointerAdapter and read by GameScene every frame.
     pointer: { down: false, x: scale.viewW / 2, y: scale.viewH * 0.8 },
+    // Published by GameScene's PointerAdapter while it is attached (see `ui/swallow.ts`).
+    pointerOwner: null,
     bus: new Phaser.Events.EventEmitter(),
     applyTuning(t: Tuning): void {
       base = t;
@@ -136,6 +138,9 @@ function gameConfig(scenes: Phaser.Types.Scenes.SceneType[]): Phaser.Types.Core.
     parent: 'game',
     // The canvas fills the screen; `scale.ts` letterboxes the 180 px design column inside it.
     scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.NO_CENTER },
+    // D5: one finger holds the minimap (peek) while the other pulls the sling, so the input manager
+    // has to track two contacts. `PointerAdapter` owns exactly one of them; the HUD zone owns the other.
+    input: { activePointers: 2 },
     pixelArt: true,
     roundPixels: true,
     antialias: false,
@@ -231,6 +236,14 @@ function exposeDebugHandle(game: Phaser.Game, ctx: GameContext): void {
       get tuning(): Tuning {
         return ctx.tuning;
       },
+      /**
+       * D5: the streamed chunk window, so the peek e2e can assert what the spec actually promises —
+       * a peek DOWN never shows water that is not streamed (`renderY + viewH <= bottomY`). Core keeps
+       * the streamer private and publishes no accessor, so this reads it through a narrow cast; it
+       * lives behind the same `?debug=1` gate as everything else here and nothing in the game uses it.
+       */
+      streamWindow: (): { topY: number; bottomY: number } =>
+        (ctx.world as unknown as { streamer: { windowBounds(): { topY: number; bottomY: number } } }).streamer.windowBounds(),
     },
   });
 }

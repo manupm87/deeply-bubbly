@@ -55,9 +55,11 @@ export class SlingBand {
     if (this.origin === null) this.origin = { x: pointer.x, y: pointer.y };
 
     const cam = snapshot.camera;
-    const ox = Math.round(this.origin.x + cam.x);
+    // `renderX/renderY`, not `x/y`: this is the camera actually being DRAWN, peek included (D5), so
+    // the band stays pinned to the glass under the finger while the view is peeked.
+    const ox = Math.round(this.origin.x + cam.renderX);
     const oy = Math.round(this.origin.y + cam.renderY);
-    const fx = Math.round(pointer.x + cam.x);
+    const fx = Math.round(pointer.x + cam.renderX);
     const fy = Math.round(pointer.y + cam.renderY);
 
     const cancel = snapshot.hud.cancelZone;

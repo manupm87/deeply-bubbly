@@ -4,10 +4,11 @@
  * stopping Phaser propagation and by clearing the shared PointerInput the world reads this frame).
  */
 import type Phaser from 'phaser';
-import type { PointerInput } from '@deeply-bubbly/core';
 import type { DebugButtonInfo, DebugButtonSource } from '../debug';
 import { effectivelyVisible, registerDebugButton, unregisterDebugButton } from '../debug';
 import { UI } from '../palette';
+import { swallowPointer } from './swallow';
+import type { SwallowTarget } from './swallow';
 import { pixelText } from './text';
 import type { TextSize } from './text';
 
@@ -33,8 +34,12 @@ export interface ButtonConfig {
   /** Minimum touch target in design px (`HudLayout.touch`, i.e. 44 css pt). Derived when omitted. */
   touch?: number;
   onTap?: () => void;
-  /** Shared pointer sample; cleared on press so the world does not read this tap. */
-  pointer?: PointerInput;
+  /**
+   * The shared pointer sample and its owner (`GameContext` satisfies it): the tap is taken away from
+   * the world here, but only when it is not the finger some OTHER gesture is being made with — see
+   * `ui/swallow.ts`, which is where the whole rule lives.
+   */
+  input?: SwallowTarget;
 }
 
 interface Tone {
@@ -115,14 +120,12 @@ export class Button implements DebugButtonSource {
   }
 
   private bind(): void {
-    const swallow = (event: Phaser.Types.Input.EventData): void => {
-      event.stopPropagation();
-      if (this.cfg.pointer) this.cfg.pointer.down = false;
-    };
+    const swallow = (p: Phaser.Input.Pointer, event: Phaser.Types.Input.EventData): void =>
+      swallowPointer(event, this.cfg.input, p.id);
     this.zone.on(
       'pointerdown',
-      (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
-        swallow(event);
+      (p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+        swallow(p, event);
         if (!this.enabled) return;
         this.pressed = true;
         this.redraw();
@@ -130,8 +133,8 @@ export class Button implements DebugButtonSource {
     );
     this.zone.on(
       'pointerup',
-      (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
-        swallow(event);
+      (p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+        swallow(p, event);
         const fire = this.pressed && this.enabled;
         this.pressed = false;
         this.redraw();

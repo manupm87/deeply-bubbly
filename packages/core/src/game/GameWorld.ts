@@ -2,7 +2,7 @@ import { NEUTRAL_ENV, sampleForceFields } from '../physics/forceFields';
 import { abortAim, canAirLaunch, createBubble, stepBubble } from '../bubble/bubbleStep';
 import { pullPower } from '../control/pull';
 import { cameraXRange, createCamera, stepCamera } from '../camera/camera';
-import { peekBounds, stepPeek } from '../camera/peek';
+import { peekBounds, refreshPeekRender, stepPeek } from '../camera/peek';
 import { pxToMeters, zoneAt } from '../level/depth';
 import { WorldStreamer } from '../level/streaming';
 import { createRunState, mayOfferSecondBreath, registerFailure } from '../run/runState';
@@ -239,6 +239,7 @@ export class GameWorld {
   setViewHeight(viewH: number): void {
     if (!Number.isFinite(viewH) || viewH <= 0) return;
     this.camera.viewH = viewH;
+    refreshPeekRender(this.camera, this.t);
   }
 
   /**
@@ -251,6 +252,9 @@ export class GameWorld {
     if (!Number.isFinite(viewW) || viewW <= 0) return;
     this.camera.viewW = viewW;
     this.camera.x = clamp(this.camera.x, 0, cameraXRange(viewW, this.t));
+    // D5: `renderX` is the number the shell places, so it has to be re-derived here too — otherwise a
+    // resize taken between two steps draws a widened view at a stale, out-of-world offset.
+    refreshPeekRender(this.camera, this.t);
   }
 
   /**
@@ -267,6 +271,20 @@ export class GameWorld {
    */
   setPeek(target: Vec2 | null): void {
     this.peekTarget = target === null ? null : { x: target.x, y: target.y };
+  }
+
+  /**
+   * D5: drop the peek OUTRIGHT — the target AND the offset, with no glide. This is the one ending
+   * `stepPeek` cannot give, because it needs a step: while a screen or the pause menu owns the glass
+   * the shell stops calling `update`, so a peek released there would stay frozen on the view the
+   * player was looking at and only glide home once she resumed — a resume that starts 100 px off Bur
+   * and slides, which nobody asked for. Presentation only, exactly like the rest of the peek.
+   */
+  clearPeek(): void {
+    this.peekTarget = null;
+    this.camera.peekX = 0;
+    this.camera.peekY = 0;
+    refreshPeekRender(this.camera, this.t);
   }
 
   cancelAim(): void {

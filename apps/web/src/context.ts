@@ -6,6 +6,7 @@
 import type Phaser from 'phaser';
 import type { Campaign, GameWorld, PointerInput, Tuning, WorldSnapshot } from '@deeply-bubbly/core';
 import type { SaveData } from '@deeply-bubbly/core';
+import type { PointerOwner } from './ui/swallow';
 
 export interface ScaleState {
   /** Integer zoom: design px → device css px. */
@@ -49,6 +50,12 @@ export interface GameContext {
   titlePending: boolean;
   /** Current pointer sample in design px of the viewport. Written by PointerAdapter. */
   pointer: PointerInput;
+  /**
+   * Who the shared `pointer` sample belongs to right now (D5, two active pointers): `PointerAdapter`
+   * publishes itself here while it is attached, and HUD surfaces ask before clearing the sample, so a
+   * finger landing on the minimap or on a button cannot end the OTHER finger's pull (`ui/swallow.ts`).
+   */
+  pointerOwner: PointerOwner | null;
   /**
    * Cross-scene bus: 'pause', 'resume', 'restart', 'continue', 'settingsChanged', 'tuningChanged',
    * and 'newRun' — `{ startStationIndex }`, -1 = surface — the one channel that throws the world away

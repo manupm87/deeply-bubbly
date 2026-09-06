@@ -15,13 +15,14 @@
  */
 import * as Phaser from 'phaser';
 import type { GameContext } from '../context';
+import type { PointerOwner } from '../ui/swallow';
 
 /** Where the virtual (keyboard) pointer starts: centre of the thumb zone. */
 const KEY_POINTER_FRACTION_Y = 0.8;
 /** Design px moved per arrow-key press while the space bar drives a virtual finger. */
 const KEY_STEP_PX = 6;
 
-export class PointerAdapter {
+export class PointerAdapter implements PointerOwner {
   private readonly scene: Phaser.Scene;
   private readonly ctx: GameContext;
   /** Told to core when a contact ends without a release; see the class header. */
@@ -31,6 +32,14 @@ export class PointerAdapter {
   private lastY = 256;
   private keyDown = false;
   private attached = false;
+  /**
+   * D5 multi-touch: the id of the ONE pointer this adapter speaks for. It is taken on the first
+   * `pointerdown` that reaches the world (a down on a HUD zone — a button, the minimap — is swallowed
+   * before it gets here) and released when that contact ends. Every move/up from any other id is
+   * ignored, so the finger holding the minimap can neither steer the pull nor, far worse, fire it by
+   * lifting: `pointerup` is a RELEASE, and without ownership the wrong finger's release takes the shot.
+   */
+  private ownedId: number | null = null;
   private readonly onVisibility = (): void => {
     if (document.visibilityState !== 'visible') this.abort();
   };
@@ -46,6 +55,8 @@ export class PointerAdapter {
   attach(): void {
     if (this.attached) return;
     this.attached = true;
+    // HUD surfaces ask this object whose finger they just swallowed (`ui/swallow.ts`).
+    this.ctx.pointerOwner = this;
     const input = this.scene.input;
     input.on(Phaser.Input.Events.POINTER_DOWN, this.onDown, this);
     input.on(Phaser.Input.Events.POINTER_MOVE, this.onMove, this);
@@ -71,6 +82,7 @@ export class PointerAdapter {
   destroy(): void {
     if (!this.attached) return;
     this.attached = false;
+    if (this.ctx.pointerOwner === this) this.ctx.pointerOwner = null;
     this.scene.input.off(Phaser.Input.Events.POINTER_DOWN, this.onDown, this);
     this.scene.input.off(Phaser.Input.Events.POINTER_MOVE, this.onMove, this);
     this.scene.input.off(Phaser.Input.Events.POINTER_UP, this.onUp, this);
@@ -91,8 +103,52 @@ export class PointerAdapter {
   abort(): void {
     const wasDown = this.ctx.pointer.down;
     this.keyDown = false;
+    this.ownedId = null;
     this.ctx.pointer.down = false;
     if (wasDown) this.onAbort();
+  }
+
+  /**
+   * Re-reads the owned pointer once per frame, from GameScene, BEFORE `world.update`.
+   *
+   * Phaser stops dispatching a DOM event to the scenes below the first one that consumed it
+   * (`globalTopOnly`), and a touch event carries every finger that changed in it. So while a finger
+   * rests on the minimap — a HUD zone, in the scene above — a move that carries BOTH fingers is
+   * consumed by the HUD and the pull's own move never reaches this scene. The pointer objects
+   * themselves are updated by the InputManager before any of that, so reading them here is the one
+   * sample that cannot be swallowed. `Pointer.isDown` going false with no `pointerup` seen means the
+   * same swallowing ate the release: the player DID let go, so it is a release, not an abort.
+   */
+  sync(): void {
+    if (this.keyDown || this.ownedId === null) return;
+    const pointer = this.ownedPointer();
+    if (!pointer) return;
+    this.sample(pointer);
+    if (pointer.isDown) {
+      // Belt and braces to the scoped swallow: the finger the world is reading is still on the glass,
+      // so the sample says so — whatever else touched the HUD in between.
+      this.ctx.pointer.down = true;
+      return;
+    }
+    this.ownedId = null;
+    this.ctx.pointer.down = false;
+  }
+
+  /**
+   * `PointerOwner`: is `id` the contact the world is reading? A HUD surface asks before it clears the
+   * shared sample, so the finger holding the minimap cannot fire the shot the other one is aiming
+   * (`ui/swallow.ts`). A pull driven by the space bar owns no pointer id at all, and answering false
+   * for every id is exactly right: no touch on the HUD may end it either.
+   */
+  ownsPointer(id: number): boolean {
+    return this.ownedId !== null && this.ownedId === id;
+  }
+
+  private ownedPointer(): Phaser.Input.Pointer | null {
+    for (const pointer of this.scene.input.manager.pointers) {
+      if (pointer.id === this.ownedId) return pointer;
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -114,16 +170,22 @@ export class PointerAdapter {
   }
 
   private onDown(pointer: Phaser.Input.Pointer): void {
+    // First contact wins and keeps the world until it ends; a second finger is not a second gesture.
+    if (this.ownedId !== null && this.ownedId !== pointer.id) return;
+    this.ownedId = pointer.id;
     this.sample(pointer);
     this.ctx.pointer.down = true;
   }
 
   private onMove(pointer: Phaser.Input.Pointer): void {
+    if (this.ownedId !== null && this.ownedId !== pointer.id) return;
     // While the finger is up the position still matters: it seeds the keyboard fallback on desktop.
     this.sample(pointer);
   }
 
   private onUp(pointer: Phaser.Input.Pointer): void {
+    if (this.ownedId !== null && this.ownedId !== pointer.id) return;
+    this.ownedId = null;
     this.sample(pointer);
     if (!this.keyDown) this.ctx.pointer.down = false;
   }

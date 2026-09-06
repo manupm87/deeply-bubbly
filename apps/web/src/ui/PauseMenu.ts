@@ -67,7 +67,7 @@ export class PauseMenu {
         touch: layout.touch,
       tone: 'ghost',
       icon: pauseIcon,
-      pointer: ctx.pointer,
+      input: ctx,
       onTap: () => this.openMenu(),
     });
 
@@ -85,7 +85,7 @@ export class PauseMenu {
         label,
         size: 10,
         tone: 'ghost',
-        pointer: ctx.pointer,
+        input: ctx,
         onTap,
       });
 
