@@ -97,8 +97,17 @@ test('releasing the minimap glides the view back to the camera', async ({ page }
 
   await touchEnd(cdp);
   await cdp.detach();
-  // PEEK_RETURN_LAMBDA = 5 /s, and the offset snaps to zero once it is under a pixel.
-  await page.waitForTimeout(1500);
+  // PEEK_RETURN_LAMBDA = 5 /s and the offset snaps to zero once it is under a pixel: ~1.3 s of
+  // SIMULATION. Polled rather than timed, because a loaded CI runner simulates slower than the wall
+  // clock (the accumulator drops time on slow frames) and 1.5 s of waiting left ~12 px of glide.
+  await page.waitForFunction(
+    () => {
+      const c = window.__db?.world.snapshot().camera;
+      return c !== undefined && Math.abs(c.renderX - c.x) < 1;
+    },
+    undefined,
+    { timeout: 8_000 },
+  );
   const back = await cameraState(page);
   expect(Math.abs(back.renderX - back.x)).toBeLessThan(1);
 });
