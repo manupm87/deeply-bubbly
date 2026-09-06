@@ -1,9 +1,11 @@
 name: Deploy to GitHub Pages
 
 # Publishes `main` at the site root and the `v1.2` branch under /v1.2/ as a playable preview.
+# The github-pages environment only accepts deploys from main: refresh the preview with
+#   gh workflow run "Deploy to GitHub Pages" --ref main
 on:
   push:
-    branches: [main, v1.2]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
