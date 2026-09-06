@@ -56,3 +56,30 @@ export async function holdAndRelease(page: Page, x: number, y: number, holdMs: n
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await cdp.detach();
 }
+
+/**
+ * Spends Bur's last pip through the resaca: one pip, teleported above the view, rising. Clears the rest
+ * bookkeeping too — by ~800 ms after boot Bur is already RESTING under the foam raft, and a forced
+ * `LAUNCHED` that still points at a ceiling is re-pinned by the state machine (that is what made this
+ * flake on slow CI runners). Waits until the fail screen phase is reached.
+ */
+export async function forceResacaDeath(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const world = window.__db?.world as unknown as {
+      snapshot(): {
+        bubble: Record<string, unknown> & { pos: { y: number }; vel: { x: number; y: number } };
+        camera: { y: number };
+      };
+    };
+    const sn = world.snapshot();
+    sn.bubble.air = 1;
+    sn.bubble.pos.y = sn.camera.y - 120;
+    sn.bubble.vel.x = 0;
+    sn.bubble.vel.y = -160;
+    sn.bubble.state = 'LAUNCHED';
+    sn.bubble.restingOnId = null;
+    sn.bubble.restMs = 0;
+    sn.bubble.launchedMs = 0;
+  });
+  await page.waitForFunction(() => window.__db?.world.snapshot().phase === 'dead', undefined, { timeout: 15_000 });
+}

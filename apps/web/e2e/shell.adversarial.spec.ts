@@ -7,7 +7,7 @@
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { bootGame, collectErrors, holdAndRelease } from './helpers';
+import { bootGame, collectErrors, forceResacaDeath, holdAndRelease } from './helpers';
 
 interface DisplayObject {
   type: string;
@@ -106,15 +106,7 @@ test('the pause menu "restart dive" option restarts the run', async ({ page }) =
 test('Bur is visible again after a death and a restart', async ({ page }) => {
   const errors = collectErrors(page);
   await bootGame(page);
-  await evalInPage(page, (h) => {
-    const sn = h().world.snapshot();
-    sn.bubble.air = 1;
-    sn.bubble.pos.y = sn.camera.y - 120;
-    sn.bubble.vel.x = 0;
-    sn.bubble.vel.y = -160;
-    sn.bubble.state = 'LAUNCHED';
-  });
-  await page.waitForFunction(() => window.__db?.world.snapshot().phase === 'dead', undefined, { timeout: 15_000 });
+  await forceResacaDeath(page);
   await page.waitForTimeout(400);
   await evalInPage(page, (h) => h().world.restart());
   await page.waitForTimeout(600);
@@ -173,16 +165,7 @@ test('the trajectory guide draws no duplicated dot', async ({ page }) => {
 test('the tutorial hand is hidden while the fail screen is up', async ({ page }) => {
   const errors = collectErrors(page);
   await bootGame(page);
-  // Force the last pip and push Bur off the top of the view: resaca spends it and Bur deflates.
-  await evalInPage(page, (h) => {
-    const sn = h().world.snapshot();
-    sn.bubble.air = 1;
-    sn.bubble.pos.y = sn.camera.y - 120;
-    sn.bubble.vel.x = 0;
-    sn.bubble.vel.y = -160;
-    sn.bubble.state = 'LAUNCHED';
-  });
-  await page.waitForFunction(() => window.__db?.world.snapshot().phase === 'dead', undefined, { timeout: 15_000 });
+  await forceResacaDeath(page);
   await page.waitForTimeout(600);
   const handVisible = await evalInPage(page, (h) =>
     h()
