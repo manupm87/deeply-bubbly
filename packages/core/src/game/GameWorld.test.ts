@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TUNING, createTuning } from '../tuning';
 import { MemoryStore, noopAds, noopTelemetry } from '../ports';
-import { SAVE_KEY, defaultSave } from '../run/save';
+import { SAVE_KEY, defaultSave, writeSave } from '../run/save';
 import { SPAWN_BELOW_ANCHOR_PX } from '../run/respawn';
 import { ChunkLibrary } from '../level/library';
 import { buildCampaign } from '../level/campaign';
@@ -233,6 +233,25 @@ describe('the first immersion is playable (§12.1, §12.3.2)', () => {
     const saved = JSON.parse(store.get(SAVE_KEY) ?? '{}') as { unlockedStation: number; bestDepthM: number };
     expect(saved.unlockedStation).toBe(0);
     expect(saved.bestDepthM).toBeGreaterThan(0);
+  });
+
+  /**
+   * §6.1 / GDD §3.1: "cada estación alcanzada queda desbloqueada para siempre". Starting a run at the
+   * surface is a CHOICE the start screen offers, and taking it may never cost the player the
+   * checkpoints they own — `persist` raises `unlockedStation`, it never reports the current run's own.
+   */
+  it('never lowers the unlocked station when a run starts from the surface', () => {
+    const store = new MemoryStore();
+    writeSave(store, { ...defaultSave(), unlockedStation: 3, bestDepthM: 5000, pearls: 12 });
+
+    const world = createTestWorld({ store, startStationIndex: -1 });
+    expect(world.snapshot().run.lastStationIndex).toBe(-1);
+    playBot(world, 90, { stopAt: (s) => s.phase === 'station' });
+
+    const saved = JSON.parse(store.get(SAVE_KEY) ?? '{}') as SaveData;
+    expect(saved.unlockedStation).toBe(3);
+    expect(saved.bestDepthM).toBe(5000);
+    expect(saved.pearls).toBeGreaterThanOrEqual(12);
   });
 
   it('ends the campaign past the bottom of the last chunk', () => {

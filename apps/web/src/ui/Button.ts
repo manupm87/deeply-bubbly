@@ -5,6 +5,8 @@
  */
 import type Phaser from 'phaser';
 import type { PointerInput } from '@deeply-bubbly/core';
+import type { DebugButtonInfo, DebugButtonSource } from '../debug';
+import { effectivelyVisible, registerDebugButton, unregisterDebugButton } from '../debug';
 import { UI } from '../palette';
 import { pixelText } from './text';
 import type { TextSize } from './text';
@@ -12,6 +14,11 @@ import type { TextSize } from './text';
 export type ButtonTone = 'primary' | 'ghost' | 'disabled';
 
 export interface ButtonConfig {
+  /**
+   * Stable identifier for the e2e suite (`__db.buttons()`), locale-proof where the label is not.
+   * Debug-only: nothing in the game reads it, and without `?debug=1` it is never even stored.
+   */
+  id?: string;
   /** Centre of the button, in design px. */
   x: number;
   y: number;
@@ -43,7 +50,7 @@ const TONES: Readonly<Record<ButtonTone, Tone>> = {
   disabled: { fill: UI.panel, fillAlpha: 0.55, edge: UI.dim, text: UI.dim },
 };
 
-export class Button {
+export class Button implements DebugButtonSource {
   readonly root: Phaser.GameObjects.Container;
   private readonly plate: Phaser.GameObjects.Graphics;
   private readonly label: Phaser.GameObjects.Text | null;
@@ -85,6 +92,21 @@ export class Button {
     this.root.add(this.zone);
     this.bind();
     this.redraw();
+    registerDebugButton(this);
+  }
+
+  /** Debug-only rect, in design px: where a synthetic touch has to land to press this button. */
+  debugInfo(): DebugButtonInfo {
+    const m = this.root.getWorldTransformMatrix();
+    return {
+      id: this.cfg.id ?? this.cfg.label ?? '',
+      label: this.label?.text ?? this.cfg.label ?? '',
+      x: m.tx,
+      y: m.ty,
+      w: this.cfg.w,
+      h: this.cfg.h,
+      visible: effectivelyVisible(this.root),
+    };
   }
 
   /** 44 css pt in design px — from the HUD layout when the caller has one, derived otherwise. */
@@ -179,6 +201,7 @@ export class Button {
   }
 
   destroy(): void {
+    unregisterDebugButton(this);
     this.root.destroy(true);
   }
 }

@@ -7,9 +7,10 @@
  */
 import * as Phaser from 'phaser';
 import { DEFAULT_TUNING, GameWorld, buildMvpCampaign, loadSave, noopAds, writeSave } from '@deeply-bubbly/core';
-import type { KeyValueStore, SaveData, Telemetry, Tuning } from '@deeply-bubbly/core';
+import type { Campaign, KeyValueStore, SaveData, Telemetry, Tuning } from '@deeply-bubbly/core';
 import { CTX_KEY } from './context';
 import type { GameContext, Settings } from './context';
+import { debugButtons, debugEnabled } from './debug';
 import { ZONE_PALETTES, css } from './palette';
 import { attachResize, computeScale } from './scale';
 import { attachOrientationOverlay } from './orientation';
@@ -45,18 +46,31 @@ function debugStartStation(): number | null {
   return Number.isFinite(index) && index >= 0 ? index : null;
 }
 
-/** The one recipe for "the game", shared with `createMvpWorld` in core: MVP campaign + real ports. */
-function buildWorld(tuning: Tuning, save: SaveData, viewH: number, ports: Ports): GameWorld {
-  return new GameWorld({
-    campaign: buildMvpCampaign(tuning),
+/**
+ * The one recipe for "the game", shared with `createMvpWorld` in core: MVP campaign + real ports.
+ *
+ * `startStationIndex` is a PARAMETER, never a lookup: where a run begins is a choice the player makes
+ * on the start screen (GDD §3.1, "se puede empezar la partida desde ahí"), and reading the save here
+ * is exactly what made every run start at the deepest checkpoint with no way back to the surface.
+ */
+function buildWorld(
+  tuning: Tuning,
+  startStationIndex: number,
+  viewH: number,
+  ports: Ports,
+): { world: GameWorld; campaign: Campaign } {
+  const campaign = buildMvpCampaign(tuning);
+  const world = new GameWorld({
+    campaign,
     tuning,
     telemetry: ports.telemetry,
     ads: noopAds,
     store: ports.store,
     viewH,
     seed: SEED,
-    startStationIndex: debugStartStation() ?? save.unlockedStation,
+    startStationIndex,
   });
+  return { world, campaign };
 }
 
 /**
@@ -72,15 +86,21 @@ function buildContext(ports: Ports): GameContext {
   const scale = computeScale(globalThis.innerWidth, globalThis.innerHeight);
   let base: Tuning = DEFAULT_TUNING;
   const tuning = applySettingsToTuning(base, settings);
-  const world = buildWorld(tuning, save, scale.viewH, ports);
+  // A returning player's world is built at their unlocked station, so "Seguir" on the start screen is
+  // instant: the choice is offered over a world that is already the one it promises.
+  const built = buildWorld(tuning, debugStartStation() ?? save.unlockedStation, scale.viewH, ports);
 
   const ctx: GameContext = {
-    world,
+    world: built.world,
+    campaign: built.campaign,
     scale,
     settings,
     save,
     tuning,
     snapshot: null,
+    // §8: the first-ever run opens on the wordless tutorial, never on a modal. The title is only owed
+    // to someone who already has a checkpoint to choose between.
+    titlePending: save.unlockedStation >= 0,
     // A single mutable sample, written in place by PointerAdapter and read by GameScene every frame.
     pointer: { down: false, x: scale.viewW / 2, y: scale.viewH * 0.8 },
     bus: new Phaser.Events.EventEmitter(),
@@ -130,19 +150,43 @@ function gameConfig(scenes: Phaser.Types.Scenes.SceneType[]): Phaser.Types.Core.
   };
 }
 
+/** Payload of the 'newRun' channel: where the new run begins. -1 is the surface. */
+interface NewRun {
+  startStationIndex: number;
+}
+
 /**
- * "Campaña completa" has no core API to start a new campaign (`restart()` returns early outside
- * dead/gameOver), so the shell does the only thing it may: throws the finished world away and boots a
- * brand new one. Everything scene-side is rebuilt by Boot, so no listener survives the swap.
+ * The ONE way to start another run: throw the world away and build one at the requested station.
+ * Core has no API for it (`restart()` returns early outside dead/gameOver, and a live run cannot be
+ * re-based on another checkpoint), so this is the shell's only move — and it is the same move for the
+ * start screen's "Desde la superficie", its "Seguir" after a campaign was finished, and the
+ * "campaña completa" screen. Everything scene-side is rebuilt by Boot, so no listener survives the swap.
+ *
+ * The save is NOT touched: `save.unlockedStation` is permanent meta-progression (§6.1) and core's
+ * `persist` only ever raises it, so a run from the surface that dives past a station still banks it.
  */
-function attachCampaignRestart(game: Phaser.Game, ctx: GameContext, ports: Ports): void {
-  ctx.bus.on('restart', () => {
-    if (ctx.snapshot?.phase !== 'campaignComplete') return;
-    ctx.world = buildWorld(ctx.tuning, ctx.save, ctx.scale.viewH, ports);
+function attachNewRun(game: Phaser.Game, ctx: GameContext, ports: Ports): void {
+  ctx.bus.on('newRun', ({ startStationIndex }: NewRun) => {
+    // The run being thrown away may have banked a station: core writes that straight to the store, so
+    // the shell's copy of the save is refreshed here rather than drifting for the rest of the session.
+    Object.assign(ctx.save, loadSave(ports.store));
+    const built = buildWorld(ctx.tuning, startStationIndex, ctx.scale.viewH, ports);
+    ctx.world = built.world;
+    ctx.campaign = built.campaign;
     ctx.snapshot = null;
+    // The player has just chosen; the boot title would be the same question asked twice.
+    ctx.titlePending = false;
     game.scene.stop(SCENE_KEYS.hud);
     game.scene.stop(SCENE_KEYS.game);
     game.scene.start(SCENE_KEYS.boot);
+  });
+  // "Campaña completa" keeps its meaning — a new campaign from the checkpoint the player owns — but it
+  // is no longer a second implementation of it. The store is re-read rather than trusting `ctx.save`:
+  // core banks a station straight into the store, and the shell's copy is only refreshed when the
+  // player happens to touch a setting, so a session that unlocked Zone 3 would restart back at Zone 1.
+  ctx.bus.on('restart', () => {
+    if (ctx.snapshot?.phase !== 'campaignComplete') return;
+    ctx.bus.emit('newRun', { startStationIndex: loadSave(ports.store).unlockedStation });
   });
 }
 
@@ -160,8 +204,7 @@ function attachTelemetryFlush(ports: Ports): void {
 
 /** Test/debug handle. Only with `?debug=1` or in a dev build; never present in a plain production load. */
 function exposeDebugHandle(game: Phaser.Game, ctx: GameContext): void {
-  const wanted = import.meta.env.DEV || new URLSearchParams(globalThis.location.search).has('debug');
-  if (!wanted) return;
+  if (!debugEnabled()) return;
   Object.defineProperty(globalThis, '__db', {
     configurable: true,
     value: {
@@ -170,6 +213,8 @@ function exposeDebugHandle(game: Phaser.Game, ctx: GameContext): void {
       get world(): GameWorld {
         return ctx.world;
       },
+      /** Live HUD buttons as CSS-px rects, so a test can press the real thing (see `debug.ts`). */
+      buttons: () => debugButtons(ctx.scale),
     },
   });
 }
@@ -189,7 +234,7 @@ function start(): Phaser.Game {
   attachOrientationOverlay(strings().rotate, (landscape) => {
     if (landscape) ctx.bus.emit('autoPause');
   });
-  attachCampaignRestart(game, ctx, ports);
+  attachNewRun(game, ctx, ports);
   attachTelemetryFlush(ports);
   exposeDebugHandle(game, ctx);
   return game;

@@ -48,7 +48,7 @@ Banda superior ≤ 12 % de H. Pips 6×6 px arriba-izquierda (los que superan `ai
 
 Indicador de carga: anillo 0→360° alrededor de Bur, grosor = ajuste fino, ámbar palpitante en sobrecarga, rojo suave con 1 pip. Trayectoria punteada `snapshot.trajectory` reducida a `trajectoryDots` puntos.
 
-Pantallas: **estación** (profundidad, 3 conchas animadas, perlas, botón gigante "Seguir bajando" bajo el pulgar, hueco gris "Perlas dobles" desactivado), **fallo** (700 ms tras deshinchar, mismo layout, "Otra vez"; hueco "Segundo aliento" oculto salvo `run.failCountThisImmersion >= 4`, y aun así desactivado), **pausa** (Seguir, Reiniciar Inmersión, Sonido, Salir), **campaña completa** (placeholder). Textos en pantalla < 40 palabras en total.
+Pantallas: **inicio** (título "Deeply Bubbly" y, para quien ya tiene estación desbloqueada, dos botones en el tercio inferior: "Seguir · N m" y "Desde la superficie" — §3.1 la estación es una *opción*, no un arranque forzado; quien juega por primera vez no la ve nunca, §8: sin modales en la primera partida; también se llega desde «Salir» del menú de pausa, y ahí «Seguir» reanuda la partida que hay en pantalla: solo lleva profundidad cuando esa partida arranca de verdad en esa estación, si no dice «Bajar»), **estación** (profundidad, 3 conchas animadas, perlas, botón gigante "Seguir bajando" bajo el pulgar, hueco gris "Perlas dobles" desactivado), **fallo** (700 ms tras deshinchar, mismo layout, "Otra vez"; hueco "Segundo aliento" oculto salvo `run.failCountThisImmersion >= 4`, y aun así desactivado), **pausa** (Seguir, Reiniciar Inmersión, Sonido, Salir), **campaña completa** (placeholder). Textos en pantalla < 40 palabras en total.
 
 Tutorial de primera partida (< 25 s, sin texto): mano fantasma que mantiene ≤ 700 ms y suelta; se salta con un toque; `save.tutorialDone`.
 
@@ -70,8 +70,9 @@ apps/web/src/
   scenes/BootScene.ts · GameScene.ts · HudScene.ts
   render/WorldRenderer.ts (sync snapshot→sprites) · BubbleView.ts · EntityViews.ts · Background.ts · Trajectory.ts
   fx/Particles.ts · Juice.ts (squash/stretch/hitstop/shake) · Audio.ts
-  ui/Hud.ts · Screens.ts · Tutorial.ts · TuningPanel.ts
+  ui/Hud.ts · Screens.ts · StartScreen.ts · Tutorial.ts · TuningPanel.ts
   platform/LocalStorageStore.ts · Telemetry.ts
+  debug.ts              registro de botones para e2e; inerte sin `?debug=1` ni build de dev
   palette.ts
 ```
 

@@ -4,14 +4,34 @@ import type { Page } from '@playwright/test';
  * Shape of the debug handle `main.ts` installs on `window` under `?debug=1`.
  * Declared here rather than in `src/` so the shipped bundle keeps no test-only types.
  */
+/** One HUD button as the debug handle reports it: centre and size in CSS px of the page. */
+export interface DebugButtonRect {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  visible: boolean;
+}
+
 declare global {
   interface Window {
     __db?: {
-      world: { snapshot(): { bubble: { pos: { x: number; y: number } }; phase: string } };
-      ctx: { scale: { zoom: number; viewW: number; viewH: number; offsetX: number; offsetY: number } };
+      world: {
+        snapshot(): { timeMs: number; bubble: { pos: { x: number; y: number } }; phase: string };
+      };
+      ctx: {
+        scale: { zoom: number; viewW: number; viewH: number; offsetX: number; offsetY: number };
+        save: { unlockedStation: number };
+      };
+      buttons(): DebugButtonRect[];
     };
   }
 }
+
+/** The save slot core reads at boot (`SAVE_KEY` in `packages/core/src/run/save.ts`). */
+export const SAVE_KEY = 'deeply-bubbly.save.v1';
 
 /** Loads the game with the debug handle and waits until the first simulated frame is on screen. */
 export async function bootGame(page: Page): Promise<void> {
@@ -21,6 +41,46 @@ export async function bootGame(page: Page): Promise<void> {
   // The Boot scene builds every procedural texture before Game/Hud exist; give it a few frames.
   await page.waitForFunction(() => (window.__db?.world.snapshot().phase ?? '') !== '', undefined, { timeout: 15_000 });
   await page.waitForTimeout(500);
+}
+
+/**
+ * Writes a save BEFORE the page loads, so the shell boots as a returning player would. `addInitScript`
+ * runs on the target origin before any of the app's own code, which is the only moment `localStorage`
+ * is guaranteed to be seeded ahead of `loadSave()`.
+ */
+export async function seedSave(page: Page, save: Record<string, unknown>): Promise<void> {
+  await page.addInitScript(
+    ([key, json]) => {
+      window.localStorage.setItem(key, json);
+    },
+    [SAVE_KEY, JSON.stringify(save)] as const,
+  );
+}
+
+/** The save as it stands in the browser right now, or null when there is none. */
+export async function readSave(page: Page): Promise<Record<string, unknown> | null> {
+  return page.evaluate((key) => {
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? null : (JSON.parse(raw) as Record<string, unknown>);
+  }, SAVE_KEY);
+}
+
+/** Buttons currently on screen (a hidden overlay's buttons are reported, and filtered out here). */
+export async function visibleButtons(page: Page): Promise<DebugButtonRect[]> {
+  return page.evaluate(() => (window.__db?.buttons() ?? []).filter((b) => b.visible));
+}
+
+/**
+ * Presses a real HUD button with a real touch at the rect it occupies, instead of calling the callback
+ * behind it: the hit area, the overlay stacking and the pointer swallowing are part of what is tested.
+ */
+export async function tapButton(page: Page, id: string): Promise<void> {
+  const button = (await visibleButtons(page)).find((b) => b.id === id);
+  if (!button) {
+    const seen = (await visibleButtons(page)).map((b) => b.id).join(', ');
+    throw new Error(`no visible button '${id}' (on screen: ${seen || 'none'})`);
+  }
+  await holdAndRelease(page, button.x, button.y, 80);
 }
 
 export async function burY(page: Page): Promise<number> {

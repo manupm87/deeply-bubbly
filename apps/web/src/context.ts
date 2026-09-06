@@ -4,7 +4,7 @@
  * Phaser's own scene events.
  */
 import type Phaser from 'phaser';
-import type { GameWorld, PointerInput, Tuning, WorldSnapshot } from '@deeply-bubbly/core';
+import type { Campaign, GameWorld, PointerInput, Tuning, WorldSnapshot } from '@deeply-bubbly/core';
 import type { SaveData } from '@deeply-bubbly/core';
 
 export interface ScaleState {
@@ -28,6 +28,12 @@ export interface Settings {
 
 export interface GameContext {
   world: GameWorld;
+  /**
+   * The campaign `world` is playing. Read-only for the shell, and the only place it may look up a
+   * structural fact of the level — the start screen needs the unlocked station's `stationY` to say how
+   * deep "Seguir" goes. Replaced together with `world` on a new run.
+   */
+  campaign: Campaign;
   scale: ScaleState;
   settings: Settings;
   save: SaveData;
@@ -35,9 +41,19 @@ export interface GameContext {
   tuning: Tuning;
   /** Latest snapshot read this frame by GameScene; HudScene reads it after (scene order guarantees it). */
   snapshot: WorldSnapshot | null;
+  /**
+   * True while the boot title screen is still owed to a returning player (GDD §3.1). `HudScene`
+   * consumes it on the first `create()`, so the scene restart a new run goes through drops straight
+   * into the game instead of asking the same question again.
+   */
+  titlePending: boolean;
   /** Current pointer sample in design px of the viewport. Written by PointerAdapter. */
   pointer: PointerInput;
-  /** Cross-scene bus: 'pause', 'resume', 'restart', 'continue', 'settingsChanged', 'tuningChanged'. */
+  /**
+   * Cross-scene bus: 'pause', 'resume', 'restart', 'continue', 'settingsChanged', 'tuningChanged',
+   * and 'newRun' — `{ startStationIndex }`, -1 = surface — the one channel that throws the world away
+   * and builds another one (`main.ts`).
+   */
   bus: Phaser.Events.EventEmitter;
   /** Replace tuning at runtime (tuning panel, settings). Updates `tuning` and emits 'tuningChanged'. */
   applyTuning(t: Tuning): void;

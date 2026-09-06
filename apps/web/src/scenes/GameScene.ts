@@ -61,6 +61,14 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     const ctx = getContext(this);
     this.ctx = ctx;
+    // Phaser reuses the SCENE INSTANCE across a stop/start, so every field that describes the run must
+    // be reset here, not just at construction. A new run is always requested from a paused world (the
+    // start screen and the pause menu both freeze it), and a surviving `paused = true` left the rebuilt
+    // world never stepping at all: Bur frozen at the spawn point, `timeMs` stuck at 0, forever.
+    this.paused = false;
+    this.hitstopUntil = 0;
+    this.extraShakePx = 0;
+    this.extraShakeUntil = 0;
 
     const snapshot = ctx.world.snapshot();
     ctx.snapshot = snapshot;

@@ -24,8 +24,10 @@ export interface StringTable {
   assistedTrajectory: string;
   slowCharge: string;
   calmDive: string;
-  /** Title overlay after "quit". */
+  /** Start screen: dive at the deepest station already unlocked (GDD §3.1, a choice). */
   dive: string;
+  /** Start screen: throw the checkpoint away for this run and dive from 0 m. */
+  fromSurface: string;
   /** Depth unit appended to the metres counter. */
   metres: string;
   /** DOM curtain shown on a landscape phone (web cannot lock the orientation). */
@@ -47,6 +49,7 @@ const ES: StringTable = {
   slowCharge: 'Carga lenta',
   calmDive: 'Tranquilo',
   dive: 'Bajar',
+  fromSurface: 'Desde la superficie',
   metres: 'm',
   rotate: 'Gira el móvil',
 };
@@ -66,6 +69,7 @@ const EN: StringTable = {
   slowCharge: 'Slow charge',
   calmDive: 'Calm',
   dive: 'Dive',
+  fromSurface: 'From the surface',
   metres: 'm',
   rotate: 'Rotate your phone',
 };
