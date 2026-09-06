@@ -154,6 +154,9 @@ export function createCamera(
     viewH,
     lookaheadPx: 0,
     renderY: y,
+    peekX: 0,
+    peekY: 0,
+    renderX: clamp(burX - viewW / 2, 0, cameraXRange(viewW, t)),
   };
 }
 

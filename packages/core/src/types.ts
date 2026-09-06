@@ -304,8 +304,18 @@ export interface Camera {
   viewH: number; // visible height in design px (320–420)
   /** §7 lookahead: smoothed offset (px) added to `y` for RENDERING only, never for the rules. */
   lookaheadPx: number;
-  /** World y of the top of the view as it must be DRAWN: `y + lookaheadPx`. */
+  /** World y of the top of the view as it must be DRAWN: `y + lookaheadPx + peekY`. */
   renderY: number;
+  /**
+   * Peek ("ojeo", DECISIONS-v1.2 D5): a PRESENTATION offset the player asks for through the minimap
+   * to look around before committing a shot. Added to `x` / `y` for drawing and for reading the finger
+   * (the finger points at what is on the glass), never for the rules: resaca, recall band, dead zones
+   * and the ratchet keep reading `x` / `y`. Zero while nobody is peeking; glides back to zero on release.
+   */
+  peekX: number;
+  peekY: number;
+  /** World x of the left edge of the view as it must be DRAWN: `x + peekX`. */
+  renderX: number;
 }
 
 export type GameMode = 'expedicion' | 'abismo';
@@ -414,6 +424,38 @@ export interface HudData {
 
 export type GamePhase = 'playing' | 'station' | 'dead' | 'gameOver' | 'campaignComplete';
 
+// ---------------------------------------------------------------------------------------------
+// Minimap (DECISIONS-v1.2 D5): what the shell draws in the corner, in MINIMAP px (already scaled)
+// ---------------------------------------------------------------------------------------------
+
+export type MinimapMarkKind = 'ledge' | 'ledgeNoRest' | 'hazard' | 'pickup' | 'field' | 'boya' | 'station';
+
+/** One thing worth drawing on the minimap, as a rect in minimap px (points are 1x1 rects). */
+export interface MinimapMark {
+  kind: MinimapMarkKind;
+  rect: Rect;
+}
+
+/**
+ * Pure model of the minimap for one frame. Coordinates are MINIMAP px: `world * MINIMAP_SCALE`, with
+ * the map's top-left at world `(0, worldTopY)`. The map is anchored on the LIVE camera (`camera.y`), not
+ * on the peeked view, so the frame the player drags moves inside a still map.
+ */
+export interface MinimapModel {
+  /** Size of the map in minimap px (`WORLD_W * MINIMAP_SCALE` × `MINIMAP_WORLD_H * MINIMAP_SCALE`). */
+  w: number;
+  h: number;
+  scale: number;
+  /** World y shown at the top edge of the map (`camera.y - MINIMAP_ABOVE_PX`). */
+  worldTopY: number;
+  /** The view as DRAWN (with the peek), in minimap px; may be partly outside the map when peeking. */
+  view: Rect;
+  /** Bur's centre in minimap px. */
+  bur: Vec2;
+  /** Marks inside the map, clipped to it. */
+  marks: readonly MinimapMark[];
+}
+
 export interface WorldSnapshot {
   timeMs: number;
   bubble: Readonly<Bubble>;
@@ -426,6 +468,8 @@ export interface WorldSnapshot {
   trajectory: readonly Vec2[];
   trajectoryDots: number;
   hud: HudData;
+  /** D5: minimap of the world around the camera, rebuilt on every snapshot. */
+  minimap: MinimapModel;
   /** Events produced since the previous snapshot; drained on read. */
   events: readonly GameEvent[];
   phase: GamePhase;

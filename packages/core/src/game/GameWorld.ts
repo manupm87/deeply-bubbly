@@ -2,6 +2,7 @@ import { NEUTRAL_ENV, sampleForceFields } from '../physics/forceFields';
 import { abortAim, canAirLaunch, createBubble, stepBubble } from '../bubble/bubbleStep';
 import { pullPower } from '../control/pull';
 import { cameraXRange, createCamera, stepCamera } from '../camera/camera';
+import { peekBounds, stepPeek } from '../camera/peek';
 import { pxToMeters, zoneAt } from '../level/depth';
 import { WorldStreamer } from '../level/streaming';
 import { createRunState, mayOfferSecondBreath, registerFailure } from '../run/runState';
@@ -13,6 +14,7 @@ import { createBuckets, fillBuckets } from './entities';
 import { TRAP_ESCAPE_POWER, createTrapState, escapeTrap, resetTrapState, stepHazards } from './hazards';
 import { stepPickups } from './pickups';
 import { pointerToWorld } from './pointer';
+import { buildMinimap } from './minimap';
 import { placeBubble } from './respawnFlow';
 import { updateResaca } from './resaca';
 import { createWorldWalls, updateWorldWalls } from './worldBounds';
@@ -106,6 +108,8 @@ export class GameWorld {
   private ascensoActive = false;
   /** Camera offset frozen at the start of the current finger contact (§2.1), or null when it is up. */
   private holdCam: Vec2 | null = null;
+  /** D5: world point the player wants centred (minimap held), or null. Consumed by `stepPeek`. */
+  private peekTarget: Vec2 | null = null;
   private trajectory: readonly Vec2[] = NO_TRAJECTORY;
 
   private readonly events: GameEvent[] = [];
@@ -184,6 +188,7 @@ export class GameWorld {
       trajectory: this.trajectory,
       trajectoryDots: trajectoryDots(this.zone, this.t),
       hud: this.hud(),
+      minimap: buildMinimap(this.streamer.entities(), this.camera, this.bubble, this.t),
       events,
       phase: this.phase,
     };
@@ -256,6 +261,14 @@ export class GameWorld {
    * player coming back from a phone call must not find that her pull went off while she was away.
    * Idempotent: with no gesture running it does nothing and reports nothing.
    */
+  /**
+   * D5 peek: ask for the view to be centred on a WORLD point (the minimap finger), or `null` to let it
+   * glide back to Bur. Presentation only — see `camera/peek.ts`. Safe to call every frame.
+   */
+  setPeek(target: Vec2 | null): void {
+    this.peekTarget = target === null ? null : { x: target.x, y: target.y };
+  }
+
   cancelAim(): void {
     const from = this.events.length;
     this.push(abortAim(this.bubble));
@@ -397,6 +410,18 @@ export class GameWorld {
         t,
       ),
     );
+    // 7b. D5 peek: a presentation offset layered on the placed camera; frozen while a pull is live.
+    const streamWindow = this.streamer.windowBounds();
+    stepPeek(
+      this.camera,
+      {
+        target: this.peekTarget,
+        hold: bubble.aimOrigin !== null,
+        bounds: peekBounds(this.camera, streamWindow.topY, streamWindow.bottomY, t),
+        dt,
+      },
+      t,
+    );
 
     // 8. The guide (§2.7), predicted from the CURRENT pull with no force fields drawn. The cancel
     //    zone draws nothing (D2), and it is tested here as well as inside `previewTrajectory` so the
@@ -430,12 +455,14 @@ export class GameWorld {
    * actually sees it — the origin is frozen on that same step.
    */
   private pointerCam(down: boolean, bubble: Bubble): Vec2 {
+    // D5: the finger points at what is on the glass, so the peek is part of the offset (the lookahead
+    // is not: it is 20 px of drift the frozen origin must not inherit — see `pointer.ts`).
     if (!down) {
       this.holdCam = null;
-      return { x: this.camera.x, y: this.camera.y };
+      return { x: this.camera.x + this.camera.peekX, y: this.camera.y + this.camera.peekY };
     }
     if (bubble.aimOrigin === null || this.holdCam === null) {
-      this.holdCam = { x: this.camera.x, y: this.camera.y };
+      this.holdCam = { x: this.camera.x + this.camera.peekX, y: this.camera.y + this.camera.peekY };
     }
     return this.holdCam;
   }

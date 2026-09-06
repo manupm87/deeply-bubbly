@@ -144,6 +144,11 @@ export class WorldStreamer {
     return applyMercy(entities, run, { chunkIndex: placed.index, positionInImmersion: placed.index - first }, this.t);
   }
 
+  /** World-y extent of the instantiated window (D5 peek bounds): `[topY, bottomY)`. */
+  windowBounds(): { topY: number; bottomY: number } {
+    return { topY: this.windowTopY(), bottomY: this.windowBottomY() };
+  }
+
   private windowTopY(): number {
     const first = this.windowIndices[0];
     return first === undefined ? 0 : first * this.t.CHUNK_H;

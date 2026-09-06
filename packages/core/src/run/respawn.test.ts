@@ -138,6 +138,9 @@ function makeCamera(overrides: Partial<Camera> = {}): Camera {
     viewW: t.VIEW_W,
     viewH: 360,
     lookaheadPx: 0,
+    peekX: 0,
+    peekY: 0,
+    renderX: 0,
     renderY: 1200,
     ...overrides,
   };

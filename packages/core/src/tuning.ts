@@ -100,6 +100,15 @@ export const DEFAULT_TUNING = defineTuning({
   CAM_ZOOM_PUNCH_PCT: 0.08,
   CAM_ZOOM_PUNCH_MS: 200,
 
+  // --- Peek & minimap (DECISIONS-v1.2 D5: look around before committing a shot) ---
+  PEEK_UP_PX: 120, // how far above the live camera the view may peek (world px)
+  PEEK_DOWN_PX: 240, // how far below (one chunk); also clamped to the streamed chunks
+  PEEK_LAMBDA: 14, // 1/s: the view chases the peek target
+  PEEK_RETURN_LAMBDA: 5, // 1/s: the glide back once the minimap is released
+  MINIMAP_SCALE: 0.1, // minimap px per world px (540 px world → 54 px map)
+  MINIMAP_ABOVE_PX: 120, // world px shown above the live camera top
+  MINIMAP_WORLD_H: 600, // world px tall (120 above + 480 below: a fully peeked-down view still fits)
+
   // --- World / chunks (§11.1, §11.5) ---
   WORLD_W: 540, // D3: three screens wide
   CHUNK_W: 540,
