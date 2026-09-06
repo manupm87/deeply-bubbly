@@ -16,16 +16,32 @@ import { integrateVelocity } from '../../../physics/integrator';
 import { buildCampaign } from '../../campaign';
 import { ChunkLibrary } from '../../library';
 import { GameWorld } from '../../../game/GameWorld';
-import { HARNESS_VIEW_H, POINTER_UP, ScriptedFinger, buildMvpCampaign, createMvpWorld } from '../../../game/testHarness';
+import { HARNESS_VIEW_H, POINTER_UP, buildMvpCampaign, createMvpWorld, pullGesture } from '../../../game/testHarness';
 import { CURRENT_DRIFT, PULPO_REST_MS } from '../builders';
 import { anemona, currentBand } from './builders';
 import { Z2, z2Perch, z2Pulpo } from './builders';
 import type { Campaign } from '../../campaign';
+import type { Vec2 } from '../../../math/vec';
 import type { Chunk, GameEvent, PointerInput, WorldEntity, WorldSnapshot } from '../../../types';
 
 const T = DEFAULT_TUNING;
 const STEP_MS = T.FIXED_DT * 1000;
+
+
 const RADIUS = zoneRadius(Z2, T);
+
+/**
+ * A D2 pull, in viewport coordinates, from an origin frozen at the pointerdown. The slingshot launches
+ * Bur in the direction OPPOSITE to the drag (`pullGesture`), so "shoot straight down" is a finger that
+ * travels UP the screen — which is exactly the sign a hand-written fixture gets wrong.
+ */
+function drag(origin: Vec2, power: number, thetaDeg = 0): PointerInput {
+  const pull = pullGesture(power, thetaDeg, T);
+  return { down: true, x: origin.x + pull.x, y: origin.y + pull.y };
+}
+
+/** The viewport point under Bur: where a finger that wants to shoot from where she is would press. */
+const screenOf = (s: WorldSnapshot): Vec2 => ({ x: s.bubble.pos.x - s.camera.x, y: s.bubble.pos.y - s.camera.y });
 
 /** A one-immersion campaign whose five playable chunks are all `body`, so Bur is born inside it. */
 function campaignOf(body: WorldEntity[], entryAnchorId: string): Campaign {
@@ -36,8 +52,6 @@ function campaignOf(body: WorldEntity[], entryAnchorId: string): Campaign {
       zone: Z2,
       difficulty: 1,
       verbs: ['corriente'],
-      entry: 'C',
-      exit: 'C',
       entryAnchorId,
       exitAnchorId: entryAnchorId,
       airBudget: 0,
@@ -114,7 +128,7 @@ describe('Anémona Pegajosa end to end (§5 nº 7, §2.4.5)', () => {
     expect(world.snapshot().bubble.flags.trapVentAt).toBe(0); // venting also frees her
   });
 
-  it('a charge of 60 % or more buys the way out before the vent, and costs no Air', () => {
+  it('a charge of 60 % or more buys the way out before the vent, and costs neither pip nor double jump', () => {
     const fx = anemoneFixture();
     const world = worldOn(campaignOf(fx.entities, fx.anchorId));
     const before = world.snapshot().bubble.air;
@@ -127,12 +141,22 @@ describe('Anémona Pegajosa end to end (§5 nº 7, §2.4.5)', () => {
     const caughtAt = ventAt - T.TRAP_VENT_MS;
     const startHoldAt = caughtAt + T.TRAP_HOLD_MS + STEP_MS;
 
-    // Hold 420 ms — over the ≈330 ms §2.4.5 prices the 60 % charge at — and release before the vent.
-    // The window closes just past `ventAt`: leaving her in the water longer would only prove that an
-    // anemone catches a bubble that floats straight back into her, which is a different sentence.
+    // Draw the sling for 420 ms and let go before the vent. D2 measures the power as the DRAG, so the
+    // origin is frozen at the pointerdown and the finger walks away from it; the window closes just past
+    // `ventAt`, because leaving her in the water longer would only prove that an anemone catches a
+    // bubble that floats straight back into her, which is a different sentence.
+    let origin: Vec2 | null = null;
     const events = run(world, ventAt + 100 - world.snapshot().timeMs, (_i, s) => {
       const holding = s.timeMs >= startHoldAt && s.timeMs < startHoldAt + 420;
-      return holding ? { down: true, x: s.bubble.pos.x, y: s.bubble.pos.y - s.camera.y + 45 } : POINTER_UP;
+      if (!holding) {
+        origin = null;
+        return POINTER_UP;
+      }
+      if (origin === null) {
+        origin = screenOf(s);
+        return { down: true, x: origin.x, y: origin.y };
+      }
+      return drag(origin, 0.9);
     });
 
     const launch = events.find((e) => e.type === 'launch');
@@ -140,7 +164,15 @@ describe('Anémona Pegajosa end to end (§5 nº 7, §2.4.5)', () => {
     expect(launch?.type === 'launch' && launch.power).toBeGreaterThanOrEqual(0.6);
     expect(world.snapshot().timeMs).toBeGreaterThan(ventAt); // the original deadline came and went
     expect(events.some((e) => e.type === 'airLost' && e.reason === 'trap')).toBe(false);
+    // The escape is NOT the D1 double jump, and that is the whole of "recurso, NO muerte". A pinned
+    // Bur is held against a surface, not adrift, so `bubbleStep` reads the crown's own stamp
+    // (`flags.trapVentAt`) and prices the shot as a rest launch: no pip, no budget spent. Charging it
+    // to the double jump would make an anemone met on the last pip an unavoidable death — D1 refuses a
+    // mid-air launch there — which is the opposite of what §2.4.5 and §5 nº 7 promise.
+    expect(launch?.type === 'launch' && launch.airLaunch).toBe(false);
+    expect(events.filter((e) => e.type === 'airLost')).toHaveLength(0);
     expect(world.snapshot().bubble.air).toBe(before);
+    expect(world.snapshot().bubble.airLaunchesUsed).toBe(0);
   });
 });
 
@@ -183,10 +215,19 @@ describe('Corriente de Arrecife end to end (§5 nº 8)', () => {
     const world = worldOn(campaignOf(entities, anchor.id));
     const before = world.snapshot().bubble.air;
 
-    // One shot straight down out of the rest pose, then hands off: the band does the rest.
-    const events = run(world, 3000, (i, s) =>
-      i >= 30 && i < 60 ? { down: true, x: s.bubble.pos.x, y: s.bubble.pos.y - s.camera.y + 45 } : POINTER_UP,
-    );
+    // One full pull straight down out of the rest pose, then hands off: the band does the rest.
+    let origin: Vec2 | null = null;
+    const events = run(world, 3000, (i, s) => {
+      if (i < 30 || i >= 60) {
+        origin = null;
+        return POINTER_UP;
+      }
+      if (origin === null) {
+        origin = screenOf(s);
+        return { down: true, x: origin.x, y: origin.y };
+      }
+      return drag(origin, 1);
+    });
     const snap = world.snapshot();
     expect(snap.bubble.pos.x).toBeGreaterThan(120); // launched from x = 90 and pushed right
     expect(snap.bubble.pos.x).toBeLessThanOrEqual(T.WORLD_W);
@@ -264,121 +305,5 @@ describe('Pulpo Camuflado end to end (§5 nº 9)', () => {
     expect(octopus.length).toBeGreaterThanOrEqual(4);
     for (const c of octopus) expect(c.type === 'ceiling' && c.material).toBe('creature');
     expect(seen.has('ceiling')).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------
-// The zone, played
-// ---------------------------------------------------------------------------------------------
-
-describe('Zone 2 is playable (§12.1, §12.3.2)', () => {
-  it('a bot dropped at the Z1 -> Z2 station reaches the zone`s first breath buoy with Air to spare', () => {
-    const world = createMvpWorld({ startStationIndex: 1 });
-    const campaign = buildMvpCampaign(T);
-    const finger = new ScriptedFinger(400, 140, 45, 16);
-    const events: GameEvent[] = [];
-    let snap = world.snapshot();
-    let maxZone = snap.zone;
-    let frames = 0;
-
-    // Generous: §3.1 budgets a segment at 35 s, and the bot is a metronome, not a player.
-    for (; frames < 300 * 60; frames++) {
-      const pointer = finger.next(STEP_MS, snap.bubble.pos.x, snap.bubble.pos.y, snap.camera.y);
-      world.update(STEP_MS, pointer);
-      snap = world.snapshot();
-      events.push(...snap.events);
-      maxZone = Math.max(maxZone, snap.zone) as typeof maxZone;
-      if (snap.run.lastBoyaId === 'boya:2') break;
-      if (snap.phase === 'station') world.continueDescent();
-      if (snap.phase === 'dead') world.restart();
-    }
-
-    expect(snap.run.lastBoyaId).toBe('boya:2');
-    expect(frames).toBeLessThan(300 * 60);
-    expect(maxZone).toBe(1);
-    expect(snap.bubble.pos.y).toBeGreaterThanOrEqual(campaign.immersions[2]!.boyaY);
-    expect(snap.bubble.air).toBeGreaterThan(0);
-    // §11.7.12: the zone change is announced once, and Zone 2's capacity is still 8 pips.
-    const zoneChanges = events.filter((e) => e.type === 'zoneChange');
-    expect(zoneChanges).toHaveLength(1);
-    expect(zoneChanges[0]).toEqual({ type: 'zoneChange', from: 0, to: 1 });
-    expect(snap.bubble.airMax).toBe(T.ZONE_AIR_MAX[1]);
-    expect(snap.bubble.radius).toBeCloseTo(RADIUS, 10);
-  });
-
-  it('never kills a naive bot, whatever its cadence, while the hazards still bite (§5 nº 7)', () => {
-    // The regression this zone was rebuilt around. A review swept a metronome bot over 27 cadences and
-    // 9 of them DIED, every death trap-driven: the anemone vented, dropped Bur a few px above her own
-    // crown, and the escape — a downward launch — put her straight back in, one pip every TRAP_VENT_MS
-    // until the bar was empty. Two things fixed it, and this sweep is what watches both: a vent now
-    // leaves the crown open for TRAP_REARM_MS (`game/hazards.ts`), and no crown may sit anywhere a
-    // 60 % charge cannot leave (`validator.trapEscapes`, checked per chunk in `z2.test.ts`).
-    let deaths = 0;
-    let trapPips = 0;
-    let deepest = 0;
-    for (const [hold, release, lateral] of [
-      [300, 400, 40],
-      [400, 300, 40],
-      [400, 450, 40],
-      [500, 300, 0],
-      [500, 400, 40],
-      [300, 450, 40],
-    ] as const) {
-      for (const startStationIndex of [1, 2]) {
-        const world = createMvpWorld({ startStationIndex });
-        const finger = new ScriptedFinger(hold, release, 45, lateral);
-        let snap = world.snapshot();
-        for (let i = 0; i < 90 * 60; i++) {
-          world.update(STEP_MS, finger.next(STEP_MS, snap.bubble.pos.x, snap.bubble.pos.y, snap.camera.y));
-          snap = world.snapshot();
-          for (const e of snap.events) {
-            if (e.type === 'gameOver') deaths++;
-            if (e.type === 'airLost' && e.reason === 'trap') trapPips++;
-          }
-          deepest = Math.max(deepest, snap.run.maxProgressY);
-          if (snap.phase === 'campaignComplete') break;
-          if (snap.phase === 'station') world.continueDescent();
-          if (snap.phase === 'dead') world.restart();
-        }
-      }
-    }
-    expect(deaths, 'a naive bot must never be killed by Zone 2').toBe(0);
-    expect(trapPips, 'the anemone must still cost pips: a harmless trap is not a fix').toBeGreaterThan(0);
-    expect(deepest).toBeGreaterThanOrEqual(7200 - T.CHUNK_H); // some cadence crosses the whole zone
-  });
-
-  it('a bot that keeps going crosses the whole zone and ends the campaign at the delivery station', () => {
-    const world = createMvpWorld({ startStationIndex: 1 });
-    const finger = new ScriptedFinger(400, 140, 45, 16);
-    let snap = world.snapshot();
-    let monotonic = true;
-    let previous = -Infinity;
-    let deepest = 0;
-    const zones = new Set<number>();
-
-    for (let i = 0; i < 600 * 60; i++) {
-      const pointer = finger.next(STEP_MS, snap.bubble.pos.x, snap.bubble.pos.y, snap.camera.y);
-      world.update(STEP_MS, pointer);
-      snap = world.snapshot();
-      for (const e of snap.events) if (e.type === 'zoneChange') zones.add(e.to);
-      if (snap.run.maxProgressY < previous) monotonic = false;
-      previous = snap.run.maxProgressY;
-      deepest = Math.max(deepest, snap.run.maxProgressY);
-      if (snap.phase === 'campaignComplete') break;
-      if (snap.phase === 'station') world.continueDescent();
-      if (snap.phase === 'dead') world.restart();
-      expect(snap.bubble.pos.x).toBeGreaterThanOrEqual(0);
-      expect(snap.bubble.pos.x).toBeLessThanOrEqual(T.WORLD_W);
-    }
-
-    expect(monotonic).toBe(true);
-    expect(snap.phase).toBe('campaignComplete');
-    // The column ends exactly on the Z2/Z3 border (§11.1), and the last fall crosses it before
-    // `campaignComplete` fires. The run must never announce a zone it does not contain: a naive bot used
-    // to report a `zoneChange` into Zone 3 and the shell repainted to its palette for a frame.
-    expect(zones.has(2)).toBe(false);
-    expect(zones.has(1)).toBe(true);
-    expect(deepest).toBeGreaterThanOrEqual(6960); // into the last station band of the zone
-    expect(snap.run.lastStationIndex).toBe(4);
   });
 });

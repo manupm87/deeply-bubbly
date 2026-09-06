@@ -1,7 +1,17 @@
 /**
- * Input → `PointerInput` (SHELL.md "Input", GDD §2.1). Deliberately dumb: it samples ONE pointer state
- * per frame in design px and writes it into `ctx.pointer`. It interprets no gesture — charge, aim,
- * overcharge and auto-release all live in `core`. HUD buttons swallow their own events.
+ * Input → `PointerInput` (SHELL.md "Input", GDD §2.1, DECISIONS-v1.2 D2). Deliberately dumb: it
+ * samples ONE pointer state per frame in design px and writes it into `ctx.pointer`. It interprets no
+ * gesture — the frozen origin, the pull, the cancel radius and the aim timeout all live in `core`.
+ * HUD buttons swallow their own events.
+ *
+ * The one distinction it DOES make is between the two ways a contact can end, because D2 makes them
+ * mean opposite things. A real `pointerup` is a RELEASE: it takes the shot (or cancels it, if the
+ * finger came back inside PULL_CANCEL_PX — core decides). Everything else that ends a contact without
+ * the player letting go — the tab going away, focus lost, an automatic pause, a `pointercancel`, a
+ * drag that walks off the canvas — is an ABORT, and it is handed to core as `GameWorld.cancelAim()`.
+ * Handing those to core as a plain `down = false` would fire the shot: the player takes a phone call
+ * mid-pull and comes back to a launch she never made. The adapter still interprets nothing; it only
+ * reports WHICH of the two endings the browser gave it.
  */
 import * as Phaser from 'phaser';
 import type { GameContext } from '../context';
@@ -14,19 +24,23 @@ const KEY_STEP_PX = 6;
 export class PointerAdapter {
   private readonly scene: Phaser.Scene;
   private readonly ctx: GameContext;
+  /** Told to core when a contact ends without a release; see the class header. */
+  private readonly onAbort: () => void;
   /** Last known position in design px; reused by the keyboard fallback. */
   private lastX = 90;
   private lastY = 256;
   private keyDown = false;
   private attached = false;
   private readonly onVisibility = (): void => {
-    if (document.visibilityState !== 'visible') this.release();
+    if (document.visibilityState !== 'visible') this.abort();
   };
-  private readonly onBlur = (): void => this.release();
+  private readonly onBlur = (): void => this.abort();
+  private readonly onPointerCancel = (): void => this.abort();
 
-  constructor(scene: Phaser.Scene, ctx: GameContext) {
+  constructor(scene: Phaser.Scene, ctx: GameContext, onAbort: () => void = () => ctx.world.cancelAim()) {
     this.scene = scene;
     this.ctx = ctx;
+    this.onAbort = onAbort;
   }
 
   attach(): void {
@@ -51,6 +65,7 @@ export class PointerAdapter {
 
     document.addEventListener('visibilitychange', this.onVisibility);
     window.addEventListener('blur', this.onBlur);
+    window.addEventListener('pointercancel', this.onPointerCancel);
   }
 
   destroy(): void {
@@ -64,13 +79,20 @@ export class PointerAdapter {
     this.scene.input.keyboard?.removeAllListeners();
     document.removeEventListener('visibilitychange', this.onVisibility);
     window.removeEventListener('blur', this.onBlur);
-    this.release();
+    window.removeEventListener('pointercancel', this.onPointerCancel);
+    this.abort();
   }
 
-  /** Forces the finger up (pause, focus loss, tab hidden). Never fabricates a press. */
-  release(): void {
+  /**
+   * Ends a contact the player did not end (pause, focus loss, tab hidden, pointercancel, a drag off
+   * the canvas): the finger goes up AND the gesture is cancelled, so the pull never becomes a shot.
+   * Never fabricates a press.
+   */
+  abort(): void {
+    const wasDown = this.ctx.pointer.down;
     this.keyDown = false;
     this.ctx.pointer.down = false;
+    if (wasDown) this.onAbort();
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -106,9 +128,13 @@ export class PointerAdapter {
     if (!this.keyDown) this.ctx.pointer.down = false;
   }
 
-  /** GAME_OUT hands over a timestamp, not a pointer: only the press state is meaningful here. */
+  /**
+   * GAME_OUT hands over a timestamp, not a pointer: only the press state is meaningful here. It fires
+   * while the finger is still DOWN — a drag that reaches the edge of the canvas, which a 70 design px
+   * pull does routinely on a phone — so it is an abort, never a release.
+   */
   private onGameOut(): void {
-    if (!this.keyDown) this.ctx.pointer.down = false;
+    if (!this.keyDown) this.abort();
   }
 
   private onSpaceDown(): void {

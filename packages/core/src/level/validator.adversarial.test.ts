@@ -9,10 +9,18 @@ import { describe, expect, it } from 'vitest';
 import { launchVelocity } from '../control/aim';
 import { impulseMagnitude, zoneRadius } from '../control/charge';
 import { degToRad } from '../math/vec';
+import { descentDistance } from '../physics/integrator';
 import { launchLockSteps, physicsStep } from '../physics/step';
 import { createTuning } from '../tuning';
 import { ChunkLibrary } from './library';
-import { REACH_MAX_SECONDS, findReachTrajectory, sideWalls, validateCampaign, validateChunk } from './validator';
+import {
+  REACH_MAX_SECONDS,
+  findReachTrajectory,
+  sideWalls,
+  validateCampaign,
+  validateChunk,
+  validateSequence,
+} from './validator';
 import type { Vec2 } from '../math/vec';
 import type { Anchor, Ceiling, Chunk, Contact, SolidEntity, Wall, WorldEntity } from '../types';
 import type { ValidationIssue } from './validator';
@@ -40,21 +48,21 @@ function ledge(id: string, x: number, y: number, w: number, over: Partial<Ceilin
   };
 }
 
-function anchorOn(id: string, ceilingId: string, x: number, ledgeY: number, lane: Anchor['lane']): Anchor {
-  return { type: 'anchor', id, ceilingId, pos: { x, y: ledgeY + 10 + RADIUS }, lane };
+function anchorOn(id: string, ceilingId: string, x: number, ledgeY: number): Anchor {
+  return { type: 'anchor', id, ceilingId, pos: { x, y: ledgeY + 10 + RADIUS } };
 }
 
 /** The four-ledge zigzag the Zone 1 chunks are built from: entry top-left, exit bottom-centre. */
 function skeleton(): WorldEntity[] {
   return [
     ledge('c1', 3, 18, 36),
-    anchorOn('a-in', 'c1', 30, 18, 'L'),
+    anchorOn('a-in', 'c1', 30, 18),
     ledge('c2', 141, 78, 36),
-    anchorOn('a-m1', 'c2', 150, 78, 'R'),
+    anchorOn('a-m1', 'c2', 150, 78),
     ledge('c3', 5, 133, 40),
-    anchorOn('a-m2', 'c3', 36, 133, 'L'),
+    anchorOn('a-m2', 'c3', 36, 133),
     ledge('c4', 101, 188, 48),
-    anchorOn('a-out', 'c4', 110, 188, 'C'),
+    anchorOn('a-out', 'c4', 110, 188),
   ];
 }
 
@@ -64,8 +72,6 @@ function playable(id: string, extra: WorldEntity[] = []): Chunk {
     zone: 0,
     difficulty: 1,
     verbs: ['reposar'],
-    entry: 'L',
-    exit: 'C',
     entryAnchorId: 'a-in',
     exitAnchorId: 'a-out',
     airBudget: 0,
@@ -94,11 +100,9 @@ function stationChunk(id: string): Chunk {
     ...playable(id),
     role: 'station',
     targetTimeS: 6,
-    entry: 'L',
-    exit: 'L',
     entryAnchorId: 'a-in',
     exitAnchorId: 'a-in',
-    entities: [ledge('shelf', 3, 18, 60), anchorOn('a-in', 'shelf', 30, 18, 'L')],
+    entities: [ledge('shelf', 3, 18, 60), anchorOn('a-in', 'shelf', 30, 18)],
   };
 }
 
@@ -123,7 +127,7 @@ interface Replay {
  * certificate has to be able to show.
  */
 function replayProbe(from: Vec2, to: Vec2, power: number, thetaDeg: number, solids: readonly SolidEntity[]): Replay {
-  const speed = impulseMagnitude({ power, dragDist: t.DRAG_NEUTRAL_PX, radius: RADIUS, stunned: false, externalMul: 1 }, t);
+  const speed = impulseMagnitude({ power, radius: RADIUS, stunned: false, externalMul: 1 }, t);
   const lockSteps = launchLockSteps(t);
   let pos: Vec2 = { x: from.x, y: from.y };
   let vel: Vec2 = launchVelocity(degToRad(thetaDeg), speed);
@@ -222,17 +226,9 @@ describe('ADVERSARIAL — §11.5.11 applies to EVERY chunk seam, immersion bound
   it('flags the over-long drop from the last anchor of an immersion to the first of the next', () => {
     // §11.1 places the immersions in ONE continuous column: `st-1`'s only anchor (local y = 35, world
     // y = 1235) is followed by `q1`'s entry anchor (local y = 35, world y = 1475). MAX_HOP_PX[0] is
-    // 200, so that 240 px seam is over the hard limit of §11.5.11 — and nothing reported it.
+    // 110 since D4, so that 240 px seam is over the hard limit of §11.5.11 — and nothing reported it.
     const issues = errors(validateCampaign(libraryOf(), [first, second], t)).filter((i) => i.rule === 'reach');
-    expect(issues.map((i) => i.message).join('\n')).toContain('exceeds MAX_HOP_PX 200');
-  });
-
-  it('flags a non-adjacent lane transition across the immersion boundary too (§11.5.1)', () => {
-    // `st-1` exits lane L; the next immersion enters on lane R. Inside an immersion §11.5.1 rejects
-    // that; across the seam between two immersions of the same column it is silently accepted.
-    const library = libraryOf({ 'st-1': { exit: 'L' }, q1: { entry: 'R' } });
-    const lanes = errors(validateCampaign(library, [first, second], t)).filter((i) => i.rule === 'lanes');
-    expect(lanes.some((i) => i.message.includes("'st-1'") && i.message.includes("'q1'"))).toBe(true);
+    expect(issues.map((i) => i.message).join('\n')).toContain('exceeds MAX_HOP_PX 110');
   });
 });
 
@@ -250,8 +246,6 @@ describe('ADVERSARIAL — an Anchor must stay under its ceiling for the whole os
       zone: 0,
       difficulty: 1,
       verbs: ['reposar'],
-      entry: 'C',
-      exit: 'C',
       entryAnchorId: 'm-a',
       exitAnchorId: 'a-out',
       airBudget: 0,
@@ -260,32 +254,65 @@ describe('ADVERSARIAL — an Anchor must stay under its ceiling for the whole os
       role: 'playable',
       entities: [
         ledge('m', 60, 18, 36, { moving: { axis: 'x', speed: 25, range: 40 } }),
-        anchorOn('m-a', 'm', 94, 18, 'C'),
+        anchorOn('m-a', 'm', 94, 18),
         ledge('c4', 101, 150, 48),
-        anchorOn('a-out', 'c4', 110, 150, 'C'),
+        anchorOn('a-out', 'c4', 110, 150),
       ],
     };
     expect(messages(validateChunk(chunk, t)).join('\n')).toContain('m-a');
   });
 });
 
+
 // ---------------------------------------------------------------------------------------------
-// BUG 4 — the mouth rule only asks that the lane CENTRE fall inside a 64 px span (§11.5.1)
+// BUG 4 — the reach certificate ignores the sticky ledge it launches from (§2.3, §11.5.11)
 // ---------------------------------------------------------------------------------------------
 
-describe('ADVERSARIAL — a 64 px mouth must leave room for Bur ON the lane (§11.5.1)', () => {
-  it('rejects a seam whose free water starts exactly at the lane centre', () => {
-    // Free span [90, 180] is 90 px wide and contains x = 90, the C lane centre — so the current check
-    // calls the mouth open. Bur's centre cannot be at x = 90 at all: her left edge (x = 83) is buried
-    // in the plug. The mouth of lane C is [58, 122]; half of it is solid rock.
-    const plug: Wall = {
-      type: 'wall',
-      id: 'plug',
-      rect: { x: 0, y: t.CHUNK_H - 8, w: 90, h: 8 },
-      restitution: t.RESTITUTION_ROCK,
-      material: 'rock',
+describe('ADVERSARIAL — a hop taken from a PEGAJOSA ledge only gets REST_STICKY_IMPULSE_MUL of it', () => {
+  /**
+   * §2.3 gives the sticky ceiling its whole character in one number: leaving it costs
+   * `REST_STICKY_IMPULSE_MUL` of the impulse (0,6). §11.5.11 says the reach rule is certified "con el
+   * MISMO integrador" the player runs, from rest — and the player launching off a pegajosa anchor
+   * never gets more than 0,6 × IMPULSE_MAX out of it.
+   *
+   * `findReachTrajectory` probes with `externalMul: 1` and never looks at the ceiling kind, so the
+   * certificate is written for a shot that cannot be taken from that rung. The gap is not marginal:
+   * at full power a Zone 1 shot descends ≈193 px, and the same shot off a sticky ledge ≈86 px. The
+   * fixture below drops 100 px — comfortably inside MAX_HOP_PX[0] = 110, comfortably inside the
+   * certified reach, and past everything the player can actually produce from that ledge. A chunk like
+   * this ships as valid and dead-ends the run.
+   */
+  it('rejects a drop no sticky-ledge shot can make, even though a full-impulse one could', () => {
+    const drop = 100;
+    const stickyReach = descentDistance(
+      impulseMagnitude({ power: 1, radius: RADIUS, stunned: false, externalMul: t.REST_STICKY_IMPULSE_MUL }, t),
+      t,
+    );
+    // The premise of the test, asserted rather than assumed: no shot off this ledge gets that deep.
+    expect(stickyReach).toBeLessThan(drop);
+    expect(drop).toBeLessThanOrEqual(t.MAX_HOP_PX[0] ?? 110);
+
+    const chunk: Chunk = {
+      id: 'sticky-dead-end',
+      zone: 0,
+      difficulty: 1,
+      verbs: ['reposar'],
+      entryAnchorId: 'sticky-a',
+      exitAnchorId: 'a-out',
+      airBudget: 0,
+      targetTimeS: 8,
+      tags: ['adversarial'],
+      role: 'playable',
+      entities: [
+        ledge('sticky', 240, 18, 60, { kind: 'pegajosa' }),
+        anchorOn('sticky-a', 'sticky', 270, 18),
+        ledge('below', 240, 18 + drop, 60),
+        anchorOn('a-out', 'below', 270, 18 + drop),
+      ],
     };
-    const lanes = errors(validateChunk(playable('half-plugged', [plug]), t)).filter((i) => i.rule === 'lanes');
-    expect(lanes.map((i) => i.message).join('\n')).toContain('exit mouth');
+    // The reach ladder is a SEQUENCE rule (`validateChunk` only checks a chunk's schema), so the
+    // chunk is walked the way the campaign walks it, as a one-chunk immersion.
+    const library = new ChunkLibrary([chunk]);
+    expect(messages(validateSequence(library, [chunk.id], t)).join('\n')).toMatch(/reach|sticky-a/);
   });
 });

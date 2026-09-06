@@ -1,9 +1,10 @@
 /**
- * The two side walls of the column (GDD §4.3: "el mundo mide exactamente 180 px de ancho, con paredes
- * laterales sólidas en TODAS las zonas"). They are a property of the world, not of a chunk: no authored
- * chunk declares them, so without this the 180 px column is open at both sides and a lateral shot
- * (the aim cone is ±62°) carries Bur out of it for good — `DAMPING_X` is 0.30 /s and nothing pushes her
- * back. §5 nº 25 makes them level geometry in Z6, where the wall chain IS the verb of the zone.
+ * The two side walls of the column (DECISIONS-v1.2 D3: "paredes laterales sólidas en x < 0 y
+ * x > WORLD_W en todas las zonas", with the world now `WORLD_W` = 540 px wide — three screens of
+ * `VIEW_W`). They are a property of the world, not of a chunk: no authored chunk declares them, so
+ * without this the column is open at both sides and a lateral shot — D2's cone reaches the horizontal
+ * itself, `AIM_CONE_DEG` = 90 — carries Bur out of it for good, because `DAMPING_X` is 0.30 /s and
+ * nothing pushes her back. §5 nº 25 makes them level geometry in Z6, where the wall chain IS the verb.
  *
  * They are rebuilt around Bur every step instead of spanning the whole 25.920 px column so the swept
  * collision never has to consider a rect thousands of pixels away from her.

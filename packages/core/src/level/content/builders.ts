@@ -2,34 +2,32 @@
  * Authoring vocabulary shared by every hand-made zone (GDD §4.1, §12.1). A chunk file reads as a level
  * — ledge, jellyfish, kelp, turtle, urchin, anemone, current — and never as raw geometry.
  *
- * Chunk-local coordinates: x ∈ [0, 180], y ∈ [0, 240], y down. `campaign.instantiateChunk` places them.
+ * Chunk-local coordinates: x ∈ [0, CHUNK_W] (540 since DECISIONS-v1.2 D3), y ∈ [0, CHUNK_H], y down.
+ * `campaign.instantiateChunk` places them. Every helper takes an x ANYWHERE in that range: D3 deleted
+ * the L/C/R lanes, so a ledge is placed where the level wants it and the 2D reach rule (D4) is what
+ * says whether the next one can be got to.
  *
  * Everything here is parameterised by ZONE, because the only thing that changes between zones is Bur's
  * radius (§2.6) and therefore the height of every rest pose. Each zone's own `builders.ts` binds that
  * parameter once and re-exports the vocabulary under its own names; nothing is ever copied.
  *
- * Every rule is IMPORTED, never restated: the lane of an x is `validator.laneAt`, the rest pose under a
- * ledge is `validator.restPoseY`, Bur's radius is `charge.zoneRadius`. The validator checks the anchors
- * these helpers place to within half a pixel — two copies of those three formulas could drift apart and
- * silently invalidate a whole zone (ARCHITECTURE.md, "un solo lugar para cada regla").
+ * Every rule is IMPORTED, never restated: the rest pose under a ledge is `validator.restPoseY` and
+ * Bur's radius is `charge.zoneRadius`. The validator checks the anchors these helpers place to within
+ * half a pixel — two copies of those formulas could drift apart and silently invalidate a whole zone
+ * (ARCHITECTURE.md, "un solo lugar para cada regla").
  */
 import { zoneRadius } from '../../control/charge';
 import { accelForDriftX } from '../../physics/forceFields';
 import { DEFAULT_TUNING } from '../../tuning';
-import { laneAt, restPoseY } from '../validator';
+import { restPoseY } from '../validator';
 import type { CeilingKind } from '../../tuning';
 import type { Rect } from '../../math/vec';
-import type { Anchor, Ceiling, CrownGrowth, ForceField, Hazard, Lane, MovingSpec, Pickup, Wall, ZoneIndex } from '../../types';
+import type { Anchor, Ceiling, CrownGrowth, ForceField, Hazard, MovingSpec, Pickup, Wall, ZoneIndex } from '../../types';
 
 const T = DEFAULT_TUNING;
 
-/** Thickness of every authored ledge: over the 8 px minimum of §2.3, and readable at 180 px wide. */
+/** Thickness of every authored ledge: over the 8 px minimum of §2.3, and readable at VIEW_W px wide. */
 export const LEDGE_H = 10;
-
-/** Lane whose centre (§11.5.1: 40 / 90 / 140) is closest to `x`. */
-export function laneOf(x: number): Lane {
-  return laneAt(x, T);
-}
 
 /** Convenience: the anchor id `perchIn` derives for a ceiling id. */
 export const anchorIdOf = (ceilingId: string): string => `${ceilingId}-a`;
@@ -82,7 +80,6 @@ export function perchIn(zone: ZoneIndex, spec: PerchSpec): [Ceiling, Anchor] {
     id: anchorIdOf(spec.id),
     ceilingId: spec.id,
     pos: { x: spec.anchorX, y: restPoseY(ceiling.rect, zoneRadius(zone, T)) },
-    lane: laneOf(spec.anchorX),
   };
   return [ceiling, anchor];
 }

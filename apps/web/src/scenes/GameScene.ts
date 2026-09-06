@@ -25,6 +25,7 @@ import { Background } from '../render/Background';
 import { WorldRenderer } from '../render/WorldRenderer';
 import { BubbleView } from '../render/BubbleView';
 import { ChargeRing } from '../render/ChargeRing';
+import { SlingBand } from '../render/SlingBand';
 import { Trajectory } from '../render/Trajectory';
 import { buildZoneTextures } from '../render/textures';
 import { SCENE_KEYS } from './BootScene';
@@ -35,6 +36,7 @@ export class GameScene extends Phaser.Scene {
   private worldRenderer!: WorldRenderer;
   private bubbleView!: BubbleView;
   private ring!: ChargeRing;
+  private band!: SlingBand;
   private orbit!: ChargeOrbit;
   private trajectoryView!: Trajectory;
   private pointerAdapter!: PointerAdapter;
@@ -75,17 +77,18 @@ export class GameScene extends Phaser.Scene {
     buildZoneTextures(this, snapshot.zone);
 
     const s = ctx.scale;
-    this.background = new Background(this, snapshot.zone, s.viewW, s.viewH);
+    this.background = new Background(this, snapshot.zone, s.viewW, s.viewH, ctx.tuning.WORLD_W);
     this.worldRenderer = new WorldRenderer(this, snapshot.zone, () => this.tuning);
     this.bubbleView = new BubbleView(this, () => this.tuning);
     this.ring = new ChargeRing(this);
+    this.band = new SlingBand(this);
     this.orbit = new ChargeOrbit(this);
     this.trajectoryView = new Trajectory(this, () => this.tuning, ctx.settings);
     this.pointerAdapter = new PointerAdapter(this, ctx);
     this.pointerAdapter.attach();
     this.tuning = ctx.tuning;
 
-    layoutCamera(this.cameras.main, s, snapshot.camera.y);
+    layoutCamera(this.cameras.main, s, snapshot.camera.y, snapshot.camera.x);
     // FX is built last: it must find the bubble view and a laid-out camera already in place.
     this.fx = new FxDirector(ctx, { bubbleView: this.bubbleView, camera: this.cameras.main, scene: this });
     this.tuningPanel = createTuningPanel(this, ctx);
@@ -104,7 +107,10 @@ export class GameScene extends Phaser.Scene {
 
     on('pause', () => {
       this.paused = true;
-      this.pointerAdapter.release();
+      // Not a release: the world stops stepping here, and the synthetic pointer-up would otherwise be
+      // read as one on the first step after "Seguir" — firing, at full power, a shot the player never
+      // let go of. `abort` lifts the finger AND cancels the gesture in core (D2).
+      this.pointerAdapter.abort();
       this.setPauseBlur(true);
     });
     on('resume', () => {
@@ -124,7 +130,7 @@ export class GameScene extends Phaser.Scene {
     });
     on('scaleChanged', () => {
       const snap = ctx.snapshot;
-      layoutCamera(this.cameras.main, ctx.scale, snap ? snap.camera.y : 0);
+      layoutCamera(this.cameras.main, ctx.scale, snap ? snap.camera.y : 0, snap ? snap.camera.x : 0);
       this.background.resize(ctx.scale.viewW, ctx.scale.viewH);
     });
   }
@@ -185,8 +191,9 @@ export class GameScene extends Phaser.Scene {
     this.bubbleView.sync(snapshot);
     this.ring.update(snapshot);
     this.orbit.update(snapshot, delta);
+    this.band.update(snapshot, ctx.pointer);
     this.trajectoryView.update(snapshot);
-    this.background.update(snapshot.timeMs, snapshot.camera.renderY, delta);
+    this.background.update(snapshot.timeMs, snapshot.camera.x, snapshot.camera.renderY, delta);
     this.fx.update();
     this.placeCamera(snapshot, time);
   }
@@ -211,7 +218,9 @@ export class GameScene extends Phaser.Scene {
       if (amplitude > 0) shake = (Math.random() * 2 - 1) * amplitude;
     }
 
-    scrollCameraTo(this.cameras.main, this.ctx.scale, cam.renderY + shake);
+    // D3: the camera also follows in X. `cam.x` is already clamped by core to [0, WORLD_W - viewW],
+    // so the shell places it exactly as given — the shake is the only thing it is allowed to add.
+    scrollCameraTo(this.cameras.main, this.ctx.scale, cam.renderY + shake, cam.x);
   }
 
   private teardown(): void {
@@ -222,6 +231,7 @@ export class GameScene extends Phaser.Scene {
     this.pointerAdapter?.destroy();
     this.trajectoryView?.destroy();
     this.orbit?.destroy();
+    this.band?.destroy();
     this.ring?.destroy();
     this.bubbleView?.destroy();
     this.worldRenderer?.destroy();

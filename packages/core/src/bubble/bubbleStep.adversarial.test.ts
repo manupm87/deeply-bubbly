@@ -105,9 +105,14 @@ class Sim {
   }
 }
 
-/** A still finger straight below the point where the press started (neutral drag). */
-function fingerAt(origin: Vec2): PointerInput {
-  return { down: true, x: origin.x, y: origin.y + t.DRAG_NEUTRAL_PX };
+/** The pointer that opens a gesture: `aimOrigin` freezes exactly here (D2). */
+function press(at: Vec2): PointerInput {
+  return { down: true, x: at.x, y: at.y };
+}
+
+/** A still finger holding the sling at full stretch for a straight-down shot (D2: the pull is UP). */
+function pullTo(origin: Vec2): PointerInput {
+  return { down: true, x: origin.x, y: origin.y - t.PULL_MAX_PX };
 }
 
 /** Bur captured under a 60x10 slab at (60,100), one RESTING step already served. */
@@ -128,101 +133,123 @@ function gapTo(p: Vec2, rect: { x: number; y: number; w: number; h: number }): n
 }
 
 // ---------------------------------------------------------------------------------------------
-// 1. §11.7.4 / §2.2 — the per-hold overcharge cap
+// 1. D1 / D2 — one gesture per finger contact, and the double-jump budget
 // ---------------------------------------------------------------------------------------------
 
-describe('ADVERSARIAL — overcharge cap across the auto-release (§2.2, §11.7.4)', () => {
+describe('ADVERSARIAL — one contact never buys two shots (D1, D2)', () => {
   /**
-   * §2.2: "la sobrecarga (…) nunca drena más de 2 pips en un mismo mantenido", justified in the same
-   * paragraph by the exact scenario this test plays: "un niño que mantiene el dedo 3,4 s —exactamente
-   * lo que enseña la mano fantasma del tutorial— se quedaba sin aire de una sentada". §11.7.4 repeats
-   * it as a contract: "nunca drena más de 2 en un mismo mantenido".
-   *
-   * The finger never lifts, so this is ONE `mantenido`. What the implementation sees is different:
-   * `stepCharging` auto-releases at AUTO_RELEASE_MS, `launch` leaves LAUNCHED after LAUNCH_LOCK_MS,
-   * and then the input-edge rule ("a press is honoured from IDLE" — the state IS the previous pointer
-   * sample) starts a BRAND NEW hold under the same, still-pressed finger. `beginCharge` resets
-   * `overchargeDrained` to 0, so the cap re-arms every 2.750 ms and the drain is unbounded in a hold
-   * of unbounded length: 4 pips at 5 s, 6 at 7,75 s, out of a maximum of 8.
-   *
-   * The existing test "never drains more than OVERCHARGE_MAX_DRAIN in one hold" holds for exactly
-   * AUTO_RELEASE_MS and stops on the boundary, one step before the second hold begins, so it passes
-   * without ever exercising the rule it names.
+   * D2's aim timeout fires with the finger still on the glass. If the press EDGE were derived from
+   * the state instead of from `holdLatched`, the very next step would look like a fresh pointerdown:
+   * a second `aimStart`, a second shot and — in open water — a second pip off the bar, from a finger
+   * the player never lifted. The cap of "un doble salto por fase aérea" would be a suggestion.
    */
-  it('a single uninterrupted 5 s press drains at most OVERCHARGE_MAX_DRAIN pips', () => {
+  it('a single uninterrupted 20 s press in the water spends at most one air launch', () => {
     const sim = new Sim(vec(90, 200));
     sim.bubble.air = 8;
-    const origin = { ...sim.bubble.pos };
+    const origin = vec(90, 400);
 
-    sim.run_(5000, fingerAt(origin)); // the finger is down on every single step
+    sim.step(press(origin));
+    sim.run_(20_000, pullTo(origin)); // the finger is down on every single step
 
-    expect(sim.of('airLost').map((e) => e.reason)).toEqual(['overcharge', 'overcharge']);
-    expect(sim.bubble.air).toBe(8 - t.OVERCHARGE_MAX_DRAIN);
+    expect(sim.of('aimStart')).toHaveLength(1);
+    expect(sim.of('launch')).toHaveLength(0); // the timeout CANCELS; it never fires (D2)
+    expect(sim.of('airLost')).toHaveLength(0);
+    expect(sim.bubble.air).toBe(8);
+    expect(sim.bubble.airLaunchesUsed).toBe(0);
   });
 
   /**
-   * The other half of the same defect, on the event stream the shell draws from: one press must
-   * produce one `chargeStart`. Here the finger is never lifted and the module reports two charges
-   * (and one launch the player never asked for), so the HUD's charge ring and the aiming guide
-   * restart mid-gesture.
+   * The same defect on the event stream the shell draws from: one press must produce one `aimStart`,
+   * or the HUD ring and the dotted guide restart mid-gesture under a motionless thumb.
    */
-  it('one press produces one chargeStart, however long it lasts (§2.1)', () => {
+  it('one press produces one aimStart, however long it lasts (D2)', () => {
     const sim = new Sim(vec(90, 200));
     sim.bubble.air = 8;
-    const origin = { ...sim.bubble.pos };
+    const origin = vec(90, 400);
 
-    sim.run_(5000, fingerAt(origin));
+    sim.step(press(origin));
+    sim.run_(20_000, pullTo(origin));
 
-    expect(sim.of('chargeStart')).toHaveLength(1);
+    expect(sim.of('aimStart')).toHaveLength(1);
+  });
+
+  /**
+   * D1 prices the double jump at a pip and forbids the last one. A player who presses, releases and
+   * presses again in the SAME airborne phase must be refused by the budget, not by the bar: without
+   * `airLaunchesUsed` a five-pip Bur could stack four mid-air shots and cross the whole immersion.
+   */
+  it('refuses the second mid-air launch of one airborne phase, whatever the bar says', () => {
+    const sim = new Sim(vec(90, 200));
+    sim.bubble.air = 8;
+
+    for (let i = 0; i < 5; i++) {
+      const origin = vec(90, 400 + i * 20);
+      sim.step(press(origin));
+      sim.run_(120, pullTo(origin));
+      sim.step(POINTER_UP);
+      sim.run_(t.LAUNCH_LOCK_MS + 100);
+    }
+
+    expect(sim.of('launch')).toHaveLength(t.AIR_LAUNCHES_MAX);
+    expect(sim.bubble.air).toBe(8 - t.AIR_LAUNCHES_MAX * t.AIR_LAUNCH_COST);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-// 2. §2.3 — the anti-camping timer must keep running while Bur aims from rest
+// 2. §2.3 / D2 — the frozen posadero clock must not become a camping spot
 // ---------------------------------------------------------------------------------------------
 
-describe('ADVERSARIAL — rest timer while charging from rest (§2.3, §11.3)', () => {
+describe('ADVERSARIAL — camping under a ledge with a drumming finger (§2.3, D2)', () => {
   /**
-   * §2.3 fixes the budget explicitly: "En reposo, Bur puede cargar hasta 1.800 ms antes de entrar en
-   * sobrecarga (…). Con el temporizador de reposo de 3,0 s, eso deja presupuesto de puntería de sobra
-   * SIN NECESIDAD DE QUITAR EL ANTI-CAMPING." That sentence only means anything if `restMs` keeps
-   * running while the player aims: 1.800 < 3.000 is the whole argument.
-   *
-   * `stepResting` runs only while `state === 'RESTING'`, and a charge from rest is CHARGING, so the
-   * timer stops dead. Drumming the finger — press, press, press, lift, repeat, which is exactly what a
-   * child does while deciding where to shoot — keeps Bur glued under the same ledge for 12 s instead of
-   * 3 s. The anti-camping rule the GDD says it did not have to remove is removed in practice.
+   * D2 freezes the posadero anti-camping clock while Bur aims, and that is exactly the shape of rule
+   * that can be farmed: press, cancel, press, cancel — which is precisely what a child does while
+   * deciding where to shoot. Two guards make it finite and both must hold. AIM_MAX_MS bounds a single
+   * aim at 6 s, and the clock RESUMES the moment the finger is up, so every cancel pays back some of
+   * the ledge. What must never happen is Bur hanging there indefinitely.
    */
-  it('ejects Bur within REST_MAX_MS of wall-clock time even if she is aiming (finger drumming)', () => {
+  it('still ejects Bur in bounded time under a drumming finger', () => {
     const sim = restingSim();
-    const origin = { ...sim.bubble.pos };
-    const finger = fingerAt(origin);
+    const origin = vec(90, 300);
+    // Press for 3 steps inside the cancel radius, lift for 1, forever: nothing ever launches.
+    const nudge: PointerInput = { down: true, x: origin.x, y: origin.y - 4 };
 
-    // 3 pressed steps + 1 released step, forever: every press is under MIN_TAP_MS, so nothing launches.
-    for (let cycle = 0; cycle < 1200 && sim.of('restRelease').length === 0; cycle++) {
-      for (let i = 0; i < 3; i++) sim.step(finger);
+    for (let cycle = 0; cycle < 4000 && sim.of('restRelease').length === 0; cycle++) {
+      sim.step(press(origin));
+      for (let i = 0; i < 2; i++) sim.step(nudge);
       sim.step(POINTER_UP);
     }
 
-    expect(sim.of('launch')).toHaveLength(0); // no tap was long enough to fire: this is pure camping
+    expect(sim.of('launch')).toHaveLength(0); // pure camping: every release was a cancel
     expect(sim.of('restRelease')).toEqual([{ type: 'restRelease', reason: 'timeout' }]);
-    expect(sim.nowMs).toBeLessThanOrEqual(t.REST_MAX_MS.posadero + 4 * STEP_MS);
+    // Four steps of wall clock buy one step of rest clock, so the eject is late but BOUNDED.
+    expect(sim.nowMs).toBeLessThanOrEqual(t.REST_MAX_MS.posadero * 4 + 8 * STEP_MS);
   });
 
   /**
-   * The same rule with one single, ordinary hold: rest for 2,5 s, then aim for 1,8 s (the budget §2.3
-   * grants). The anti-camping push is due at 3,0 s of contact and never arrives, because the clock is
-   * frozen for the whole aim.
+   * The other half: an aim that is never released must not hold the ledge for ever either. The aim
+   * timeout is what bounds it, and after it the rest clock runs again on its own.
    */
-  it('keeps counting rest time during a single 1.800 ms aim (§2.3 budget argument)', () => {
+  it('a single never-released aim is bounded by AIM_MAX_MS and then the ledge expires', () => {
     const sim = restingSim();
-    sim.run_(2500);
-    expect(sim.bubble.state).toBe('RESTING');
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(t.AIM_MAX_MS + t.REST_MAX_MS.posadero + 200, pullTo(origin));
 
-    const origin = { ...sim.bubble.pos };
-    sim.run_(t.OVERCHARGE_MS_RESTING, fingerAt(origin));
+    expect(sim.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'timeout' }]);
+    expect(sim.of('restRelease')).toEqual([{ type: 'restRelease', reason: 'timeout' }]);
+    expect(sim.of('launch')).toHaveLength(0);
+  });
 
-    expect(sim.bubble.restMs).toBeGreaterThanOrEqual(t.REST_MAX_MS.posadero);
+  /** An impaciente ledge keeps its own clock through the aim: that is its whole character (D2). */
+  it('never freezes an impaciente ledge, aim or no aim', () => {
+    const sim = restingSim({ kind: 'impaciente' });
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(t.REST_MAX_MS.impaciente + 4 * STEP_MS, pullTo(origin));
+
+    expect(sim.of('restRelease')).toEqual([{ type: 'restRelease', reason: 'timeout' }]);
+    expect(sim.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'displaced' }]);
+    expect(sim.nowMs).toBeLessThan(t.REST_MAX_MS.impaciente + 7 * STEP_MS);
   });
 });
 
@@ -271,44 +298,37 @@ describe('ADVERSARIAL — corner capture (§2.3, §11.4)', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// 4. §11.3 — capturing mid-charge throws the player's hold away
+// 4. §11.3 — capturing mid-aim must not throw the player's pull away
 // ---------------------------------------------------------------------------------------------
 
-describe('ADVERSARIAL — capture while CHARGING in mid-water (§11.3, §2.1)', () => {
+describe("ADVERSARIAL — capture while AIMING in mid-water (§11.3, D1)", () => {
   /**
-   * Charging in the air is explicitly legal (§2.1, §11.3: "Se puede entrar desde IDLE (cargar en el
-   * aire, permitido y necesario para corregir)") and buoyancy still lifts Bur at 35 %. So a hold that
-   * starts under a ledge ends with an ascending contact against a capturable bottom face — at ~10 px/s,
-   * far below REST_CAPTURE_SPEED, so §2.3 captures it.
-   *
-   * The implementation turns CHARGING into RESTING keeping `chargeMs` and `aimOrigin`, and then, on
-   * the very next step, the input-edge rule sees "pointer down + RESTING" and calls `beginCharge`,
-   * which throws 500 ms of accumulated power away and emits a SECOND `chargeStart` for a finger that
-   * never left the glass. The player who charged a full shot under a ledge fires a dry tap.
-   *
-   * §11.3 is explicit that "las transiciones son la especificación completa del control; no existe
-   * ninguna otra ruta", and it has no CHARGING → RESTING arrow. Whichever way it is resolved (keep the
-   * hold across the capture, or refuse to capture while charging), silently zeroing the hold is not it.
+   * §11.3 says the state machine is "la especificación completa del control; no existe ninguna otra
+   * ruta", and it has no AIMING → RESTING arrow that eats the gesture. Whichever way it is resolved
+   * (keep the pull across the capture, or refuse to capture while aiming), silently discarding the
+   * pull is not it — and under D1 it would be worse than in v1.1: the player would ALSO have been
+   * charged nothing while losing the shot they were lining up.
    */
-  it('does not discard the accumulated hold when Bur is captured mid-charge', () => {
+  it('does not discard the pull when Bur is captured mid-aim, and stops charging her for it', () => {
     const slab = ceiling('ceil', { x: 60, y: 100, w: 60, h: 10 });
     const sim = new Sim(vec(90, 121), [slab]);
-    const origin = { ...sim.bubble.pos };
-    const finger = fingerAt(origin);
+    sim.bubble.air = 5;
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    const finger = pullTo(origin);
 
-    let heldAtCapture = 0;
-    for (let i = 0; i < 200; i++) {
-      sim.step(finger);
-      if (sim.bubble.state === 'RESTING') {
-        heldAtCapture = sim.bubble.chargeMs;
-        break;
-      }
-    }
-    expect(heldAtCapture).toBeGreaterThan(400); // half a second of charge was in the bank
+    for (let i = 0; i < 200 && sim.bubble.state !== 'RESTING'; i++) sim.step(finger);
+    expect(sim.bubble.state).toBe('RESTING');
+    expect(sim.bubble.pullDist).toBeCloseTo(t.PULL_MAX_PX, 9);
 
     sim.step(finger);
-    expect(sim.bubble.chargeMs).toBeGreaterThanOrEqual(heldAtCapture);
-    expect(sim.of('chargeStart')).toHaveLength(1);
+    expect(sim.bubble.state).toBe('AIMING');
+    expect(sim.bubble.pullDist).toBeCloseTo(t.PULL_MAX_PX, 9);
+    expect(sim.of('aimStart')).toHaveLength(1);
+
+    sim.step(POINTER_UP);
+    expect(sim.of('launch')[0]?.airLaunch).toBe(false);
+    expect(sim.bubble.air).toBe(5); // captured before the release: the double jump was never spent
   });
 });
 
@@ -316,60 +336,161 @@ describe('ADVERSARIAL — capture while CHARGING in mid-water (§11.3, §2.1)', 
 // 5. §2.3 — the pressure clock while attached to a ceiling
 // ---------------------------------------------------------------------------------------------
 
-describe('ADVERSARIAL — pressure drain while charging from rest (§2.3, §2.4.4)', () => {
+describe('ADVERSARIAL — pressure drain while aiming from rest (§2.3, §2.4.4)', () => {
   /**
-   * §2.3: "El drenaje pasivo de Aire por presión SE CONGELA MIENTRAS DURA EL REPOSO; es un alivio
-   * pequeño y honesto (a lo sumo 3 s de un reloj de 25 s)". The freeze is keyed on `state === 'RESTING'`
-   * only, but the natural thing to do while resting is to aim, and aiming is CHARGING — so the relief
-   * the GDD budgets at "up to 3 s" is worth ~0 s in practice.
-   *
-   * The module already treats a charge from rest AS rest everywhere else (pinned position, 1.800 ms
-   * overcharge threshold, REST_STICKY_IMPULSE_MUL on the launch, `restingOnId` still set): this clock
-   * is the one place the same situation is classified the other way.
+   * §2.3 freezes the passive drain "mientras dura el reposo", and what Bur does while resting is aim.
+   * Keying the freeze on `state === 'RESTING'` instead of on the attachment makes a Z5 player pay for
+   * every second spent lining up a shot from a ledge she is demonstrably hanging from.
    */
-  it('freezes the Z5–Z6 pressure clock for as long as Bur is attached to the ceiling', () => {
+  it('keeps the Z5 pressure clock frozen for the whole aim', () => {
     const sim = restingSim({ maxRestMs: 60_000 });
     sim.zone = 5;
     sim.bubble.air = 6;
-    const origin = { ...sim.bubble.pos };
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    // The whole aim budget, which is what D2 lets a player spend lining a shot up from a ledge.
+    sim.run_(t.AIM_MAX_MS - 200, pullTo(origin));
 
-    sim.run_(2000, fingerAt(origin));
-
-    expect(sim.bubble.state).toBe('CHARGING');
-    expect(sim.bubble.restingOnId).toBe('ceil');
+    expect(sim.bubble.state).toBe('AIMING');
     expect(sim.bubble.pressureDrainMs).toBe(0);
+    expect(sim.of('airLost')).toHaveLength(0);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-// 6. Event contract — no air is ever lost to overcharge without the warning that precedes it
+// 6. Event contract — a cancelled gesture is announced, and it is free
 // ---------------------------------------------------------------------------------------------
 
-describe('ADVERSARIAL — overchargeStart is the only tell for the drain (§2.2)', () => {
+describe('ADVERSARIAL — every gesture ends with exactly one event (D2)', () => {
   /**
-   * `overchargeStart` is the shell's cue for the "estás sobrecargando" feedback, and §2.2 sells the
-   * overcharge as a *communicated* cost ("no arruina el tiro: fuga aire lentamente"), never a silent
-   * one. The event is emitted only on the step where `chargeMs` crosses the threshold — but the
-   * threshold itself MOVES: it is 1.800 ms while `restingOnId` is set and 900 ms once it is not.
-   *
-   * Marine snow dissolving (§5), a boss slab moving away or the streamer dropping the chunk all clear
-   * `restingOnId` mid-hold (`detachRest(… 'displaced')`). A hold already past 900 ms then jumps
-   * straight into overcharge with `previousChargeMs > threshold`, so the tell never fires and Bur
-   * quietly vents a pip 500 ms later.
+   * The shell drives the charge ring, the guide and the sling SFX off this stream. A gesture that
+   * ended without saying so leaves the ring drawn at full stretch over a Bur who is resting again;
+   * one that ends twice restarts the sound. Every ending is one `launch` or one `aimCancel`.
    */
-  it('emits overchargeStart before any overcharge pip is spent', () => {
-    const sim = restingSim();
+  it('ends a cancel, a timeout and a displacement with one aimCancel each, and no launch', () => {
+    const zone = restingSim({ maxRestMs: 60_000 });
+    const origin = vec(90, 300);
+    zone.step(press(origin));
+    zone.step({ down: true, x: origin.x, y: origin.y - 3 });
+    zone.step(POINTER_UP);
+    expect(zone.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'zone' }]);
+    expect(zone.of('launch')).toHaveLength(0);
+
+    const timeout = restingSim({ maxRestMs: 60_000 });
+    timeout.step(press(origin));
+    timeout.run_(t.AIM_MAX_MS + 500, pullTo(origin));
+    expect(timeout.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'timeout' }]);
+    expect(timeout.of('launch')).toHaveLength(0);
+
+    const displaced = restingSim({ maxRestMs: 60_000 });
+    displaced.step(press(origin));
+    displaced.step(pullTo(origin));
+    displaced.solids = [];
+    displaced.step(pullTo(origin));
+    expect(displaced.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'displaced' }]);
+    expect(displaced.of('launch')).toHaveLength(0);
+  });
+
+  /** A cancelled AIR aim must cost nothing: D2 says the cancel is free, in the water as on a ledge. */
+  it('never charges a pip for a gesture that did not launch', () => {
+    const sim = new Sim(vec(90, 200));
     sim.bubble.air = 5;
-    const origin = { ...sim.bubble.pos };
-    const finger = fingerAt(origin);
+    const origin = vec(90, 400);
+    for (let i = 0; i < 6; i++) {
+      sim.step(press(origin));
+      sim.step({ down: true, x: origin.x + 2, y: origin.y - 2 });
+      sim.step(POINTER_UP);
+    }
+    expect(sim.bubble.air).toBe(5);
+    expect(sim.bubble.airLaunchesUsed).toBe(0);
+    expect(sim.of('aimCancel')).toHaveLength(6);
+  });
+});
 
-    sim.run_(1200, finger); // past OVERCHARGE_MS, still inside the 1.800 ms rest budget
-    expect(sim.of('overchargeStart')).toHaveLength(0);
+// ---------------------------------------------------------------------------------------------
+// 5. D1 — "nunca está disponible con el último pip" is a property of the RELEASE, not of the press
+// ---------------------------------------------------------------------------------------------
 
-    sim.solids = []; // the ceiling dissolves under her: the threshold drops to 900 ms
-    sim.run_(700, finger);
+describe('ADVERSARIAL — the double jump on the last pip (D1)', () => {
+  /**
+   * D1 states the rule without a time qualifier: the mid-air launch "cuesta 1 pip de Aire y NUNCA está
+   * disponible con el último pip". `canAim` tests it at the pointerdown and nothing tests it again, so
+   * a gesture opened while Bur could afford the shot survives losing the pip it was counting on: a
+   * hazard (or, in Z5/Z6, the passive pressure clock of §2.4.4) takes her to one pip mid-aim and the
+   * release still fires. `loseAir`'s floor then declines to charge for it, which turns the refusal into
+   * a DISCOUNT — the one shot D1 says does not exist is granted, and granted free.
+   *
+   * That is not a rounding error in the economy: the whole point of the floor is that a player on her
+   * last pip has no double jump to gamble with, so she must reach a ledge with the shot she already
+   * took. Here she gets a second one, and the HUD (`airLaunchAvailable`) has already told her she has
+   * none.
+   */
+  it('refuses to fire a mid-air launch the last pip cannot pay for', () => {
+    const sim = new Sim(vec(90, 200));
+    sim.bubble.air = 2; // Enough to open the gesture: AIR_LAUNCH_COST is 1 and 2 > 1.
+    const origin = vec(90, 400);
 
-    expect(sim.of('airLost')).toHaveLength(1); // it does vent a pip
-    expect(sim.of('overchargeStart')).toHaveLength(1); // …with no warning at all
+    sim.step(press(origin));
+    sim.run_(160, pullTo(origin));
+    expect(sim.of('aimStart')).toHaveLength(1);
+
+    // A hazard connects mid-pull and takes the pip the aim was counting on (this is exactly what
+    // `loseAir` does to `bubble.air`; the geometry of the hit belongs to GameWorld and is not the
+    // subject here). Bur is now on her LAST pip.
+    sim.bubble.air = 1;
+    sim.step(POINTER_UP);
+
+    expect(sim.of('launch')).toHaveLength(0);
+    expect(sim.bubble.airLaunchesUsed).toBe(0);
+    expect(sim.bubble.air).toBe(1);
+    expect(sim.bubble.state).not.toBe('LAUNCHED');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// 6. D2 × §2.3 × §2.4.4 — the aim freezes BOTH clocks, and one finger can renew it for ever
+// ---------------------------------------------------------------------------------------------
+
+describe('ADVERSARIAL — the frozen clocks of an aim are renewable (D2, §2.3, §2.4.4)', () => {
+  /**
+   * D2 freezes the posadero's anti-camping clock while Bur aims and argues the freeze is bounded:
+   * "AIM_MAX_MS bounds that at 6 s, and the same finger cannot open a second aim without lifting".
+   * Lifting costs ONE frame. The loop is press → hold 6 s → the timeout cancels → lift for a single
+   * step → press again, and it renews the freeze at a price of 16,7 ms of ledge per 6 s of camping: a
+   * 3 s posadero survives about 18 minutes of it.
+   *
+   * On a Z5/Z6 ledge the same loop also parks §2.4.4's passive pressure drain, which `stepBubble`
+   * freezes for as long as Bur is ATTACHED. That is the half that is not a matter of taste: "cada 25 s
+   * sin tocar bolsa de aire pierdes 1 Aire" is the clock the two deepest zones are built around, and a
+   * player who never lifts her thumb for more than a frame never pays it. The rule §2.3 states is
+   * "nadie acampa"; a bound of 18 minutes is not one.
+   *
+   * The fix keeps the freeze D2 asks for and makes it a LOAN: `cancelAim` charges the frozen time back
+   * to `restMs`, so only a gesture that actually LAUNCHES (and therefore leaves the ledge) escapes the
+   * clock. Camping is then bounded by REST_MAX_MS + AIM_MAX_MS whatever the finger does, which is what
+   * this test asserts — the loop runs until the ledge throws Bur off, and that has to happen inside
+   * one posadero plus one aim, not eighteen minutes later.
+   */
+  it('bounds the drumming-finger loop at REST_MAX_MS + AIM_MAX_MS, ledge and pressure clock alike', () => {
+    const slab = ceiling('deep-ledge', { x: 60, y: 100, w: 60, h: 10 });
+    const sim = new Sim(vec(90, 124), [slab], 4);
+    sim.bubble.vel = { x: 0, y: -200 };
+    for (let i = 0; i < 10 && sim.bubble.state !== 'RESTING'; i++) sim.step();
+    expect(sim.bubble.state).toBe('RESTING');
+
+    const origin = vec(90, 300);
+    const restedAtMs = sim.nowMs;
+    // "Thinking about the shot" for as long as the ledge allows: each cycle is a full aim, its
+    // timeout, and the one frame off the glass that used to buy another six seconds.
+    while (sim.nowMs < 60_000 && sim.of('restRelease').length === 0) {
+      sim.step(press(origin));
+      sim.run_(t.AIM_MAX_MS, pullTo(origin));
+      sim.step(POINTER_UP);
+    }
+
+    expect(sim.of('launch')).toHaveLength(0); // Nothing was ever fired: this is pure camping.
+    expect(sim.of('restRelease')).toHaveLength(1);
+    // One aim's worth of freeze is all the ledge lends, and the eject is what un-parks §2.4.4's drain.
+    expect(sim.nowMs - restedAtMs).toBeLessThanOrEqual(t.REST_MAX_MS.posadero + t.AIM_MAX_MS + 2 * 1000 * t.FIXED_DT);
   });
 });

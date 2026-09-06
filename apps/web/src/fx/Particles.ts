@@ -122,6 +122,15 @@ export class Particles {
     this.pop.explode(14, at.x, at.y);
   }
 
+  /**
+   * D1's mid-air launch: the pip she spends leaves as a small cloud of rising bubbles. Deliberately
+   * the SAME voice as the deflate puff, one seventh the size — it is the one shot that costs Air.
+   */
+  airSpent(at: Vec2): void {
+    this.pop.setEmitterAngle({ min: 200, max: 340 });
+    this.pop.explode(6, at.x, at.y);
+  }
+
   /** 4 sparkles radiating from a collected pickup. */
   pickup(at: Vec2): void {
     this.sparkle.setEmitterAngle({ min: 0, max: 360 });
@@ -149,7 +158,7 @@ export class Particles {
    * would drag its particles and cancel the parallax); only the SPAWN position follows the camera, on
    * the side the camera is travelling towards, so nothing pops into view.
    */
-  update(cameraY: number, viewH: number): void {
+  update(cameraX: number, cameraY: number, viewW: number, viewH: number): void {
     if (!this.snowOn) {
       this.lastCamY = cameraY;
       return;
@@ -161,10 +170,13 @@ export class Particles {
     if (missing <= 0) return;
     // Emitter-local coordinates of the visible band, given the emitter sits at world 0 with parallax.
     const top = cameraY * SNOW_PARALLAX;
+    // D3: the world is wider than the view, so the seeding band follows the camera in X too — the
+    // emitter sits at world 0 and its particles are drawn at parallax, exactly like the vertical band.
+    const left = cameraX * SNOW_PARALLAX;
     const seeding = alive === 0;
     const batch = seeding ? missing : Math.min(missing, 3);
     for (let i = 0; i < batch; i++) {
-      const x = Phaser.Math.Between(-12, 192);
+      const x = Phaser.Math.Between(Math.round(left) - 12, Math.round(left + viewW) + 12);
       const y = seeding
         ? top + Math.random() * viewH
         : descending

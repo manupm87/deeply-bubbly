@@ -56,7 +56,7 @@ describe('loseAir — the single entry point (§2.4)', () => {
       expect(bubble.flags.invulnUntil).toBe(1000 + t.INVULN_MS);
       expect(bubble.flags.stunUntil).toBe(1000 + t.STUN_MS);
     }
-    for (const reason of ['overcharge', 'pressure', 'resaca'] as AirLossReason[]) {
+    for (const reason of ['airLaunch', 'pressure', 'resaca'] as AirLossReason[]) {
       const bubble = makeBubble({ air: 5 });
       loseAir(bubble, makeRun(), reason, AT, 1000, t);
       expect(bubble.flags.invulnUntil).toBe(0);
@@ -73,7 +73,7 @@ describe('loseAir — the single entry point (§2.4)', () => {
 
     loseAir(bubble, makeRun(), 'pressure', AT, 1500, t);
     loseAir(bubble, makeRun(), 'resaca', AT, 1500, t);
-    loseAir(bubble, makeRun(), 'overcharge', AT, 1500, t);
+    loseAir(bubble, makeRun(), 'airLaunch', AT, 1500, t);
     expect(bubble.air).toBe(2);
   });
 
@@ -127,33 +127,49 @@ describe('loseAir — shell shield (§2.5)', () => {
   });
 });
 
-describe('loseAir — overcharge floor and cap (§2.2, §11.7.4)', () => {
-  it('never takes the last pip', () => {
-    const bubble = makeBubble({ air: t.OVERCHARGE_MIN_AIR });
-    const change = loseAir(bubble, makeRun(), 'overcharge', AT, 0, t);
-    expect(bubble.air).toBe(t.OVERCHARGE_MIN_AIR);
+describe('loseAir — the air-launch price and its floor (D1)', () => {
+  it('costs exactly AIR_LAUNCH_COST pips and says so', () => {
+    const bubble = makeBubble({ air: 5 });
+    const change = loseAir(bubble, makeRun(), 'airLaunch', AT, 0, t);
+    expect(bubble.air).toBe(5 - t.AIR_LAUNCH_COST);
+    expect(change.events).toEqual([{ type: 'airLost', reason: 'airLaunch', air: bubble.air, at: AT }]);
+    expect(change.died).toBe(false);
+  });
+
+  it('never takes the last pip: "nunca está disponible con el último pip"', () => {
+    const bubble = makeBubble({ air: t.AIR_LAUNCH_COST });
+    const change = loseAir(bubble, makeRun(), 'airLaunch', AT, 0, t);
+    expect(bubble.air).toBe(t.AIR_LAUNCH_COST);
     expect(change.events).toEqual([]);
-    expect(bubble.overchargeDrained).toBe(0);
+    expect(change.died).toBe(false);
   });
 
-  it('never drains more than OVERCHARGE_MAX_DRAIN in one hold', () => {
-    const bubble = makeBubble({ air: 8 });
-    for (let i = 0; i < 6; i++) loseAir(bubble, makeRun(), 'overcharge', AT, i * 500, t);
-    expect(bubble.overchargeDrained).toBe(t.OVERCHARGE_MAX_DRAIN);
-    expect(bubble.air).toBe(8 - t.OVERCHARGE_MAX_DRAIN);
+  it('is a price, not a blow: no invulnerability and no stun', () => {
+    const bubble = makeBubble({ air: 5 });
+    loseAir(bubble, makeRun(), 'airLaunch', AT, 1000, t);
+    expect(bubble.flags.invulnUntil).toBe(0);
+    expect(bubble.flags.stunUntil).toBe(0);
   });
 
-  it('counts only the pips it actually took (a blocked drain does not spend the cap)', () => {
-    const bubble = makeBubble({ air: 2 });
-    loseAir(bubble, makeRun(), 'overcharge', AT, 0, t); // 2 → 1
-    loseAir(bubble, makeRun(), 'overcharge', AT, 500, t); // blocked by the floor
-    expect(bubble.air).toBe(1);
-    expect(bubble.overchargeDrained).toBe(1);
+  it('is never absorbed by the shell shield: the shield is for hits (§2.5)', () => {
+    const bubble = makeBubble({ air: 5 });
+    const run = makeRun({ shieldAvailable: true });
+    loseAir(bubble, run, 'airLaunch', AT, 0, t);
+    expect(bubble.air).toBe(5 - t.AIR_LAUNCH_COST);
+    expect(run.shieldAvailable).toBe(true);
+  });
+
+  it('a free double jump (cost 0) takes nothing and announces nothing', () => {
+    const free = createTuning({ AIR_LAUNCH_COST: 0 });
+    const bubble = makeBubble({ air: 5 });
+    const change = loseAir(bubble, makeRun(), 'airLaunch', AT, 0, free);
+    expect(bubble.air).toBe(5);
+    expect(change.events).toEqual([]);
   });
 
   it('breaks the bounce chain only when a hazard connects', () => {
     const bubble = makeBubble({ air: 6, bounceChain: 3, bounceChainBodies: ['a', 'b', 'c'] });
-    loseAir(bubble, makeRun(), 'overcharge', AT, 0, t);
+    loseAir(bubble, makeRun(), 'airLaunch', AT, 0, t);
     expect(bubble.bounceChain).toBe(3);
 
     loseAir(bubble, makeRun(), 'hit', AT, 0, t);

@@ -5,7 +5,7 @@
  *
  * No Phaser here on purpose: `main.ts` needs the settings before the game exists.
  */
-import { loadSave, withCalmDive, withSlowCharge, writeSave } from '@deeply-bubbly/core';
+import { loadSave, withCalmDive, withLongSling, writeSave } from '@deeply-bubbly/core';
 import type { KeyValueStore, SaveData, Tuning } from '@deeply-bubbly/core';
 import type { Settings } from '../context';
 
@@ -51,14 +51,17 @@ export function saveSettings(store: KeyValueStore, settings: Settings): SaveData
 
 /**
  * The two settings that change numbers, both transformed by core and never by the shell:
- *   - "carga lenta" scales every gesture time (§8) → `withSlowCharge`;
+ *   - the long slingshot spreads the same power over more travel (§8, D2) → `withLongSling`;
  *   - "Buceo tranquilo" widens rest, resaca grace and pressure drain (§8) → `withCalmDive`.
+ * The persisted FLAG is still called `slowCharge`: it is a key in `SaveData.settings`, and renaming it
+ * would silently turn the setting off for everyone who had it on. What it means changed with D2 (there
+ * is no charge left to slow down), and the label the player reads says so.
  * The other two ("sin temblor", "trayectoria asistida") are presentation and are honoured where they
  * are drawn: `fx/Juice` and `render/Trajectory`.
  */
 export function applySettingsToTuning(base: Tuning, settings: Settings): Tuning {
   let t = base;
-  if (settings.slowCharge) t = withSlowCharge(t);
+  if (settings.slowCharge) t = withLongSling(t);
   if (settings.calm) t = withCalmDive(t);
   return t;
 }

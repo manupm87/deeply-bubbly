@@ -1,96 +1,131 @@
 /**
  * The three opening chunks of the campaign (GDD §4.1: "los tres primeros chunks de la partida" are
- * hand-made, never shuffled; §12.1). They teach the single verb of Zone 1 — charge, release, rest under
- * the ceiling — with no hazard in sight, and they are the first impression of the whole game.
+ * hand-made, never shuffled; §12.1). They teach the single verb of Zone 1 — draw the slingshot, let go,
+ * come to rest under a ceiling — with no hazard in sight, and they are the first impression of the game.
  *
- * The descent is authored "ceiling to ceiling": consecutive anchors drop 55–90 px (MAX_HOP_PX is 200)
- * and alternate sides, so the shot that lands is a lazy one (p ≈ 0,10–0,25 of §11.4). A full charge is
- * never required anywhere in the zone; it would overshoot every landing by 200 px.
+ * They are also the first impression of the 540 px world (DECISIONS-v1.2 D3): every hop crosses between
+ * a third and a whole screen of water, so the camera moves sideways from the second shot on and the
+ * player learns that the column is three screens wide before anything is asked of them. `../ladder.ts`
+ * owns the geometry; what these files choose is where the ladder goes and what lives beside it.
+ *
+ * Power stays low on purpose. D4 cut the impulse range to 90–280 px/s, which buys ≈195 px of descent at
+ * a full pull; a 62 px drop across 90–170 px of water is a lazy half pull, and the top fifth of the
+ * slingshot is never needed anywhere in the zone (`zoneReport.cappedImpulse`).
  */
-import { Z1, airPocket, anchorIdOf, jellyfish, pearl, perch, restY } from './builders';
-import type { Anchor, Ceiling, Chunk } from '../../../types';
+import {
+  ENTRY_X_LEFT,
+  ENTRY_X_RIGHT,
+  RUNG_Y_4,
+  airPocket,
+  exitRung,
+  jellyfish,
+  ladder,
+  pearl,
+  reefIn,
+  rung,
+  shell,
+} from './builders';
+import type { Chunk } from '../../../types';
+
+const VERBS = ['apuntar', 'soltar', 'reposar'];
 
 /**
- * z1-open-1 — the tutorial. One foam raft just under the surface, nothing else: Bur begins resting under
- * it (§2.3 "el reposo es el comportamiento por defecto") and the only thing to learn is the gesture.
- * Both declared anchors hang from that same ceiling, so the chunk is crossed in a single shot.
+ * z1-open-1 — the tutorial. A foam raft just under the surface, wide enough to read as a raft and not as
+ * a ledge: Bur is born under it (§2.3 "el reposo es el comportamiento por defecto", §8 step 1) and the
+ * only thing to learn is the gesture. Two easy rungs follow, then the cornice every chunk exits on.
  */
-const [foam, foamEntry] = perch({ id: 'o1-foam', x: 20, y: 188, w: 140, anchorX: 40, material: 'foam' });
-/** The far end of the same raft: entering and leaving the tutorial never asks for a second ceiling. */
-const foamExit: Anchor = { type: 'anchor', id: 'o1-foam-exit', ceilingId: foam.id, pos: { x: 110, y: restY(188) }, lane: 'C' };
+const open1 = ladder('o1', [
+  rung(ENTRY_X_LEFT, RUNG_Y_4[0] ?? 18, { w: 120, inset: 60, material: 'foam' }),
+  rung(300, RUNG_Y_4[1] ?? 80),
+  rung(ENTRY_X_RIGHT, RUNG_Y_4[2] ?? 142, { material: 'coral' }),
+  exitRung(),
+]);
 
 export const Z1_OPEN_1: Chunk = {
   id: 'z1-open-1',
-  zone: Z1,
+  zone: 0,
   difficulty: 1,
-  verbs: ['cargar', 'soltar', 'reposar'],
-  entry: 'L',
-  exit: 'C',
-  entryAnchorId: foamEntry.id,
-  exitAnchorId: foamExit.id,
-  airBudget: 1,
-  targetTimeS: 6,
+  verbs: VERBS,
+  entryAnchorId: open1.entryAnchorId,
+  exitAnchorId: open1.exitAnchorId,
+  airBudget: 2,
+  targetTimeS: 10,
   tags: ['tutorial', 'espuma'],
   role: 'opening',
-  entities: [foam, foamEntry, foamExit, airPocket('o1-air', 90, 226)],
+  entities: [
+    ...open1.entities,
+    ...reefIn('o1', { left: [30, 190], right: [110, 120] }),
+    airPocket('o1-air-1', 250, 60),
+    airPocket('o1-air-2', 350, 175),
+    pearl('o1-pearl', 480, 120),
+  ],
 };
 
 /**
- * z1-open-2 — the first descent proper: four rock ledges in a wide zigzag, one air pocket on the way.
- * Still no hazard: the lesson is that a shot lands under the NEXT ceiling, not on top of it.
+ * z1-open-2 — the first descent proper: a wide zigzag that sweeps the whole column, with an air pocket
+ * on the way. Still no hazard: the lesson is that a shot lands UNDER the next ceiling, never on top of
+ * it, and that the ceiling is often a screen away.
  */
-const o2: Array<[Ceiling, Anchor]> = [
-  perch({ id: 'o2-p1', x: 3, y: 18, w: 36, anchorX: 30 }),
-  perch({ id: 'o2-p2', x: 141, y: 78, w: 36, anchorX: 150, material: 'coral' }),
-  perch({ id: 'o2-p3', x: 5, y: 133, w: 40, anchorX: 36 }),
-  perch({ id: 'o2-p4', x: 101, y: 188, w: 48, anchorX: 110, material: 'coral' }),
-];
+const open2 = ladder('o2', [
+  rung(ENTRY_X_RIGHT, RUNG_Y_4[0] ?? 18),
+  rung(230, RUNG_Y_4[1] ?? 80, { material: 'coral' }),
+  rung(390, RUNG_Y_4[2] ?? 142),
+  exitRung(),
+]);
 
 export const Z1_OPEN_2: Chunk = {
   id: 'z1-open-2',
-  zone: Z1,
+  zone: 0,
   difficulty: 1,
-  verbs: ['cargar', 'soltar', 'reposar'],
-  entry: 'L',
-  exit: 'C',
-  entryAnchorId: anchorIdOf('o2-p1'),
-  exitAnchorId: anchorIdOf('o2-p4'),
-  airBudget: 1,
-  targetTimeS: 9,
+  verbs: VERBS,
+  entryAnchorId: open2.entryAnchorId,
+  exitAnchorId: open2.exitAnchorId,
+  airBudget: 2,
+  targetTimeS: 11,
   tags: ['zigzag', 'calma'],
   role: 'opening',
-  entities: [...o2.flat(), airPocket('o2-air', 92, 118), pearl('o2-pearl', 168, 150)],
+  entities: [
+    ...open2.entities,
+    ...reefIn('o2', { left: [60, 150], right: [40, 160] }),
+    airPocket('o2-air-1', 300, 50),
+    airPocket('o2-air-2', 300, 175),
+    // The first lateral detour of the game: a pearl tucked against the left reef, off every line.
+    pearl('o2-pearl', 70, 118),
+    shell('o2-concha', 470, 60),
+  ],
 };
 
 /**
- * z1-open-3 — the Medusa Farolillo (§5 nº 1) enters. She hangs at the depth of the SECOND landing, on
- * the near side of it and squarely on the line between the two anchors: a shot that falls short rises
- * into her belly and is fired back DOWN, a shot that carries passes to her right and lands. It is not a
- * `Hazard` — it costs no Air — and it is the first lesson of the game, pointing in the right direction.
+ * z1-open-3 — the Medusa Farolillo (§5 nº 1) enters. She hangs on the straight line between the first
+ * two rest points, at the depth Bur rises back through: a shot that falls short meets her belly and is
+ * fired back DOWN, a shot that carries passes beside her and lands. She is not a `Hazard` — she costs no
+ * Air — and she is the first lesson of the game, pointing in the right direction.
  */
-const o3: Array<[Ceiling, Anchor]> = [
-  perch({ id: 'o3-p1', x: 3, y: 18, w: 36, anchorX: 30 }),
-  perch({ id: 'o3-p2', x: 141, y: 108, w: 36, anchorX: 150, material: 'coral' }),
-  perch({ id: 'o3-p3', x: 31, y: 188, w: 48, anchorX: 70 }),
-];
+const open3 = ladder('o3', [
+  rung(ENTRY_X_LEFT, RUNG_Y_4[0] ?? 18),
+  rung(330, RUNG_Y_4[1] ?? 80, { material: 'coral' }),
+  rung(420, RUNG_Y_4[2] ?? 142),
+  exitRung(),
+]);
 
 export const Z1_OPEN_3: Chunk = {
   id: 'z1-open-3',
-  zone: Z1,
+  zone: 0,
   difficulty: 1,
-  verbs: ['cargar', 'soltar', 'reposar'],
-  entry: 'L',
-  exit: 'C',
-  entryAnchorId: anchorIdOf('o3-p1'),
-  exitAnchorId: anchorIdOf('o3-p3'),
-  airBudget: 1,
-  targetTimeS: 9,
+  verbs: VERBS,
+  entryAnchorId: open3.entryAnchorId,
+  exitAnchorId: open3.exitAnchorId,
+  airBudget: 2,
+  targetTimeS: 11,
   tags: ['medusa', 'zigzag'],
   role: 'opening',
   entities: [
-    ...o3.flat(),
-    jellyfish('o3-medusa', 95, 108, 40),
-    airPocket('o3-air', 96, 160),
-    pearl('o3-pearl', 150, 176),
+    ...open3.entities,
+    ...reefIn('o3', { left: [80, 140], right: [150, 90] }),
+    jellyfish('o3-medusa', 238, 60, 40),
+    airPocket('o3-air-1', 220, 118),
+    airPocket('o3-air-2', 470, 190),
+    pearl('o3-pearl', 90, 60),
+    shell('o3-concha', 100, 200),
   ],
 };

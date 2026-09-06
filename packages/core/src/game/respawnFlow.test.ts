@@ -16,7 +16,9 @@ describe('placeBubble', () => {
     bubble.state = 'DEAD';
     bubble.deadMs = 700;
     bubble.vel = { x: 300, y: -200 };
-    bubble.chargeMs = 800;
+    bubble.pullDist = 50;
+    bubble.aimMs = 800;
+    bubble.airLaunchesUsed = 1;
     bubble.aimOrigin = { x: 1, y: 2 };
     bubble.restingOnId = 'ledge';
     bubble.lastRestingCeilingId = 'ledge';
@@ -33,7 +35,9 @@ describe('placeBubble', () => {
     expect(bubble.vel).toEqual({ x: 0, y: 0 });
     expect(bubble.state).toBe('IDLE');
     expect(bubble.deadMs).toBe(0);
-    expect(bubble.chargeMs).toBe(0);
+    expect(bubble.aimMs).toBe(0);
+    expect(bubble.pullDist).toBe(0);
+    expect(bubble.airLaunchesUsed).toBe(0);
     expect(bubble.aimOrigin).toBeNull();
     expect(bubble.restingOnId).toBeNull();
     expect(bubble.lastRestingCeilingId).toBeNull();
@@ -44,6 +48,17 @@ describe('placeBubble', () => {
     expect(bubble.flags.stunUntil).toBe(0);
     expect(bubble.flags.resacaUntil).toBe(0);
     expect(bubble.flags.trapVentAt).toBe(0);
+    // The fixture was respawned mid-pull (`aimOrigin` was set), so the gesture reports its ending:
+    // D2 gives one, and only one, event to every way a gesture can end.
+    expect(events).toEqual([
+      { type: 'aimCancel', reason: 'displaced' },
+      { type: 'respawn', at: { x: 90, y: 720 }, anchorKind: 'boya' },
+    ]);
+  });
+
+  it('reports nothing but the respawn when no gesture was running', () => {
+    const bubble = createBubble({ x: 10, y: 10 }, 0, T);
+    const events = placeBubble(bubble, { pos: { x: 90, y: 720 }, kind: 'boya' }, 0, T);
     expect(events).toEqual([{ type: 'respawn', at: { x: 90, y: 720 }, anchorKind: 'boya' }]);
   });
 

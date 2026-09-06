@@ -1,6 +1,6 @@
 /**
  * Hand-authored Zone 2 chunks, "Borde de arrecife" (GDD §3.2: 200–600 m, world px 2 880–7 200, three
- * immersions = 18 chunks = 15 playable + 3 stations). Chunk-local coordinates: x 0..180, y 0..240.
+ * immersions = 18 chunks = 15 playable + 3 stations). Chunk-local coordinates: x 0..540, y 0..240 (D3).
  *
  * Every chunk MUST pass `validateChunk`; `Z2_SEQUENCES` MUST pass `validateSequence`, and the whole
  * campaign `Z1_SEQUENCES ++ Z2_SEQUENCES` MUST pass `validateCampaign` — the Z1 → Z2 seam included
@@ -14,7 +14,7 @@ import { Z2_STATION_1, Z2_STATION_2, Z2_STATION_3 } from './stations';
 import { Z2_TUTORIAL } from './tutorial';
 import type { Chunk } from '../../../types';
 
-export { Z2, Z2_MAX_HOP, Z2_RADIUS } from './builders';
+export { Z2, Z2_MAX_HOP, Z2_MAX_HOP_X, Z2_RADIUS } from './builders';
 export { Z2_TUTORIAL } from './tutorial';
 export { Z2_STATION_1, Z2_STATION_2, Z2_STATION_3 } from './stations';
 export {
@@ -55,8 +55,9 @@ export const Z2_CHUNKS: readonly Chunk[] = [
  *   immersion 4 of the campaign:  2  3  4  3  4  · station
  *   immersion 5 of the campaign:  3  3  4  3  5  · station (delivery)
  *
- * The lane chain (§11.5.1) is continuous through the Z1 → Z2 seam as well: `z1-station-2` exits 'C'
- * and `z2-tut-corriente` enters 'L', which are adjacent lanes.
+ * The ladder is continuous through the Z1 → Z2 seam as well: every chunk of the game exits on the same
+ * cornice column and enters on one of the two entry columns, so `z1-station-2` -> `z2-tut-corriente` is
+ * the same 53 px hop as any other (`../ladder.ts`).
  */
 export const Z2_SEQUENCES: readonly (readonly string[])[] = [
   [Z2_TUTORIAL.id, Z2_LIB_A.id, Z2_LIB_B.id, Z2_LIB_C.id, Z2_LIB_D.id, Z2_STATION_1.id],

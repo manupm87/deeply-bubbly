@@ -34,7 +34,11 @@ export class Juice {
   onEvent(e: GameEvent): void {
     switch (e.type) {
       case 'airLost':
-        this.ctx.bus.emit('hitstop', HITSTOP_AIR_LOST_MS); // never a shake (GDD §7)
+        // §7's hitstop is the DAMAGE beat. D1's double jump is a price the player chose to pay, not a
+        // blow she took: freezing the frame as she leaves would punish the one shot D1 grants. The
+        // spend has its own vocabulary — a cyan rising pip (`AirPips`), `Particles.airSpent`, and a
+        // launch pop a fifth higher — and `air.ts` grants it no invulnerability and no stun either.
+        if (e.reason !== 'airLaunch') this.ctx.bus.emit('hitstop', HITSTOP_AIR_LOST_MS); // never a shake (GDD §7)
         break;
       case 'bounce':
         if (e.speed > SHAKE_SPEED_THRESHOLD) this.shake();

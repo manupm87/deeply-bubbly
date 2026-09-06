@@ -1,7 +1,7 @@
 import { NEUTRAL_ENV, sampleForceFields } from '../physics/forceFields';
-import { createBubble, stepBubble } from '../bubble/bubbleStep';
-import { chargePower, fineTuneNormalized } from '../control/charge';
-import { createCamera, stepCamera } from '../camera/camera';
+import { abortAim, canAirLaunch, createBubble, stepBubble } from '../bubble/bubbleStep';
+import { pullPower } from '../control/pull';
+import { cameraXRange, createCamera, stepCamera } from '../camera/camera';
 import { pxToMeters, zoneAt } from '../level/depth';
 import { WorldStreamer } from '../level/streaming';
 import { createRunState, mayOfferSecondBreath, registerFailure } from '../run/runState';
@@ -12,9 +12,11 @@ import { advanceZone, createCheckpointState, crossBoyas, enterStation, reachedSt
 import { createBuckets, fillBuckets } from './entities';
 import { TRAP_ESCAPE_POWER, createTrapState, escapeTrap, resetTrapState, stepHazards } from './hazards';
 import { stepPickups } from './pickups';
+import { pointerToWorld } from './pointer';
 import { placeBubble } from './respawnFlow';
 import { updateResaca } from './resaca';
 import { createWorldWalls, updateWorldWalls } from './worldBounds';
+import { clamp } from '../math/vec';
 import type { Vec2 } from '../math/vec';
 import type { Tuning } from '../tuning';
 import type {
@@ -45,6 +47,8 @@ export interface GameWorldDeps {
   store: KeyValueStore;
   /** Visible height in design px (320–420); can change on resize via setViewHeight. */
   viewH: number;
+  /** D3: visible width in design px. Defaults to VIEW_W (180) — the world is WORLD_W (540) wide. */
+  viewW?: number;
   seed: number;
   /** Start from this station index (checkpoint), -1 = surface. */
   startStationIndex?: number;
@@ -101,7 +105,7 @@ export class GameWorld {
   private zone: ZoneIndex;
   private ascensoActive = false;
   /** Camera offset frozen at the start of the current finger contact (§2.1), or null when it is up. */
-  private holdCamY: number | null = null;
+  private holdCam: Vec2 | null = null;
   private trajectory: readonly Vec2[] = NO_TRAJECTORY;
 
   private readonly events: GameEvent[] = [];
@@ -128,7 +132,7 @@ export class GameWorld {
     this.zone = this.zoneOf(start.y);
     this.bubble = createBubble(start, this.zone, deps.tuning);
     this.bubble.air = Math.min(deps.tuning.AIR_START, this.bubble.airMax);
-    this.camera = createCamera(start.y, deps.viewH, deps.tuning);
+    this.camera = createCamera(start.y, deps.viewH, deps.tuning, start.x, deps.viewW ?? deps.tuning.VIEW_W);
     this.run.maxProgressY = start.y;
 
     this.checkpoints = createCheckpointState(this.zone);
@@ -210,12 +214,12 @@ export class GameWorld {
     this.push(placeBubble(this.bubble, point, this.nowMs, this.t));
     this.bubble.air = Math.min(this.t.AIR_START, this.bubble.airMax);
     // O(1): the campaign is already built and the streamer only re-instantiates the window it moves to.
-    this.camera = createCamera(point.pos.y, this.camera.viewH, this.t);
+    this.camera = createCamera(point.pos.y, this.camera.viewH, this.t, point.pos.x, this.camera.viewW);
     this.zone = this.zoneOf(point.pos.y);
     this.streamer.update(point.pos.y, false);
     this.resetTrap();
     this.endAscenso();
-    this.holdCamY = null;
+    this.holdCam = null;
     this.trajectory = NO_TRAJECTORY;
     this.phase = 'playing';
     this.dispatch(from);
@@ -230,6 +234,35 @@ export class GameWorld {
   setViewHeight(viewH: number): void {
     if (!Number.isFinite(viewH) || viewH <= 0) return;
     this.camera.viewH = viewH;
+  }
+
+  /**
+   * D3: the view can be narrower or wider than VIEW_W on a resize; the follow band scales with it.
+   * The clamp is re-applied here and not left to the next step, because `snapshot()` may be taken
+   * between a resize and that step and the shell places the camera verbatim: a widened view would
+   * otherwise report a right edge past WORLD_W for one frame.
+   */
+  setViewWidth(viewW: number): void {
+    if (!Number.isFinite(viewW) || viewW <= 0) return;
+    this.camera.viewW = viewW;
+    this.camera.x = clamp(this.camera.x, 0, cameraXRange(viewW, this.t));
+  }
+
+  /**
+   * Ends a live gesture without a shot (D2). The SHELL's route to `abortAim`, and the reason it has
+   * to exist: every forced end of a finger contact that is not a deliberate release — an automatic
+   * pause on blur or a hidden tab, a landscape prompt, a `pointercancel`, a drag that walks off the
+   * canvas — arrives at core as `pointer.down = false`, which is a RELEASE and fires the shot. A
+   * player coming back from a phone call must not find that her pull went off while she was away.
+   * Idempotent: with no gesture running it does nothing and reports nothing.
+   */
+  cancelAim(): void {
+    const from = this.events.length;
+    this.push(abortAim(this.bubble));
+    // Dispatched here and not left to the next `update`: this is the one event source OUTSIDE the
+    // step loop, and `update` only fans out what its own steps produced. A shell that is paused (the
+    // exact case this method exists for) may not call `update` again for minutes.
+    this.dispatch(from);
   }
 
   /** Replace tuning live (tuning panel). Derived values recomputed by the caller via createTuning. */
@@ -288,30 +321,26 @@ export class GameWorld {
     this.updateAscenso(env.opensAscenso, nowMs);
     const ascenso = bubble.flags.ascensoUntil > nowMs;
 
-    // 4. Bur herself. The pointer arrives in VIEWPORT px and is converted to world here (§11.1: x is
-    //    1:1, only y scrolls) with the camera offset FROZEN for the duration of the hold, exactly as
-    //    `beginCharge` freezes the origin. §2.1 is one promise — "con el origen congelado, dedo quieto
-    //    = tiro quieto" — and it only holds if BOTH ends of the aim vector are frozen: the origin is
-    //    in world coordinates and the finger in viewport ones, so re-adding a scrolling `camera.y`
-    //    every step rotates the shot under a motionless thumb (the camera chases Bur on every descent,
-    //    and from Z3 the "corriente mínima" of §4.3 scrolls it unconditionally).
+    // 4. Bur herself. The pointer arrives in VIEWPORT px and is converted to world here by
+    //    `pointerToWorld` — BOTH axes since D3 widened the world to WORLD_W — with the camera offset
+    //    FROZEN for the duration of the contact, exactly as `beginAim` freezes the origin. D2 is one
+    //    promise — "con el origen congelado, dedo quieto = tiro quieto" — and it only holds if BOTH
+    //    ends of the pull vector are frozen: the origin is in world coordinates and the finger in
+    //    viewport ones, so re-adding a scrolling camera every step rotates the shot under a
+    //    motionless thumb (the camera chases Bur on every descent and, since D3, sideways too).
     //    The freeze is captured on a step boundary like every other input, so §11.7.14's "dos órdenes
     //    de acumulador distintos" still produce the same world.
     //    Input is suppressed outside 'playing' (§3.3: a station is a pause, not a level) and while the
     //    anemone holds Bur (§5 nº 7: "atrapa 0,8 s", which is how long she cannot act).
     const blocked = this.phase !== 'playing' || nowMs < this.trap.pinUntil;
-    if (blocked && bubble.aimOrigin !== null) {
-      // A suppressed step must not FIRE the hold it is taking away: the synthetic pointer-up would
-      // otherwise take `stepBubble`'s release branch and launch a shot the player never let go of
-      // (crossing a station seam mid-charge). Zeroing the charge routes it through §11.7.3's tap
-      // branch instead, which cancels the gesture and leaves the velocity alone.
-      bubble.chargeMs = 0;
-    }
-    const accepted: PointerInput = {
-      down: !blocked && pointer.down,
-      x: pointer.x,
-      y: pointer.y + this.pointerCamY(pointer.down, bubble),
-    };
+    // A suppressed step must not FIRE the gesture it is taking away: the synthetic pointer-up would
+    // otherwise take `stepBubble`'s release branch and launch a shot the player never let go of
+    // (crossing a station seam mid-pull). `abortAim` is the same cancel the state machine performs,
+    // so the aim ends the one way D2 allows it to end without a shot.
+    if (blocked) this.push(abortAim(bubble));
+    const hold = this.pointerCam(pointer.down, bubble);
+    const world = pointerToWorld(pointer, hold.x, hold.y);
+    const accepted: PointerInput = { down: !blocked && pointer.down, x: world.x, y: world.y };
     const stepped = stepBubble(
       bubble,
       this.run,
@@ -327,9 +356,9 @@ export class GameWorld {
       t,
     );
     this.push(stepped.events);
-    // §2.2 gives one hold per finger CONTACT, and a suppressed step is not a pointerup: without this
-    // a finger held through the whole station summary would start a brand-new charge on the first
-    // step after `continueDescent`, from a contact that already had its hold.
+    // D2 gives one gesture per finger CONTACT, and a suppressed step is not a pointerup: without this
+    // a finger held through the whole station summary would open a brand-new aim on the first step
+    // after `continueDescent`, from a contact that already had its gesture.
     if (blocked && pointer.down) bubble.holdLatched = true;
     this.escapeTrapOnLaunch(stepped.events);
     // §2.4.2: the grace window expired inside `stepBubble`, which charged the pip; the anchor is ours.
@@ -362,12 +391,24 @@ export class GameWorld {
     // 7. Resaca window (§2.4.2), then the camera (§11.4: after the physics).
     this.push(updateResaca(bubble, this.camera, { ascenso, playing: this.phase === 'playing', nowMs }, t));
     this.push(
-      stepCamera(this.camera, { burY: bubble.pos.y, burVelY: bubble.vel.y, zone: this.zone, ascenso, nowMs, dt }, t),
+      stepCamera(
+        this.camera,
+        { burX: bubble.pos.x, burY: bubble.pos.y, burVelY: bubble.vel.y, zone: this.zone, ascenso, nowMs, dt },
+        t,
+      ),
     );
 
-    // 8. The guide (§2.7), predicted from the CURRENT aim and charge with no force fields drawn.
+    // 8. The guide (§2.7), predicted from the CURRENT pull with no force fields drawn. The cancel
+    //    zone draws nothing (D2), and it is tested here as well as inside `previewTrajectory` so the
+    //    common case keeps sharing the frozen empty array instead of allocating one per step.
+    // A LIVE gesture, not the AIMING state: a rest capture parks a running aim in RESTING for one
+    // step before the next input phase resumes it (see `enterRest`), and the pull the player is
+    // holding must not blink out of the guide — nor out of the ring and the band the shell draws
+    // beside it — for that frame.
     this.trajectory =
-      bubble.state === 'CHARGING' ? previewTrajectory(bubble, solids, env, this.zone, nowMs, t) : NO_TRAJECTORY;
+      bubble.aimOrigin !== null && !bubble.cancelZone
+        ? previewTrajectory(bubble, solids, env, this.zone, nowMs, t)
+        : NO_TRAJECTORY;
 
     // 9. Frame bookkeeping. `maxProgressY` is the progress ratchet of §4.3, distinct from `camera.maxY`.
     this.run.elapsedMs += dtMs;
@@ -388,13 +429,15 @@ export class GameWorld {
    * live camera, which is what makes the first step of a charge read the finger where the player
    * actually sees it — the origin is frozen on that same step.
    */
-  private pointerCamY(down: boolean, bubble: Bubble): number {
+  private pointerCam(down: boolean, bubble: Bubble): Vec2 {
     if (!down) {
-      this.holdCamY = null;
-      return this.camera.y;
+      this.holdCam = null;
+      return { x: this.camera.x, y: this.camera.y };
     }
-    if (bubble.aimOrigin === null || this.holdCamY === null) this.holdCamY = this.camera.y;
-    return this.holdCamY;
+    if (bubble.aimOrigin === null || this.holdCam === null) {
+      this.holdCam = { x: this.camera.x, y: this.camera.y };
+    }
+    return this.holdCam;
   }
 
   /** Chunk solids plus the two column walls (§4.3). Rebuilt in place: a step must not allocate. */
@@ -605,7 +648,7 @@ export class GameWorld {
 
   private hud(): HudData {
     const bubble = this.bubble;
-    const charging = bubble.state === 'CHARGING';
+    const aiming = bubble.state === 'AIMING';
     return {
       air: bubble.air,
       airMax: bubble.airMax,
@@ -615,10 +658,13 @@ export class GameWorld {
       zone: this.zone,
       pearls: this.run.pearls,
       shells: this.run.shells,
-      chargePower: charging ? chargePower(bubble.chargeMs, this.t) : 0,
-      overcharging: charging && bubble.overchargeAnnounced === true,
+      power: aiming ? pullPower(bubble.pullDist, this.t) : 0,
       lastPip: bubble.air > 0 && bubble.air <= 1,
-      fineTune: charging ? fineTuneNormalized(bubble.dragDist, this.t) : 0,
+      cancelZone: aiming && bubble.cancelZone,
+      // Reported whatever Bur is doing, resting included: D1 makes the double jump a resource the
+      // player budgets for the WHOLE descent, so the pip it will cost has to be visible before the
+      // moment she needs it, not only once she is already falling.
+      airLaunchAvailable: canAirLaunch(bubble, this.t),
     };
   }
 }

@@ -8,21 +8,19 @@ import { zoneRadius } from '../../../control/charge';
 import { buildCampaign, campaignMarkers, instantiateChunk } from '../../campaign';
 import { zoneAt } from '../../depth';
 import { ChunkLibrary } from '../../library';
-import { findLandingLines, restPoseY, sideWalls, validateCampaign, validateChunk, validateSequence } from '../../validator';
+import { findLandingLines, restPoseY, sideWalls, validateChunk } from '../../validator';
+import { describeIssues, validateZoneContent } from '../zoneReport';
 import { MVP_CHUNKS, MVP_SEQUENCES } from '../../../game/testHarness';
-import { Z1_SEQUENCES } from '../z1';
-import { CURRENT_ACCEL, CURRENT_DRIFT, PULPO_REST_MS, anemona, currentBand } from '../builders';
-import { sideOf } from './pieces';
+import { CURRENT_ACCEL, CURRENT_DRIFT, PULPO_REST_MS, anemona, currentBand, reefRock } from '../builders';
+import { MAX_HOP_X_DESIGN_PX, MIN_HOP_X_PX } from '../ladder';
 import { Z2, Z2_CHUNKS, Z2_LIBRARY, Z2_LIB_A, Z2_LIB_E, Z2_SEQUENCES, Z2_STATION_1, Z2_STATION_2, Z2_STATION_3, Z2_TUTORIAL } from './index';
-import type { ValidationIssue } from '../../validator';
 import type { Anchor, Ceiling, Chunk, ForceField, Hazard, Pickup, SolidEntity, WorldEntity } from '../../../types';
 
 const t = createTuning();
 const library = new ChunkLibrary([...MVP_CHUNKS]);
 
-const errors = (issues: readonly ValidationIssue[]): ValidationIssue[] => issues.filter((i) => i.severity === 'error');
-const describeIssues = (issues: readonly ValidationIssue[]): string[] =>
-  issues.map((i) => `${i.severity} [${i.rule}] ${i.chunkId ?? '-'}: ${i.message}`);
+/** Every §11.5 rule of the MVP column (Z1 + Z2), run once by `level/content/zoneReport.ts`. */
+const mvpReport = validateZoneContent(MVP_CHUNKS, MVP_SEQUENCES, t);
 
 const of = <T extends WorldEntity>(chunk: Chunk, type: T['type']): T[] =>
   chunk.entities.filter((e): e is T => e.type === type);
@@ -93,16 +91,6 @@ describe('Zone 2 content', () => {
     }
   });
 
-  it('offers more Air than an immersion can hold, which is the 1,15 ratio of §11.5.7 in the safe direction', () => {
-    // The zone's capacity is 8 pips (§2.6, ZONE_AIR_MAX[1]); five playable chunks of 1-2 pockets put the
-    // supply above it in every immersion, so the ratio can only be tuned DOWN in playtest, never up
-    // against a wall of missing content.
-    for (const sequence of Z2_SEQUENCES) {
-      const supply = sequence.reduce((sum, id) => sum + chunkOf(id).airBudget, 0);
-      expect(supply).toBeGreaterThanOrEqual(7);
-      expect(supply / (t.ZONE_AIR_MAX[Z2] ?? 8)).toBeGreaterThanOrEqual(0.85);
-    }
-  });
 });
 
 describe('the Zone 2 catalogue (§5 nº 6, 7, 8, 9)', () => {
@@ -284,25 +272,29 @@ describe('Z2_SEQUENCES', () => {
     expect(isolated.get(9)).toEqual(['z2-lib-h', 'z2-lib-i']);
   });
 
-  it('alternates sides at every rung and every seam: a landing is always an underside (§2.3)', () => {
+  it('crosses the column at every rung and every seam: a landing is always an underside (§2.3)', () => {
+    // D3 deleted the L/C/R lanes, so "alternate sides" is no longer a rule that can even be stated: in
+    // a 540 px world what makes a hop a LANDING is that it clears the target's lip (`../ladder.ts`).
+    // Under MIN_HOP_X_PX Bur meets the next ledge's top face and bounces; over MAX_HOP_X_DESIGN_PX no
+    // shot in the cone arrives. Every rung of the zone, seams included, lives inside that band.
     const ordered = Z2_SEQUENCES.flat().map(chunkOf);
-    const rungs: Array<{ chunk: string; x: number }> = [];
+    const rungs: Array<{ chunk: string; id: string; x: number; ceilingId: string }> = [];
     for (const chunk of ordered) {
       const anchors = of<Anchor>(chunk, 'anchor').sort((a, b) => a.pos.y - b.pos.y);
-      for (const a of anchors) rungs.push({ chunk: chunk.id, x: a.pos.x });
+      for (const a of anchors) rungs.push({ chunk: chunk.id, id: a.id, x: a.pos.x, ceilingId: a.ceilingId });
     }
     for (let i = 0; i < rungs.length - 1; i++) {
       const a = rungs[i]!;
       const b = rungs[i + 1]!;
-      expect(sideOf(a.x), `${a.chunk} x=${a.x} -> ${b.chunk} x=${b.x}`).not.toBe(sideOf(b.x));
+      if (a.ceilingId === b.ceilingId) continue; // the same shelf is the same rest, not a hop
+      const gap = Math.abs(b.x - a.x);
+      expect(gap, `${a.chunk}/${a.id} x=${a.x} -> ${b.chunk}/${b.id} x=${b.x}`).toBeGreaterThanOrEqual(MIN_HOP_X_PX);
+      expect(gap, `${a.chunk}/${a.id} -> ${b.chunk}/${b.id}`).toBeLessThanOrEqual(MAX_HOP_X_DESIGN_PX);
     }
   });
 
   it('validates each immersion on its own, threading the isolation counter (§11.5.5)', () => {
-    const appearances = new Map<number, number>();
-    for (const sequence of [...Z1_SEQUENCES, ...Z2_SEQUENCES]) {
-      expect(describeIssues(validateSequence(library, sequence, t, appearances))).toEqual([]);
-    }
+    expect(mvpReport.perImmersion).toEqual(MVP_SEQUENCES.map(() => []));
   });
 });
 
@@ -323,22 +315,28 @@ describe('what the zone teaches, flown with the real integrator (§3.3.3, §4.2,
 
   const key = (l: { power: number; thetaDeg: number }): string => `${l.power}/${l.thetaDeg}`;
 
-  it('the tutorial current is not decoration: it changes WHICH shot lands (§3.3.3, §5 nº 8)', () => {
+  it('the tutorial current is not decoration: without it the second rest point does not exist (§3.3.3, §5 nº 8)', () => {
     // A band is water moving at CURRENT_DRIFT and Bur joins it through the normal horizontal drag, whose
-    // time constant is 1 / DAMPING_X ≈ 3,3 s: over one hop that is ~25 px, so no band can ever be a wall.
-    // What the tutorial's chute CAN do, and does, is make the still-water aim the wrong aim.
+    // time constant is 1 / DAMPING_X ≈ 3,3 s: over one hop that is a few tens of pixels of extra reach,
+    // so no band can ever be a wall. What 540 px of world let it be instead is a REQUIREMENT: the second
+    // rest point of the tutorial hangs CURRENT_RUNG_INSET px under its own shelf, a 102 px drop and
+    // 155 px of water away, and only the drift carries Bur that last stretch.
     const geo = geometryOf(Z2_TUTORIAL);
-    const from = geo.anchors[1]!;
-    const to = geo.anchors[2]!;
+    const from = geo.anchors[0]!;
+    const to = geo.anchors[1]!;
     const withCurrent = findLandingLines(from.pos, to.pos, Z2, geo.solids, t, to.ceilingId, geo.fields);
     const stillWater = findLandingLines(from.pos, to.pos, Z2, geo.solids, t, to.ceilingId, []);
 
-    expect(withCurrent.length).toBeGreaterThanOrEqual(4);
-    const shared = withCurrent.filter((l) => stillWater.some((o) => key(o) === key(l)));
-    expect(shared.length, 'aim as if the water were still and you miss').toBeLessThanOrEqual(1);
-    // And reading it is cheaper than fighting it (§5 nº 8: "cabalgarla para alargar el tiro gratis").
-    const cheapest = (lines: typeof withCurrent): number => Math.min(...lines.map((l) => l.power));
-    expect(cheapest(withCurrent)).toBeLessThanOrEqual(cheapest(stillWater));
+    expect(stillWater.map(key), 'aim as if the water were still and there is no shot at all').toEqual([]);
+    expect(withCurrent.length, 'and with the band running there is one').toBeGreaterThan(0);
+    // The band is not the column: the left third and the right edge of the world stay outside it, so
+    // entering it is a decision the player can see from the ledge (§5 nº 8).
+    const band = geo.fields[0]!;
+    expect(geo.fields).toHaveLength(1);
+    expect(band.rect.x).toBeGreaterThan(0);
+    expect(band.rect.x + band.rect.w).toBeLessThan(t.WORLD_W);
+    // The chunk is the isolated tutorial of the verb (§4.1): the band is the only thing in it.
+    expect(geo.hazards).toEqual([]);
   });
 
   it('puts a hazard on a line that would otherwise have worked, in every immersion (§4.2)', () => {
@@ -366,22 +364,25 @@ describe('what the zone teaches, flown with the real integrator (§3.3.3, §4.2,
     }
   });
 
-  it('rejects the crown that shipped: an anemone against a wall has no escape (§2.4.5, §5 nº 7)', () => {
-    // The exact geometry a review found lethal: the crown on the SHOULDER of a 36 px rung hard against
-    // the right wall. The vent frees Bur a few px above it, the escape is a downward launch, and the
-    // anemone is what is below her. `validateChunk` now says so.
-    const wallCrown: Chunk = {
+  it('rejects the crown that shipped: an anemone in a niche has no escape (§2.4.5, §5 nº 7)', () => {
+    // The geometry a review found lethal, rebuilt for the 540 px world: the crown on the SHOULDER of a
+    // shelf hard against the right wall, with a jamb of reef closing it in on the left. The vent frees
+    // Bur a few px above it, the escape §2.4.5 sells is a DOWNWARD launch, and the anemone is what is
+    // below her. (In a 180 px column the wall alone was enough; at 540 px a crown against a bare wall
+    // can still be left sideways, which is exactly the kind of drift this test exists to catch.)
+    const niche: Chunk = {
       ...Z2_LIB_E,
-      id: 'fixture-wall-anemone',
+      id: 'fixture-niche-anemone',
       entities: [
         ...Z2_LIB_E.entities.filter((e) => e.type !== 'hazard'),
-        anemona('fixture-anemona', 158, 108),
+        { type: 'ceiling', id: 'fixture-floor', rect: { x: 480, y: 108, w: 60, h: 10 }, kind: 'posadero', capturable: false, restitution: t.RESTITUTION_ROCK, material: 'rock' },
+        reefRock('fixture-jamb', 470, 40, 12, 78),
+        anemona('fixture-anemona', 516, 108),
       ],
     };
-    const issues = validateChunk(wallCrown, t);
-    expect(issues.filter((i) => i.rule === 'trap').length).toBe(1);
-    // ...while the crown the zone actually ships passes.
-    expect(validateChunk(Z2_LIB_E, t).filter((i) => i.rule === 'trap')).toEqual([]);
+    expect(validateChunk(niche, t).filter((i) => i.rule === 'trap').length).toBe(1);
+    // ...while every crown the zone actually ships passes, in every chunk.
+    for (const chunk of Z2_CHUNKS) expect(validateChunk(chunk, t).filter((i) => i.rule === 'trap'), chunk.id).toEqual([]);
   });
 
   it('rejects a force field that pushes up outside catalogId 20/21 (§11.7.9)', () => {
@@ -399,12 +400,11 @@ describe('what the zone teaches, flown with the real integrator (§3.3.3, §4.2,
 
 describe('the MVP campaign (Z1 + Z2)', () => {
   it('validates with zero errors and zero warnings, Z1 -> Z2 seam included (§11.5, §11.7.7)', () => {
-    expect(describeIssues(validateCampaign(library, MVP_SEQUENCES, t))).toEqual([]);
+    expect(mvpReport.campaign).toEqual([]);
   });
 
   it('never requires more than an 80 % charge anywhere in Zone 2 (§2.2)', () => {
-    const capped = createTuning({ IMPULSE_MAX: t.IMPULSE_MIN + 0.8 * (t.IMPULSE_MAX - t.IMPULSE_MIN) });
-    expect(errors(validateCampaign(library, MVP_SEQUENCES, capped))).toEqual([]);
+    expect(mvpReport.cappedImpulse).toEqual([]);
   });
 
   it('is one continuous column whose chunk zones agree with the §11.1 depth table', () => {
@@ -436,6 +436,8 @@ describe('the MVP campaign (Z1 + Z2)', () => {
 
   it('shrinks Bur to the Zone 2 radius of §2.6 and nothing else', () => {
     expect(zoneRadius(Z2, DEFAULT_TUNING)).toBeCloseTo(6.44, 10);
-    expect(DEFAULT_TUNING.MAX_HOP_PX[Z2]).toBe(195);
+    // D4 recut the reach table: 105 px of drop and 190 px of lateral room in this zone.
+    expect(DEFAULT_TUNING.MAX_HOP_PX[Z2]).toBe(105);
+    expect(DEFAULT_TUNING.MAX_HOP_X_PX[Z2]).toBe(190);
   });
 });

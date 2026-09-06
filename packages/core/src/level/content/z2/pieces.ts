@@ -1,94 +1,128 @@
 /**
- * The standard rungs of a Zone 2 chunk, and the one authoring law that produced them.
+ * The rungs a Zone 2 chunk is built from, on top of the shared ladder of `../ladder.ts`.
  *
- * **A hop always crosses the column.** Bur rests UNDER a ceiling (§2.3), so a landing is a shot that
- * dips past the side of the target ledge and floats back up into its underside. A rung placed directly
- * below the one above it is therefore not a landing at all: Bur meets its TOP face on the way down and
- * bounces. Every ladder here — and every seam between two chunks — alternates LEFT and RIGHT for that
- * reason, which is also why Zone 1's hand-authored ladders all zigzag. `sideOf` names the rule so a
- * test can check it instead of a reviewer having to.
+ * Zone 1 only ever needed a ledge. Zone 2 needs three more shapes, and each of them exists because of a
+ * rule the zone is judged by:
  *
- * The other two constants are structural:
+ *  - **`guardedRung`** — a rung whose rest point sits `CROWN_CLEARANCE_INSET` px past its lip instead of
+ *    the usual 12. That gap is the room a crown needs: §5 nº 6 and nº 7 grow on a ledge, and a crown on
+ *    the LIP hangs half into the corridor the arc dips through, so on a rung with no room it would catch
+ *    a perfect landing too. `z2.test.ts` refuses any crown that covers its own ledge's rest pose.
+ *  - **`pulpoRung`** — catalogue nº 9: a rung that IS the creature, indistinguishable from rock until
+ *    his half-second of patience runs out (§5 nº 9).
+ *  - **`currentRung`** — a rung whose rest point sits so far under its shelf that no shot in the cone
+ *    reaches it in still water; only the drift of a `corriente` carries Bur the last stretch. It is the
+ *    honest form of "the band changes which shot lands": here it changes whether there IS one.
  *
- *  - **The seams.** §11.5.11 applies to the junction between chunks with entry velocity zero. Fixing
- *    the entry ledge at y = 18 and the exit ledge at y = 188 makes EVERY seam of the zone exactly 70 px,
- *    including the Z1 → Z2 one, so no chunk can be legal on its own and illegal in a sequence.
- *  - **The lanes.** §11.5.1 wants a 64 px mouth centred on the declared lane; putting the lane
- *    positions in one place is what keeps a chunk from declaring a lane its anchor is not in.
+ * **Where a hazard lives**, and the rule a review had to teach this zone. Bur lands by dipping past the
+ * INNER lip of a ledge and floating up under it (§2.3): a successful arc never crosses a ledge's top
+ * face. So a crown on the SHOULDER of a ledge is only ever met by a shot that had already failed — of
+ * ~900 certified landing lines in the first version of this zone, exactly 0 touched a hazard — and the
+ * zone played as Zone 1 with decorations. Both seats are used now, and they mean different things:
  *
- * Only the MIDDLE of a chunk is authored freely — which is where its idea lives.
+ *   `'shoulder'`  punishes the OVERSHOOT: the shot that sails over the shelf pays. Introductions and the
+ *                 gentler chunks use it.
+ *   `'lip'`       hangs under the shelf's mouth, in the dip corridor, and contests the LANDING itself.
+ *                 It rides a `guardedRung`, whose extra inset keeps the rest point clear at the back.
+ *
+ * A trap may only ever grow on a lip, and that is a rule, not a taste: the escape §2.4.5 sells is a
+ * DOWNWARD launch, so an anemone with rock underneath hands Bur straight back to itself until the bar is
+ * empty. `validator.trapEscapes` flies the escape and refuses the chunk otherwise.
  */
-import { ENTRY_LEDGE_Y, EXIT_LEDGE_Y, z2Perch } from './builders';
-import type { PerchSpec } from './builders';
-import type { Anchor, Ceiling, WorldEntity } from '../../../types';
+import { PULPO_REST_MS, rung } from './builders';
+import { DEFAULT_TUNING } from '../../../tuning';
+import type { Ladder, Rung, RungSpec } from './builders';
+import type { Chunk, WorldEntity } from '../../../types';
 
-export { Z2, Z2_MAX_HOP, Z2_RADIUS } from './builders';
+const T = DEFAULT_TUNING;
+
+export { Z2, Z2_MAX_HOP, Z2_MAX_HOP_X, Z2_RADIUS, ladder, rung } from './builders';
 
 /**
  * Verbs of Zone 2 (§4.2: "la dificultad entre zonas sube por verbos acumulados"). Z1's three plus the
  * one the zone is named for (§3.2: "leer y usar las corrientes").
  */
-export const Z2_VERBS: string[] = ['cargar', 'soltar', 'reposar', 'corriente'];
-
-/** Geometry of a ledge, without its id: the shape of a rung. */
-export type Rung = Omit<PerchSpec, 'id'>;
-
-/** Which half of the 180 px column an anchor hangs in. Consecutive anchors must never share one. */
-export type Side = 'left' | 'right';
-
-export const sideOf = (anchorX: number): Side => (anchorX < 90 ? 'left' : 'right');
+export const Z2_VERBS: string[] = ['apuntar', 'soltar', 'reposar', 'corriente'];
 
 /**
- * The INNER lip of a rung: the edge the arc dips past on its way to the underside (§2.3). A landing is a
- * shot that falls just outside this edge and floats back up under the ledge, so the lip is the only spot
- * on a ledge from which a hazard can meet a line that would otherwise have worked. Anywhere else on the
- * top face and the urchin is met only by shots that had already failed — which is exactly what a review
- * measured of the first version of this zone: 0 of ~900 certified landing lines touched a hazard box.
- *
- * A crown grown on the lip therefore overhangs it by half its width, into the dip corridor. That is the
- * whole threat: cut the corner and you pay, leave a body's width and you never touch it.
+ * Inset of a guarded rung. A crown is 14–16 px wide and is centred ON the lip, so half of it — 7 or
+ * 8 px — hangs inside the ledge; the rest point has to clear that plus a whole Bur (6,44 px), and 24 px
+ * is the first round number that does. Every hop onto a guarded rung is correspondingly longer.
  */
-export const lipOf = (rung: Rung): number => (sideOf(rung.anchorX) === 'right' ? rung.x : rung.x + rung.w);
+export const CROWN_CLEARANCE_INSET = 24;
 
-// --- entry rungs (y = 18) ----------------------------------------------------------------------
-/** Entry from a chunk that exited on the RIGHT half. */
-export const ENTRY_L: Rung = { x: 3, y: ENTRY_LEDGE_Y, w: 36, anchorX: 30 };
-/** Entry from a chunk that exited on the LEFT half. */
-export const ENTRY_R: Rung = { x: 141, y: ENTRY_LEDGE_Y, w: 36, anchorX: 150, material: 'coral' };
-/** Lane C, right half: the wide shelf reached from an `EXIT_L`. */
-export const ENTRY_C_FROM_L: Rung = { x: 91, y: ENTRY_LEDGE_Y, w: 88, anchorX: 100, material: 'coral' };
-/** Lane C, left half: the mirror, reached from an `EXIT_R`. */
-export const ENTRY_C_FROM_R: Rung = { x: 1, y: ENTRY_LEDGE_Y, w: 88, anchorX: 80 };
-
-// --- exit rungs (y = 188) ----------------------------------------------------------------------
-/** Lane L. The next chunk enters on lane C, right half. */
-export const EXIT_L: Rung = { x: 1, y: EXIT_LEDGE_Y, w: 40, anchorX: 32, material: 'coral' };
-/** Lane R. The next chunk enters on lane C, left half. */
-export const EXIT_R: Rung = { x: 139, y: EXIT_LEDGE_Y, w: 40, anchorX: 148, material: 'coral' };
-/** Lane C, right half. The next chunk enters on lane L. */
-export const EXIT_C_TO_L: Rung = { x: 101, y: EXIT_LEDGE_Y, w: 48, anchorX: 110 };
-/** Lane C, left half. The next chunk enters on lane R. */
-export const EXIT_C_TO_R: Rung = { x: 31, y: EXIT_LEDGE_Y, w: 48, anchorX: 70 };
-
-// --- middle rungs, at whatever depth the chunk's idea needs ------------------------------------
-export const midLeft = (y: number, w = 36): Rung => ({ x: 3, y, w, anchorX: 30 });
-export const midRight = (y: number, w = 36): Rung => ({ x: 141, y, w, anchorX: 150, material: 'coral' });
+/** A rung a crown can be grown on: the same ledge, with its rest point pushed to the back. */
+export const guardedRung = (x: number, y: number, extra: Partial<RungSpec> = {}): RungSpec =>
+  rung(x, y, { w: 56, inset: CROWN_CLEARANCE_INSET, ...extra });
 
 /**
- * **Guarded rungs.** A wider shelf whose rest point sits at the BACK of it, leaving its mouth free for a
- * crown grown on the lip (`builders.CrownGrowth`). The two go together: a 36 px rung has no room between
- * its lip and Bur's body, so a crown there would catch a perfect landing, and a crown anywhere else on a
- * ledge is never met by a line that would have worked. 48 px of shelf is what buys both — the mouth is
- * contested, the back of the shelf is clean.
+ * Catalogue nº 9, **Pulpo Camuflado** (§5): "parece repisa; a los 0,5 s de reposo te desplaza suave".
+ * He is a real, capturable rung — that is the whole trick — with rock restitution and the silhouette of
+ * a ledge; only his `maxRestMs` gives him away, and only after you have already landed.
  */
-export const guardedLeft = (y: number, w = 48): Rung => ({ x: 3, y, w, anchorX: 18 });
-export const guardedRight = (y: number, w = 48): Rung => ({ x: 180 - 3 - w, y, w, anchorX: 162, material: 'coral' });
+export const pulpoRung = (x: number, y: number, extra: Partial<RungSpec> = {}): RungSpec =>
+  rung(x, y, {
+    kind: 'impaciente',
+    material: 'creature',
+    restitution: T.RESTITUTION_ROCK,
+    maxRestMs: PULPO_REST_MS,
+    catalogId: 9,
+    ...extra,
+  });
 
-/** The guarded exit rung of lane R: the same shelf, at the depth every chunk leaves from. */
-export const GUARDED_EXIT_R: Rung = { x: 131, y: EXIT_LEDGE_Y, w: 48, anchorX: 164, material: 'coral' };
+/**
+ * How far under its own shelf a `currentRung`'s rest point hides. Measured against the real integrator:
+ * at this inset and a 102 px drop, NO shot in the ±90° cone lands there in still water, and two do once
+ * the band is running. `tutorial.ts` is the chunk that teaches it and `z2.test.ts` flies both sets.
+ */
+export const CURRENT_RUNG_INSET = 88;
 
-/** The ceiling + anchor pair of a rung, ready to spread into a chunk's `entities`. */
-export function ledgePair(id: string, rung: Rung): WorldEntity[] {
-  const [ceiling, anchor]: [Ceiling, Anchor] = z2Perch({ id, ...rung });
-  return [ceiling, anchor];
+/** A rung only the drift reaches. Always paired with a band that covers the hop (see the header). */
+export const currentRung = (x: number, y: number, extra: Partial<RungSpec> = {}): RungSpec =>
+  rung(x, y, { w: CURRENT_RUNG_INSET + 32, inset: CURRENT_RUNG_INSET, material: 'coral', ...extra });
+
+/** Where a crown grown on the LIP of `r` sits: centred on the edge the arriving arc dips past. */
+export const lipOf = (r: Rung): number => r.nearEdge;
+
+/** Where a crown grown on the SHOULDER of `r` sits: over the back of the ledge, off the rest point. */
+export const shoulderOf = (r: Rung): number => r.anchor.pos.x;
+
+/** Top edge of the ledge of `r`, which is what `erizo`/`anemona` seat their box against. */
+export const topOf = (r: Rung): number => r.ceiling.rect.y;
+
+/** Convenience for a chunk file: the i-th rung of a ladder (they are authored in descent order). */
+export const rungOf = (lad: Ladder, i: number): Rung => {
+  const found = lad.rungs[i];
+  if (found === undefined) throw new Error(`ladder has no rung ${i}`);
+  return found;
+};
+
+/** Everything a playable Zone 2 chunk declares beyond its ladder and the things standing beside it. */
+export interface Z2ChunkSpec {
+  id: string;
+  difficulty: Chunk['difficulty'];
+  targetTimeS: number;
+  tags: string[];
+  /** Air pips the chunk's pockets add up to (§11.5.7 checks it against the pickups actually placed). */
+  airBudget: number;
+  ladder: Ladder;
+  /** Reef, hazards, bands and pickups: the chunk's idea, on top of its ladder. */
+  entities: WorldEntity[];
+}
+
+/** A playable Zone 2 chunk. Role, zone and verbs are the same for all fourteen; nothing restates them. */
+export function z2Chunk(spec: Z2ChunkSpec): Chunk {
+  return {
+    id: spec.id,
+    zone: 1,
+    difficulty: spec.difficulty,
+    verbs: Z2_VERBS,
+    entryAnchorId: spec.ladder.entryAnchorId,
+    exitAnchorId: spec.ladder.exitAnchorId,
+    airBudget: spec.airBudget,
+    targetTimeS: spec.targetTimeS,
+    tags: spec.tags,
+    role: 'playable',
+    entities: [...spec.ladder.entities, ...spec.entities],
+  };
 }

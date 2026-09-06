@@ -76,7 +76,7 @@ describe('ADVERSARIAL — the reach ladder does not stop at the end of an immers
 
 /** Re-flies one probe shot with the same integrator and reports its first contact. */
 function landsOn(from: Vec2, power: number, thetaDeg: number, solids: readonly SolidEntity[]): string | null {
-  const speed = impulseMagnitude({ power, dragDist: t.DRAG_NEUTRAL_PX, radius: RADIUS, stunned: false, externalMul: 1 }, t);
+  const speed = impulseMagnitude({ power, radius: RADIUS, stunned: false, externalMul: 1 }, t);
   const lockSteps = launchLockSteps(t);
   let pos: Vec2 = { x: from.x, y: from.y };
   let vel: Vec2 = launchVelocity(degToRad(thetaDeg), speed);

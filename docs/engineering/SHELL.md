@@ -4,9 +4,10 @@ El shell **no contiene reglas de juego**. Convierte input táctil en `PointerInp
 
 ## Escalado (GDD §8)
 
-- Diseño: **180 px de ancho fijos**, altura visible `H = floor(alto_css / zoom)` acotada a [320, 420], `zoom = floor(ancho_css / 180)` (mínimo 1). En escritorio (pantallas anchas) limitar el zoom para que `H` no baje de 320: `zoom = min(floor(w/180), floor(h/320))`.
+- Diseño: **viewport de 180 px de ancho** (`VIEW_W`), altura visible `H = floor(alto_css / zoom)` acotada a [320, 420], `zoom = floor(ancho_css / 180)` (mínimo 1). En escritorio (pantallas anchas) limitar el zoom para que `H` no baje de 320: `zoom = min(floor(w/180), floor(h/320))`.
+- **El mundo NO mide 180 px** desde la v1.2 (D3): mide `WORLD_W = 540` y la cámara se desplaza también en X. El shell **coloca** la cámara en `(snapshot.camera.x, snapshot.camera.renderY)` y nunca calcula el seguimiento ni el recorte: eso es de `core`. El HUD sigue siendo de 180 px (`layout.viewW`), así que cualquier posición de mundo que se pinte en la capa del HUD debe pasar por `pos.x - camera.x`.
 - Phaser: `Scale.RESIZE`, `pixelArt: true`, `roundPixels: true`, `autoRound`, `antialias: false`. La cámara principal usa `setZoom(zoom)` y `setViewport` centrado; el canvas ocupa la pantalla; el fondo fuera del juego es el color del agua de la zona.
-- Recalcular en `resize`; llamar `world.setViewHeight(H)`. Nada del HUD depende de la altura exacta: usar fracciones de `H`.
+- Recalcular en `resize`; llamar `world.setViewHeight(H)` y `world.setViewWidth(viewW)`. Nada del HUD depende de la altura exacta: usar fracciones de `H`.
 - Orientación: en landscape mostrar un overlay "gira el móvil" (no se puede forzar orientación en web).
 - `visibilitychange`/`blur` → pausa automática.
 
@@ -14,7 +15,7 @@ El shell **no contiene reglas de juego**. Convierte input táctil en `PointerInp
 
 ```
 BootScene      genera las texturas procedurales (ver abajo) y arranca GameScene + HudScene
-GameScene      mundo: fondo por zona (parallax 3 capas), entidades del snapshot, Bur, partículas, trayectoria, anillo de carga
+GameScene      mundo: fondo por zona (parallax + paredes de arrecife del mundo), entidades del snapshot, Bur, partículas, trayectoria, goma del tirachinas, anillo de potencia
 HudScene       overlay: pips de Aire, cinta de profundidad + metros, pausa; pantallas de estación / fin / pausa; tutorial de primera partida
 ```
 
@@ -22,9 +23,10 @@ HudScene       overlay: pips de Aire, cinta de profundidad + metros, pausa; pant
 
 ## Input
 
-- `pointerdown` en cualquier punto → `down=true`, coords en px de diseño del viewport: `x = pointer.x / zoom`, `y = pointer.y / zoom` (relativas al canvas del juego). `pointermove` actualiza; `pointerup`/`pointercancel`/`pointerout` → `down=false`.
-- El shell **no** interpreta el gesto: solo entrega `{down, x, y}` una vez por frame. Botones del HUD capturan el evento y no lo pasan al mundo.
-- Teclado (solo escritorio, para probar): espacio = mantener, flechas ajustan el ángulo moviendo un puntero virtual.
+- `pointerdown` en cualquier punto → `down=true`, coords en px de diseño **del viewport** (0..180): `x = pointer.x / zoom`, `y = pointer.y / zoom` (relativas al canvas del juego). `pointermove` actualiza. La conversión a coordenadas de mundo (sumar el desplazamiento de cámara en **los dos ejes**) la hace `core` con `game/pointer.ts`, con la cámara congelada durante todo el contacto.
+- **Un contacto acaba de dos maneras y hay que distinguirlas** (D2, la única interpretación que hace el shell). Un `pointerup` real es una **suelta**: `down=false` y core decide si es tiro o cancelación. Todo final que el jugador no pidió —pausa automática por `blur`/pestaña oculta/apaisado, `pointercancel`, `GAME_OUT` (un arrastre de 70 px de diseño se sale del canvas con facilidad en un móvil)— es un **aborto**: `PointerAdapter.abort()` baja el dedo *y* llama a `GameWorld.cancelAim()`. Entregarlo como una suelta dispara el tiro: se vuelve de una llamada de teléfono y Bur ya ha salido disparada.
+- El shell **no** interpreta el gesto más allá de eso: entrega `{down, x, y}` una vez por frame. El origen congelado, el tirón, el radio de cancelación y el tope de apuntado son reglas y viven en `core`. Botones del HUD capturan el evento y no lo pasan al mundo.
+- Teclado (solo escritorio, para probar): espacio = mantener, flechas mueven el puntero virtual (que es el tirón).
 
 ## Arte procedural (no hay assets externos todavía)
 
@@ -34,23 +36,23 @@ Todo el pixel art se genera en `BootScene` con `Phaser.GameObjects.Graphics` →
 - **Repisas**: rectángulo con dithering 2 tonos y línea de brillo de 1 px en la **cara inferior** (la capturable). Materiales: rock, coral, kelp, jelly (translúcido, animada con seno), foam, creature (tortuga: caparazón).
 - **Peligros**: erizo (círculo con púas 1 px, naranja rompe-paleta), anémona, Don Hinchón (pez globo que se infla: escala con la fase).
 - **Pickups**: burbuja de aire (círculo blanco-azulado 5 px, parpadeo), perla (3 px, brillo), concha.
-- **Fondo**: gradiente vertical por zona en 8 bandas, *god rays* (Z1) con alpha animada, 3 capas de parallax (0.2 / 0.5 / 1.0) con siluetas.
+- **Fondo** (D3): gradiente vertical por zona en 8 bandas y *god rays* (Z1) **fijos a la cámara**; cáusticas en mosaico que se desplazan con el mundo; dos capas lejanas de cabezas de coral dispersas (parallax 0.2 / 0.5) repetidas a lo ancho de todo el mundo; y las **paredes de arrecife del mundo** en `x ≈ 0..40` y `WORLD_W-40..WORLD_W`, a parallax 1 (son los bordes del mundo, no un marco de la columna). En medio de los 540 px no se ve ninguna de las dos: esa agua abierta es intencionada (*Hungry Shark*).
 
 ## Feel (GDD §7) — mínimo exigible en el MVP
 
-Squash al cargar (1.00→0.78 / 1.22, vibración 12 Hz 3 %), 3 burbujitas orbitando, stretch 1.35 al soltar (120 ms, easeOutElastic), aplastamiento 0.70 al impactar (90 ms), 6–10 partículas al soltar, 12 al impactar, 14 al deshincharse, hitstop 40/90 ms (pausar `world.update` ese tiempo), shake solo en impactos > 400 px/s (2 px, 120 ms), zoom punch 1.02 100 ms al perder Aire (nunca shake), lookahead de cámara 20 px en la dirección del impulso.
+Squash proporcional a la **potencia del tirón** (1.00→0.78 / 1.22, vibración 12 Hz 3 %), 3 burbujitas orbitando, stretch 1.35 al soltar (120 ms, easeOutElastic), aplastamiento 0.70 al impactar (90 ms), 6–10 partículas al soltar, 12 al impactar, 14 al deshincharse, hitstop 40/90 ms (pausar `world.update` ese tiempo), shake solo en impactos > 400 px/s (2 px, 120 ms), zoom punch 1.02 100 ms al perder Aire (nunca shake), lookahead de cámara 20 px en la dirección del impulso.
 
-Audio: Web Audio API sintetizado (sin ficheros): "glub" 200→600 Hz mapeado a potencia mientras carga, pop al soltar (pitch inverso), rebote por material con pitch según velocidad ±8 %, nota pentatónica ascendente en coleccionables, "plín" grave en boya. Desbloqueo del AudioContext en el primer `pointerdown`. Silencio total antes.
+Audio: Web Audio API sintetizado (sin ficheros): "glub" 200→600 Hz mapeado a la potencia mientras se apunta, "plop" suave y grave al **cancelar**, pop al soltar (pitch inverso; el doble salto de D1 suena una quinta más agudo), rebote por material con pitch según velocidad ±8 %, nota pentatónica ascendente en coleccionables, "plín" grave en boya. Desbloqueo del AudioContext en el primer `pointerdown`. Silencio total antes.
 
 ## HUD (GDD §8)
 
 Banda superior ≤ 12 % de H. Pips 6×6 px arriba-izquierda (los que superan `airMax` atenuados); parpadeo rojo suave con 1 pip. Cinta de profundidad de 8 px a la derecha con marcas de zona y pez-marcador; cifra en metros con `Intl.NumberFormat(navigator.language)`, suavizada ≤ 9 m/frame; raya gris del récord. Pausa arriba-centro, icono 10 px, área táctil 44 pt. Tercio inferior siempre despejado.
 
-Indicador de carga: anillo 0→360° alrededor de Bur, grosor = ajuste fino, ámbar palpitante en sobrecarga, rojo suave con 1 pip. Trayectoria punteada `snapshot.trajectory` reducida a `trajectoryDots` puntos.
+Indicador del tirachinas (D2, tres canales redundantes del mismo número): **goma** de 1 px desde el origen congelado (el punto del cristal donde se apoyó el dedo) hasta el dedo, con horquilla en el origen y una **"X"** encima mientras se está dentro del radio de cancelación; **anillo** 0→360° alrededor de Bur con `hud.power` (vacío y atenuado en la zona de cancelación, ámbar si `!aimValid`, rojo suave con 1 pip); **trayectoria** punteada `snapshot.trajectory` reducida a `trajectoryDots` puntos (vacía en la zona de cancelación). Además, mientras Bur va a la deriva y le queda el doble salto de D1, su aura respira suavemente; gastado, nada.
 
 Pantallas: **inicio** (título "Deeply Bubbly" y, para quien ya tiene estación desbloqueada, dos botones en el tercio inferior: "Seguir · N m" y "Desde la superficie" — §3.1 la estación es una *opción*, no un arranque forzado; quien juega por primera vez no la ve nunca, §8: sin modales en la primera partida; también se llega desde «Salir» del menú de pausa, y ahí «Seguir» reanuda la partida que hay en pantalla: solo lleva profundidad cuando esa partida arranca de verdad en esa estación, si no dice «Bajar»), **estación** (profundidad, 3 conchas animadas, perlas, botón gigante "Seguir bajando" bajo el pulgar, hueco gris "Perlas dobles" desactivado), **fallo** (700 ms tras deshinchar, mismo layout, "Otra vez"; hueco "Segundo aliento" oculto salvo `run.failCountThisImmersion >= 4`, y aun así desactivado), **pausa** (Seguir, Reiniciar Inmersión, Sonido, Salir), **campaña completa** (placeholder). Textos en pantalla < 40 palabras en total.
 
-Tutorial de primera partida (< 25 s, sin texto): mano fantasma que mantiene ≤ 700 ms y suelta; se salta con un toque; `save.tutorialDone`.
+Tutorial de primera partida (< 25 s, sin texto): mano fantasma que se apoya, **arrastra hacia arriba `PULL_MAX_PX`** y suelta (nunca un tiro hacia arriba); se salta con un toque; `save.tutorialDone`.
 
 ## Panel de tuning (herramienta nº 1 del proyecto)
 
@@ -58,7 +60,7 @@ Overlay HTML (no Phaser) activado con `?tuning=1` o tecla `T`: sliders para cada
 
 ## Persistencia
 
-`KeyValueStore` sobre `localStorage` con try/catch (fallback a `MemoryStore`). Ajustes: sonido, carga lenta, trayectoria asistida, sin temblor, Buceo tranquilo.
+`KeyValueStore` sobre `localStorage` con try/catch (fallback a `MemoryStore`). Ajustes: sonido, **tirachinas largo** (`withLongSling`, ×1,5 de recorrido para la misma potencia), trayectoria asistida, sin temblor, Buceo tranquilo. La bandera persistida sigue llamándose `slowCharge` por compatibilidad del esquema de guardado; solo cambian su etiqueta y su efecto.
 
 ## Estructura de archivos
 
@@ -68,7 +70,8 @@ apps/web/src/
   scale.ts              cálculo de zoom/H y listeners de resize
   input/PointerAdapter.ts
   scenes/BootScene.ts · GameScene.ts · HudScene.ts
-  render/WorldRenderer.ts (sync snapshot→sprites) · BubbleView.ts · EntityViews.ts · Background.ts · Trajectory.ts
+  render/WorldRenderer.ts (sync snapshot→sprites) · BubbleView.ts · EntityViews.ts · Background.ts · reef.ts
+  render/Trajectory.ts · ChargeRing.ts (anillo de potencia) · SlingBand.ts (goma + X de cancelación) · ChargeOrbit.ts
   fx/Particles.ts · Juice.ts (squash/stretch/hitstop/shake) · Audio.ts
   ui/Hud.ts · Screens.ts · StartScreen.ts · Tutorial.ts · TuningPanel.ts
   platform/LocalStorageStore.ts · Telemetry.ts

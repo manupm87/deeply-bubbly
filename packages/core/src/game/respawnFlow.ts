@@ -15,22 +15,28 @@ import type { RespawnPoint } from '../run/respawn';
  * velocidad 0 en el mejor anclaje disponible, con 700 ms de invulnerabilidad").
  *
  * `holdLatched` is set, not cleared: the finger that pressed "Otra vez" — or that was still on the glass
- * through a resaca — has already had its hold, and §2.2 gives one hold per contact. Without it the tap
- * that restarts the run would immediately begin charging the next shot.
+ * through a resaca — has already had its gesture, and D2 gives one gesture per contact. Without it the
+ * tap that restarts the run would immediately open the aim for the next shot.
  */
 export function placeBubble(bubble: Bubble, point: RespawnPoint, nowMs: number, t: Tuning): GameEvent[] {
+  // D2 gives a gesture exactly three endings and all three are events. A respawn taken mid-pull —
+  // the resaca of §2.4.2, or "Otra vez" — is a fourth way for one to end, so it reports the cancel
+  // rather than clearing the fields underneath the shell's rubber band in silence.
+  const events: GameEvent[] = bubble.aimOrigin === null ? [] : [{ type: 'aimCancel', reason: 'displaced' }];
   bubble.pos = { x: point.pos.x, y: point.pos.y };
   bubble.vel = { x: 0, y: 0 };
   bubble.state = 'IDLE';
   bubble.deadMs = 0;
-  bubble.chargeMs = 0;
   bubble.restMs = 0;
   bubble.launchedMs = 0;
   bubble.aimOrigin = null;
-  bubble.dragDist = 0;
-  bubble.overchargeDrained = 0;
-  bubble.overchargeTickMs = 0;
-  bubble.overchargeAnnounced = false;
+  bubble.aimMs = 0;
+  bubble.pullDist = 0;
+  bubble.pullTheta = 0;
+  bubble.aimValid = true;
+  bubble.cancelZone = false;
+  // DECISIONS-v1.2 D1: the double jump is per airborne phase, and a respawn starts a new one.
+  bubble.airLaunchesUsed = 0;
   bubble.holdLatched = true;
   bubble.restingOnId = null;
   bubble.lastRestingCeilingId = null;
@@ -49,5 +55,6 @@ export function placeBubble(bubble: Bubble, point: RespawnPoint, nowMs: number, 
   bubble.flags.reinflateUntil = 0;
   // §2.4.4: the passive pressure clock restarts at the checkpoint, like every other per-attempt clock.
   bubble.pressureDrainMs = 0;
-  return [{ type: 'respawn', at: { x: point.pos.x, y: point.pos.y }, anchorKind: point.kind }];
+  events.push({ type: 'respawn', at: { x: point.pos.x, y: point.pos.y }, anchorKind: point.kind });
+  return events;
 }

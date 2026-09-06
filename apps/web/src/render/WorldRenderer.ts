@@ -114,7 +114,7 @@ export class WorldRenderer {
         case 'boya':
         case 'station':
           g.lineStyle(1, UI.cyan, 0.5);
-          g.lineBetween(0, e.worldY, 180, e.worldY);
+          g.lineBetween(0, e.worldY, this.tuning().WORLD_W, e.worldY);
           break;
       }
     }

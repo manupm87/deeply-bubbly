@@ -25,6 +25,9 @@ const BREATH_AMP = 0.03;
 const BLINK_MS = 90;
 /** §2.5 shield: a short bright pulse of the aura, so an absorbed hit is not invisible. */
 const SHIELD_FLASH_MS = 260;
+/** D1 "double jump" affordance: period and depth of the aura breath while the mid-air shot is in hand. */
+const AIR_LAUNCH_PULSE_MS = 620;
+const AIR_LAUNCH_PULSE_AMP = 0.18;
 
 interface Fx {
   amt: number;
@@ -79,8 +82,8 @@ export class BubbleView {
 
     let sx = 1;
     let sy = 1;
-    if (b.state === 'CHARGING') {
-      const power = snapshot.hud.chargePower;
+    if (b.state === 'AIMING') {
+      const power = snapshot.hud.power;
       const wobble = 1 + WOBBLE_AMP * Math.sin((t / 1000) * WOBBLE_HZ * Math.PI * 2);
       sy = (1 - CHARGE_SQUASH * power) * wobble;
       sx = (1 + CHARGE_SQUASH * power) / wobble;
@@ -99,16 +102,19 @@ export class BubbleView {
     this.body.setRotation(this.axisRot + this.fx.rotW);
 
     this.syncEyes(b.pos, this.eyeDirection(snapshot), base, b.state === 'RESTING', t);
-    this.drawAura(b.pos, b.radius, b.lastChargePower, t);
+    // D1: the aura breathes only while Bur is ADRIFT and still holds her one mid-air launch. On a
+    // ledge, or once it is spent, there is nothing to advertise and the aura is perfectly still.
+    const adrift = b.state !== 'RESTING' && b.state !== 'DEAD';
+    this.drawAura(b.pos, b.radius, b.lastLaunchPower, t, adrift && snapshot.hud.airLaunchAvailable);
   }
 
-  /** Eyes look where the shot is going while charging, and where she is flying otherwise (§7). */
+  /** Eyes look where the shot is going while she aims, and where she is flying otherwise (§7). */
   private eyeDirection(snapshot: WorldSnapshot): Vec2 {
     const b = snapshot.bubble;
     const gaze = this.gaze;
-    if (b.state === 'CHARGING' || b.state === 'IDLE') {
-      gaze.x = Math.sin(b.aimTheta);
-      gaze.y = Math.cos(b.aimTheta);
+    if (b.state === 'AIMING' || b.state === 'IDLE') {
+      gaze.x = Math.sin(b.pullTheta);
+      gaze.y = Math.cos(b.pullTheta);
       return gaze;
     }
     const speed = Math.hypot(b.vel.x, b.vel.y);
@@ -135,7 +141,7 @@ export class BubbleView {
    * Aura ring: guarantees the MIN_SILHOUETTE_PX readability floor (§2.6) — as pressure shrinks Bur,
    * the aura grows, so she never becomes a dot. Its brightness carries the light radius of §11.4.
    */
-  private drawAura(pos: Vec2, radius: number, lastPower: number, timeMs: number): void {
+  private drawAura(pos: Vec2, radius: number, lastPower: number, timeMs: number, airLaunch: boolean): void {
     const t = this.tuningOf();
     const grow = Math.max(0, t.RADIUS_BASE - radius) * 0.7;
     const outer = Math.max(t.MIN_SILHOUETTE_PX / 2, radius + 1.5 + grow);
@@ -155,11 +161,18 @@ export class BubbleView {
       this.aura.strokeCircle(0, 0, outer + 2);
     }
     this.aura.setPosition(pos.x, pos.y);
-    if (!this.deflating) {
-      const flashing = timeMs < this.shieldUntil;
-      this.aura.setAlpha(flashing ? 1 : 0.85);
-      this.aura.setScale(flashing ? 1 + 0.25 * ((this.shieldUntil - timeMs) / SHIELD_FLASH_MS) : 1);
+    if (this.deflating) return;
+    const flashing = timeMs < this.shieldUntil;
+    if (flashing) {
+      this.aura.setAlpha(1);
+      this.aura.setScale(1 + 0.25 * ((this.shieldUntil - timeMs) / SHIELD_FLASH_MS));
+      return;
     }
+    // A faint, slow breath — never a flash: it must be legible out of the corner of the eye without
+    // competing with the shield pulse, which is the only bright thing the aura is allowed to do.
+    const pulse = airLaunch ? AIR_LAUNCH_PULSE_AMP * (0.5 + 0.5 * Math.sin((timeMs / AIR_LAUNCH_PULSE_MS) * Math.PI * 2)) : 0;
+    this.aura.setAlpha(0.85 + pulse);
+    this.aura.setScale(1 + pulse * 0.25);
   }
 
   /** §2.5: the shield ate a hit. Bur swells and her aura flares for a beat — no pip was lost. */

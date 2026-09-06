@@ -25,6 +25,7 @@ Deudas conocidas y decisiones pendientes, con la sección del GDD que las gobier
 | S4 | Tutorial | Mano fantasma implementada; falta validar con jugadores que no se confunde con "otra Bur". | §8 |
 | S5 | Idioma | Cadenas en `ui/strings.ts` (es/en por `navigator.language`). El navegador headless muestra inglés; en un móvil en español saldrá español. | §0 pilar 5 |
 | S6 | Puntos de trayectoria | El número lo dicta core (`TRAJECTORY_DOTS`); el espaciado a veces se ve escaso en arcos largos. Ajustar en playtest. | §2.7 |
+| S7 | **Flaky bajo 4 workers en paralelo: `start-screen.spec.ts`** (gate de integración v1.2, 2026-09-06) | `simulationTimeMs` avanza menos de lo esperado (`expect(...).toBeGreaterThan(before + 300)`) cuando Playwright corre con `--workers=4` y la máquina está saturada; con `--workers=1` los 26 tests (incluidos esos dos) pasan siempre. No es una regresión de D1–D4: es margen de reloj insuficiente para CPU compartida. Subir el margen de espera en esos dos tests o fijar `workers: 1` para ese archivo. | — |
 
 ## Producto
 

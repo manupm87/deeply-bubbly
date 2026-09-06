@@ -1,13 +1,14 @@
 /**
- * Bur's state machine (GDD §11.3) and her own motion (§11.4). This file owns exactly one thing: how a
- * pointer, a clock and a pile of solids turn into IDLE / CHARGING / LAUNCHED / RESTING / DEAD.
+ * Bur's state machine (GDD §11.3, DECISIONS-v1.2 D1/D2) and her own motion (§11.4). This file owns
+ * exactly one thing: how a pointer, a clock and a pile of solids turn into
+ * IDLE / AIMING / LAUNCHED / RESTING / DEAD.
  *
  * It never samples force fields, never reads the camera, never touches hazards or pickups: `GameWorld`
  * does that around it. What it does own — and nobody else may re-implement — is the rest capture rule
- * (§2.3), the charge/launch gesture (§2.1) and the overcharge clock (§2.2).
+ * (§2.3), the slingshot gesture (D2) and the mid-air launch budget (D1).
  */
 import { computeAim, launchVelocity } from '../control/aim';
-import { chargePower, impulseMagnitude, zoneRadius } from '../control/charge';
+import { isCancelZone, launchImpulse, pullPower, zoneRadius } from '../control/pull';
 import { moveCircle, solidRectAt } from '../physics/collision';
 import { integrateVelocity } from '../physics/integrator';
 import { clamp } from '../math/vec';
@@ -64,18 +65,20 @@ const TIME_EPS_MS = 1e-6;
 const PREVIOUS_ZONE: Readonly<Record<ZoneIndex, ZoneIndex>> = { 0: 0, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4 };
 
 /**
- * One fixed step of the bubble state machine (§11.3) + physics (§11.4). Mutates `bubble` in place.
+ * One fixed step of the bubble state machine (§11.3, D1/D2) + physics (§11.4). Mutates `bubble` in place.
  * Responsibilities, in order:
  *  1. DEAD: advance deadMs; no input; return.
- *  2. Input edge detection: pointerdown → start CHARGING (freeze aimOrigin = bubble.pos, chargeMs = 0) from IDLE or RESTING;
- *     pointerup → if chargeMs < MIN_TAP_MS: ignore (return to previous state: IDLE, or stay RESTING if it was resting);
- *     else launch: vel = launchVelocity(theta, impulseMagnitude(...)) [ASSIGNMENT], state = LAUNCHED, launchedMs = 0.
- *  3. CHARGING: chargeMs += dt*1000; compute aim from the frozen origin; overcharge drain after OVERCHARGE_MS
- *     (OVERCHARGE_MS_RESTING when charging from rest) every OVERCHARGE_DRAIN_MS via loseAir('overcharge');
- *     auto-release at AUTO_RELEASE_MS. Buoyancy at CHARGING_BUOYANCY_MUL. While charging from RESTING, position stays pinned.
- *  4. ATTACHED (RESTING, or a hold from rest): vel = 0, restMs += dt; pressure drain frozen; after maxRestMs → push DOWN
- *     at REST_RELEASE_PUSH, state IDLE, event restRelease('timeout'). Ignore that ceiling for LAUNCH_LOCK_MS after leaving.
- *  5. IDLE/LAUNCHED: integrate velocity, move with moveCircle. For each contact:
+ *  2. Input edges. pointerdown from RESTING → AIMING; pointerdown while airborne (IDLE/LAUNCHED) →
+ *     AIMING only if the D1 double jump is still available (`canAirLaunch`), otherwise the touch is
+ *     ignored ENTIRELY: no state change, no event, no punishment. `aimOrigin` freezes at the POINTER.
+ *     pointerup → `cancelZone` (pull under PULL_CANCEL_PX) cancels for free, anything else launches.
+ *  3. AIMING: aimMs += dt*1000; the pull is measured from the frozen origin (power, theta, validity,
+ *     cancel zone); at AIM_MAX_MS the aim CANCELS — it never fires by itself (D2).
+ *  4. ATTACHED (RESTING, or an aim from rest): vel = 0, pinned, pressure drain frozen. The posadero
+ *     anti-camping clock is FROZEN while aiming (D2); impaciente and pegajosa keep counting and can
+ *     eject Bur mid-aim, which cancels the gesture. On eject: push DOWN at REST_RELEASE_PUSH, state
+ *     IDLE, event restRelease('timeout'). Ignore that ceiling for LAUNCH_LOCK_MS after leaving.
+ *  5. IDLE/LAUNCHED/an air aim: integrate velocity, move with moveCircle. For each contact:
  *     - face 'bottom' && body is capturable ceiling && vel.y < 0 && approachSpeed <= REST_CAPTURE_SPEED && not within LAUNCH_LOCK → RESTING (event rest)
  *     - otherwise bounce (event bounce), update bounceChain (distinct bodies; reward +1 air at BOUNCE_CHAIN_REWARD once per chunk)
  *     - trampoline (capturable=false with bounceCooldownMs) → add to ignore set until cooldown expires
@@ -83,27 +86,26 @@ const PREVIOUS_ZONE: Readonly<Record<ZoneIndex, ZoneIndex>> = { 0: 0, 1: 0, 2: 1
  *  7. Flags expiry (stun, invuln, reinflate, ascenso).
  * Hazards, pickups, boyas, stations and camera are NOT handled here (GameWorld does it) — this module is about Bur's own motion.
  *
- * Four implementation notes the integrator needs:
- *  - Input EDGES come from `bubble.holdLatched` ("this finger has already had its hold"), NOT from
- *    the state. Deriving them from the state (CHARGING *is* "the pointer was down") looks equivalent
- *    and is not: §2.2's auto-release ends the gesture at 2.500 ms with the finger still on the glass,
- *    and 250 ms later the same, never-lifted finger would start a second hold — a second
- *    `chargeStart` and a fresh overcharge budget, so a 5 s press would cost 4 pips where §2.2 and
- *    §11.7.4 cap a `mantenido` at 2. A press is honoured once per contact, from IDLE or RESTING; the
- *    latch is released the first step the pointer is up.
+ * Five implementation notes the integrator needs:
+ *  - Input EDGES come from `bubble.holdLatched` ("this finger has already had its gesture"), NOT from
+ *    the state. Deriving them from the state (AIMING *is* "the pointer was down") looks equivalent
+ *    and is not: D2's AIM_MAX_MS cancel ends the gesture with the finger still on the glass, and the
+ *    same never-lifted finger would start a second aim on the very next step. A press is honoured
+ *    once per contact; the latch is released the first step the pointer is up.
+ *  - A REFUSED air touch does not latch. "El toque no hace nada" (D1) has to survive the next 200 ms:
+ *    latching it would mean that a player pressing a moment before landing gets no shot when she
+ *    lands, and would have to lift and press again to use the ledge she aimed for.
  *  - Being ATTACHED to a ceiling (`restingOnId !== null`) is orthogonal to the input state: RESTING
- *    and "a hold from rest" (CHARGING while attached) are the same physical pose, so the pinning, the
- *    1.800 ms overcharge threshold, the frozen pressure clock and the anti-camping clock all key on
- *    the attachment and never on `state === 'RESTING'`. A capture that lands mid-hold therefore keeps
- *    the gesture alive: it parks it in RESTING for one step and the next input phase RESUMES it (no
- *    second `chargeStart`, no lost charge), which is §11.3's own RESTING → CHARGING arrow.
+ *    and "an aim from rest" are the same physical pose, so the pinning, the frozen pressure clock and
+ *    the anti-camping clock all key on the attachment and never on `state === 'RESTING'`. A capture
+ *    that lands mid-aim therefore keeps the gesture alive: it parks it in RESTING for one step and
+ *    the next input phase RESUMES it, which is §11.3's own RESTING → AIMING arrow — and it turns an
+ *    air aim into a free one, because by then Bur is hanging from a ledge.
  *  - Rest capture is decided BEFORE the bounce response, through `moveCircle`'s `stopAtContact` hook:
  *    the motion stops at the capturing contact with the velocity un-reflected, so §2.3's "un solo
  *    evento, sin traqueteo" holds exactly instead of being patched up after a bounce already happened.
- *  - The anti-camping CLOCK runs for as long as Bur is attached, aiming included (§2.3 argues the
- *    budget as "1.800 ms de puntería dentro de un reposo de 3,0 s", which is only an argument if the
- *    clock keeps running); the EJECT itself waits for the gesture to end, so a shot is never yanked
- *    out of the player's hands mid-charge. AUTO_RELEASE_MS bounds that wait.
+ *  - Losing the ledge mid-aim CANCELS the aim (`aimCancel('displaced')`), and that is what makes the
+ *    launch branch simple: an aim that survives to a release while detached can only be an air aim.
  */
 export function stepBubble(bubble: Bubble, run: RunState, input: BubbleStepInput, t: Tuning): BubbleStepResult {
   const events: GameEvent[] = [];
@@ -125,13 +127,13 @@ export function stepBubble(bubble: Bubble, run: RunState, input: BubbleStepInput
     return out;
   }
 
-  // LAUNCHED → IDLE. Before the input edges on purpose: a finger pressed during the lock starts its
-  // charge on the very first step that allows it, instead of waiting a whole extra frame.
+  // LAUNCHED → IDLE. Before the input edges on purpose: a finger pressed during the lock opens its
+  // aim on the very first step that allows it, instead of waiting a whole extra frame.
   if (bubble.state === 'LAUNCHED' && bubble.launchedMs + TIME_EPS_MS >= t.LAUNCH_LOCK_MS) bubble.state = 'IDLE';
 
   // The ceiling Bur hangs from can vanish under her (marine snow dissolving, the streamer dropping it,
   // a boss carrying it away). Rest without a ceiling is not a state §2.3 admits, in RESTING or while
-  // charging from it; a live one is re-pinned so a kinematic slab carries Bur instead of leaving her
+  // aiming from it; a live one is re-pinned so a kinematic slab carries Bur instead of leaving her
   // floating in mid-water.
   if (isAttached(bubble)) {
     const ceiling = findCeiling(input.solids, bubble.restingOnId);
@@ -139,35 +141,35 @@ export function stepBubble(bubble: Bubble, run: RunState, input: BubbleStepInput
     else pinToCeiling(bubble, ceiling, input);
   }
 
-  // 2. Input edges (see the note above: one finger contact = one hold, and `holdLatched` is what
-  //    makes the auto-release final instead of the start of the next hold).
+  // 2. Input edges (see the notes above: one finger contact = one gesture, and `holdLatched` is what
+  //    makes the AIM_MAX_MS cancel final instead of the start of the next aim).
   if (input.pointer.down) {
-    if (bubble.state === 'IDLE' || bubble.state === 'RESTING') {
-      // A hold a capture interrupted is RESUMED, not restarted: the charge belongs to the player, and
-      // §11.3's route out of RESTING with the finger down is exactly this one, CHARGING.
-      if (bubble.holdLatched !== true) beginCharge(bubble, events);
-      else if (hasLiveHold(bubble)) bubble.state = 'CHARGING';
+    // An aim a capture interrupted is RESUMED, not restarted: the pull belongs to the player, and
+    // §11.3's route out of RESTING with the finger down is exactly this one, AIMING.
+    if (hasLiveAim(bubble) && bubble.holdLatched === true) {
+      if (bubble.state === 'IDLE' || bubble.state === 'RESTING') bubble.state = 'AIMING';
+    } else if (bubble.holdLatched !== true && canAim(bubble, t)) {
+      beginAim(bubble, input, t, events);
     }
   } else {
     bubble.holdLatched = false;
-    // A live hold is released whatever state it is parked in, so a capture landing on the last step
-    // of the gesture cannot swallow the shot the player charged.
-    if (bubble.state === 'CHARGING' || hasLiveHold(bubble)) {
-      if (bubble.chargeMs < t.MIN_TAP_MS) cancelCharge(bubble);
-      else launch(bubble, input, t, events);
+    // A live aim is released whatever state it is parked in, so a capture landing on the last step
+    // of the gesture cannot swallow the shot the player pulled.
+    if (bubble.state === 'AIMING' || hasLiveAim(bubble)) {
+      if (bubble.cancelZone) cancelAim(bubble, 'zone', events);
+      else launch(bubble, run, input, t, events);
+      if (isDead(bubble)) return out;
     }
   }
 
-  // 3. CHARGING clocks (aim, overcharge, auto-release). May end in a launch or in DEAD.
-  if (bubble.state === 'CHARGING') {
-    stepCharging(bubble, run, input, t, events);
-    if (isDead(bubble)) return out;
-  }
+  // 3. AIMING clocks (the pull, and the AIM_MAX_MS cancel). Never ends in a launch (D2).
+  if (bubble.state === 'AIMING') stepAiming(bubble, input, t, events);
 
-  // 4. Anti-camping clock (§2.3). It runs for as long as Bur is ATTACHED, aiming included.
+  // 4. Anti-camping clock (§2.3, D2). It runs for as long as Bur is ATTACHED, except on a posadero
+  //    she is aiming from: there the clock is frozen.
   if (isAttached(bubble)) stepRestClock(bubble, input, t, events);
 
-  // 5. Motion. Attached poses (RESTING and a hold from rest) are pinned: they do not integrate at all.
+  // 5. Motion. Attached poses (RESTING and an aim from rest) are pinned: they do not integrate at all.
   if (isAttached(bubble)) bubble.vel = { x: 0, y: 0 };
   else stepMotion(bubble, input, t, events, contacts);
   if (bubble.state === 'LAUNCHED') bubble.launchedMs += dtMs;
@@ -210,19 +212,18 @@ export function createBubble(pos: Vec2, zone: ZoneIndex, t: Tuning): Bubble {
     air: t.AIR_START,
     airMax: zoneAirMax(zone, 0, t),
     state: 'IDLE',
-    chargeMs: 0,
     restMs: 0,
     launchedMs: 0,
     deadMs: 0,
-    lastChargePower: 0,
+    lastLaunchPower: 0,
     aimOrigin: null,
-    aimTheta: 0,
-    lastAimValid: null,
-    dragDist: 0,
-    overchargeDrained: 0,
-    overchargeTickMs: 0,
+    pullDist: 0,
+    pullTheta: 0,
+    aimMs: 0,
+    aimValid: true,
+    cancelZone: false,
+    airLaunchesUsed: 0,
     holdLatched: false,
-    overchargeAnnounced: false,
     restingOnId: null,
     lastRestingCeilingId: null,
     bounceChain: 0,
@@ -263,12 +264,12 @@ export function applyAirLoss(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Charging
+// Aiming (DECISIONS-v1.2 D1, D2)
 // ---------------------------------------------------------------------------------------------
 
 /**
- * True while Bur hangs from a ceiling (§2.3). It is a pose, not an input state: RESTING and a hold
- * charged from the ledge are the same thing physically, and the pinning, the anti-camping clock and
+ * True while Bur hangs from a ceiling (§2.3). It is a pose, not an input state: RESTING and an aim
+ * pulled from the ledge are the same thing physically, and the pinning, the anti-camping clock and
  * the frozen pressure clock all belong to the pose.
  */
 function isAttached(bubble: Bubble): boolean {
@@ -276,112 +277,196 @@ function isAttached(bubble: Bubble): boolean {
 }
 
 /**
- * True while a gesture owns an accumulated charge: CHARGING, plus the single step a rest capture may
- * park a running hold in RESTING before the next input phase resumes it (§2.3 can capture Bur in the
- * middle of an in-air hold, and §11.3 has no route that throws the player's charge away).
- * `aimOrigin` is the marker because `beginCharge` sets it and both endings — `launch` and
- * `cancelCharge` — clear it.
+ * D1's "double jump": one mid-air launch per airborne phase, priced at AIR_LAUNCH_COST pips and
+ * NEVER available on the last pip. The strict `>` is the whole of "nunca el último pip": with the
+ * shipped cost of 1 it takes two pips to buy a shot that leaves one.
+ * Exported because the HUD shows it (D1 makes it a resource the player counts) and because it is the
+ * one place the rule is written.
  */
-function hasLiveHold(bubble: Bubble): boolean {
+export function canAirLaunch(bubble: Bubble, t: Tuning): boolean {
+  return bubble.airLaunchesUsed < t.AIR_LAUNCHES_MAX && bubble.air > t.AIR_LAUNCH_COST;
+}
+
+/**
+ * True while the Anémona Pegajosa holds Bur (§2.4.5, §5 nº 7). `flags.trapVentAt` is the trap's own
+ * stamp — `hazards.ts` sets it when the crown closes and clears it the moment it lets go — so the
+ * state machine can read the pose without knowing what a hazard is.
+ *
+ * It matters here because §2.4.5 prices the escape at a shot of 60 % or more and calls the anemone
+ * "recurso, NO muerte". A pinned Bur is held AGAINST a surface, not adrift: her escape is the shot D1
+ * sends out of a rest, not the mid-air correction D1 took away. Charging it to the double-jump budget
+ * would make an anemone met on the last pip an unavoidable death, which is the opposite of the rule.
+ */
+function isTrapped(bubble: Bubble): boolean {
+  return bubble.flags.trapVentAt > 0;
+}
+
+/**
+ * Whether a pointerdown may open a gesture at all (D1). From a rest surface: always — that is where
+ * the game is played from. Held by an anemone: always, because that shot is the way out §2.4.5 sells.
+ * In open water: only with the double jump in hand; otherwise the touch is ignored entirely, "ni
+ * evento ni castigo".
+ */
+function canAim(bubble: Bubble, t: Tuning): boolean {
+  if (bubble.state === 'RESTING') return true;
+  if (bubble.state !== 'IDLE' && bubble.state !== 'LAUNCHED') return false;
+  if (isTrapped(bubble)) return true;
+  return canAirLaunch(bubble, t);
+}
+
+/**
+ * True while a gesture owns a frozen origin: AIMING, plus the single step a rest capture may park a
+ * running aim in RESTING before the next input phase resumes it (§2.3 can capture Bur in the middle
+ * of an air aim, and §11.3 has no route that throws the player's pull away).
+ * `aimOrigin` is the marker because `beginAim` sets it and both endings — `launch` and `cancelAim` —
+ * clear it.
+ */
+function hasLiveAim(bubble: Bubble): boolean {
   return bubble.aimOrigin !== null;
 }
 
-function beginCharge(bubble: Bubble, events: GameEvent[]): void {
-  bubble.state = 'CHARGING';
-  // §2.1: frozen HERE, at Bur's position, never re-read from her live position afterwards.
-  bubble.aimOrigin = { x: bubble.pos.x, y: bubble.pos.y };
-  bubble.chargeMs = 0;
-  bubble.dragDist = 0;
-  bubble.overchargeDrained = 0;
-  bubble.overchargeTickMs = 0;
-  bubble.overchargeAnnounced = false;
-  // This finger has had its hold: whatever ends it (release, tap, auto-release), the next hold needs
-  // a real pointerup first (§2.2).
+/** D2: the origin is the FINGER's world position at the pointerdown, frozen for the whole gesture. */
+function beginAim(bubble: Bubble, input: BubbleStepInput, t: Tuning, events: GameEvent[]): void {
+  const fromRest = isAttached(bubble);
+  bubble.state = 'AIMING';
+  bubble.aimOrigin = { x: input.pointer.x, y: input.pointer.y };
+  bubble.aimMs = 0;
+  bubble.pullDist = 0;
+  bubble.pullTheta = 0;
+  bubble.aimValid = true;
+  // A gesture is born inside the cancel radius: at zero pull there is no shot to take yet (D2).
+  bubble.cancelZone = isCancelZone(0, t);
+  // This finger has had its gesture: whatever ends it (release, cancel, timeout), the next one needs
+  // a real pointerup first.
   bubble.holdLatched = true;
-  events.push({ type: 'chargeStart', at: { x: bubble.pos.x, y: bubble.pos.y } });
+  events.push({ type: 'aimStart', at: { x: bubble.aimOrigin.x, y: bubble.aimOrigin.y }, fromRest });
 }
 
-/** §11.7.3: a release under MIN_TAP_MS produces no impulse and no state change. */
-function cancelCharge(bubble: Bubble): void {
-  bubble.state = isAttached(bubble) ? 'RESTING' : 'IDLE';
-  bubble.chargeMs = 0;
+/**
+ * Ends a gesture without a shot (D2). No Air is charged and nothing moves: a cancelled air aim costs
+ * no pip, and a cancelled rest aim leaves Bur exactly where she was hanging. What it DOES charge is
+ * the ledge's own clock (see below), which is what keeps the freeze of §2.3 bounded.
+ */
+function cancelAim(
+  bubble: Bubble,
+  reason: 'zone' | 'timeout' | 'displaced' | 'noAir',
+  events: GameEvent[],
+): void {
+  // D2 freezes the posadero's anti-camping clock "mientras se apunta", and argues the freeze is
+  // bounded because "AIM_MAX_MS bounds that at 6 s and the same finger cannot open a second aim
+  // without lifting". Lifting costs one frame, so without this line the loop press → 6 s → lift →
+  // press renews the freeze for ever, and with it §2.4.4's pressure drain, which `stepBubble` parks
+  // for as long as Bur hangs. So the freeze is a LOAN against the ledge: a gesture that ends without
+  // a shot pays its time back, and only a launch (which leaves the ledge anyway) is free of it.
+  // Camping is then bounded by REST_MAX_MS + AIM_MAX_MS, whatever the finger does.
+  if (isAttached(bubble)) bubble.restMs += bubble.aimMs;
+  if (bubble.state === 'AIMING') bubble.state = isAttached(bubble) ? 'RESTING' : 'IDLE';
+  clearAim(bubble);
+  events.push({ type: 'aimCancel', reason });
+}
+
+/**
+ * Cancels a live aim from OUTSIDE the state machine. Three callers, all of them cases where the world
+ * takes the gesture away rather than the player ending it: the station summary (§3.3: a station is a
+ * pause, not a level), the anemone's 0,8 s hold (§5 nº 7), and — through `GameWorld.cancelAim` — the
+ * shell, whenever a finger contact ends without a release (an automatic pause, a lost focus, a
+ * `pointercancel`, a drag off the canvas). It is here, and not written out again over there, because
+ * "a gesture ends by launching or by cancelling" is a rule of this file.
+ */
+export function abortAim(bubble: Bubble): GameEvent[] {
+  if (!hasLiveAim(bubble) && bubble.state !== 'AIMING') return [];
+  const events: GameEvent[] = [];
+  cancelAim(bubble, 'displaced', events);
+  return events;
+}
+
+/** The gesture fields, back to their resting values. Both endings share it so neither can forget one. */
+function clearAim(bubble: Bubble): void {
   bubble.aimOrigin = null;
-  bubble.overchargeTickMs = 0;
-  bubble.overchargeAnnounced = false;
+  bubble.aimMs = 0;
+  bubble.pullDist = 0;
+  bubble.aimValid = true;
+  bubble.cancelZone = false;
 }
 
-function stepCharging(
+/**
+ * The pull, re-measured every step from the frozen origin (D2), plus the aim timeout. There is no
+ * auto-fire: "existe un tope AIM_MAX_MS tras el cual el tiro SE CANCELA (nunca se dispara solo)".
+ */
+function stepAiming(bubble: Bubble, input: BubbleStepInput, t: Tuning, events: GameEvent[]): void {
+  bubble.aimMs += input.dt * 1000;
+
+  const origin = bubble.aimOrigin ?? bubble.pos;
+  const aim = computeAim({ x: input.pointer.x, y: input.pointer.y }, origin, t);
+  bubble.pullTheta = aim.theta;
+  bubble.pullDist = aim.pullDist;
+  bubble.aimValid = aim.valid;
+  bubble.cancelZone = isCancelZone(aim.pullDist, t);
+
+  if (bubble.aimMs + TIME_EPS_MS >= t.AIM_MAX_MS) cancelAim(bubble, 'timeout', events);
+}
+
+/**
+ * §2.2, rule number one: the launch ASSIGNS the velocity. Never `vel +=`.
+ * An aim that reaches here detached and free is an AIR launch by construction (a rest aim that loses
+ * its ledge is cancelled by `detachRest`), so it spends one of the D1 budget and pays its pip — a
+ * price, not a blow: `loseAir` grants no invulnerability, no stun, and `GameWorld` adds no pushback
+ * for it. Detached but HELD by an anemone is the third case, and it is free (see `isTrapped`).
+ */
+function launch(
   bubble: Bubble,
   run: RunState,
   input: BubbleStepInput,
   t: Tuning,
   events: GameEvent[],
 ): void {
-  const dtMs = input.dt * 1000;
-  bubble.chargeMs += dtMs;
-
-  // Aim is measured from the frozen origin, so a still finger is a still shot however far Bur drifts.
-  const origin = bubble.aimOrigin ?? bubble.pos;
-  const aim = computeAim({ x: input.pointer.x, y: input.pointer.y }, origin, bubble.lastAimValid, t);
-  bubble.aimTheta = aim.theta;
-  bubble.dragDist = aim.dragDist;
-  if (aim.valid) bubble.lastAimValid = aim.theta;
-
-  const thresholdMs = isAttached(bubble) ? t.OVERCHARGE_MS_RESTING : t.OVERCHARGE_MS;
-  if (bubble.chargeMs > thresholdMs && t.OVERCHARGE_DRAIN_MS > 0) {
-    // The tell, once per hold, latched rather than derived from "crossed the threshold this step":
-    // the threshold MOVES from 1.800 ms to 900 ms the moment the ceiling stops holding Bur (snow
-    // dissolving, a slab carried away, the streamer dropping the chunk), and §2.2 sells the
-    // overcharge as a communicated cost — no pip is ever vented without its warning.
-    if (bubble.overchargeAnnounced !== true) {
-      bubble.overchargeAnnounced = true;
-      events.push({ type: 'overchargeStart' });
-    }
-    // Only the part of this step that is past the threshold counts, so the first drain lands exactly
-    // OVERCHARGE_DRAIN_MS after it (§11.7.4: a 1.400 ms hold drains exactly one pip).
-    bubble.overchargeTickMs += Math.min(dtMs, bubble.chargeMs - thresholdMs);
-    while (bubble.overchargeTickMs + TIME_EPS_MS >= t.OVERCHARGE_DRAIN_MS) {
-      bubble.overchargeTickMs -= t.OVERCHARGE_DRAIN_MS;
-      const change = applyAirLoss(bubble, run, 'overcharge', bubble.pos, input.nowMs, t);
-      events.push(...change.events);
-      if (change.died) return;
-    }
-  }
-
-  // "Mantener eternamente no es un estado válido" (§2.2): Bur lets go with what she has.
-  if (bubble.chargeMs + TIME_EPS_MS >= t.AUTO_RELEASE_MS) launch(bubble, input, t, events);
-}
-
-/** §2.2, rule number one: the launch ASSIGNS the velocity. Never `vel +=`. */
-function launch(bubble: Bubble, input: BubbleStepInput, t: Tuning, events: GameEvent[]): void {
-  const power = chargePower(bubble.chargeMs, t);
+  const power = pullPower(bubble.pullDist, t);
   const fromRest = isAttached(bubble);
+  const airLaunch = !fromRest && !isTrapped(bubble);
+  // D1 is a rule about the SHOT, not about the pointerdown: a gesture opened with two pips and
+  // released with one is still "el último pip", and `loseAir`'s floor would decline to charge for it,
+  // turning the refusal into a free extra launch the HUD has already told the player she does not
+  // have. The release is declined instead of fired — the same "ni evento ni castigo" as the touch
+  // that never opened, plus the `aimCancel` the shell needs to close the gesture it was drawing.
+  if (airLaunch && !canAirLaunch(bubble, t)) {
+    cancelAim(bubble, 'noAir', events);
+    return;
+  }
   const ceilingId = bubble.restingOnId;
   const ceiling = fromRest ? findCeiling(input.solids, ceilingId) : null;
-  const stickyMul = ceiling !== null && ceiling.kind === 'pegajosa' ? t.REST_STICKY_IMPULSE_MUL : 1;
 
-  const impulse =
-    impulseMagnitude(
-      {
-        power,
-        dragDist: bubble.dragDist,
-        radius: bubble.radius,
-        stunned: input.nowMs < bubble.flags.stunUntil,
-        externalMul: input.env.chargeMul * stickyMul,
-      },
-      t,
-    ) * input.env.impulseMul;
+  const impulse = launchImpulse(
+    {
+      power,
+      radius: bubble.radius,
+      stunned: input.nowMs < bubble.flags.stunUntil,
+      sticky: ceiling !== null && ceiling.kind === 'pegajosa',
+      chargeMul: input.env.chargeMul,
+      impulseMul: input.env.impulseMul,
+    },
+    t,
+  );
 
-  bubble.vel = launchVelocity(bubble.aimTheta, impulse);
+  bubble.vel = launchVelocity(bubble.pullTheta, impulse);
   bubble.state = 'LAUNCHED';
   bubble.launchedMs = 0;
-  bubble.lastChargePower = power;
-  bubble.chargeMs = 0;
-  bubble.overchargeTickMs = 0;
-  bubble.overchargeAnnounced = false;
-  bubble.aimOrigin = null;
-  events.push({ type: 'launch', power, vel: { x: bubble.vel.x, y: bubble.vel.y }, at: { x: bubble.pos.x, y: bubble.pos.y } });
+  bubble.lastLaunchPower = power;
+  clearAim(bubble);
+  events.push({
+    type: 'launch',
+    power,
+    vel: { x: bubble.vel.x, y: bubble.vel.y },
+    at: { x: bubble.pos.x, y: bubble.pos.y },
+    airLaunch,
+  });
 
+  if (airLaunch) {
+    bubble.airLaunchesUsed += 1;
+    const change = applyAirLoss(bubble, run, 'airLaunch', bubble.pos, input.nowMs, t);
+    events.push(...change.events);
+    return;
+  }
+  // A trap escape leaves no ledge and spends no budget: nothing to detach, nothing to report.
   if (!fromRest) return;
   // State is already LAUNCHED, so `detachRest` only clears the attachment and reports it.
   detachRest(bubble, 'launch', events);
@@ -393,21 +478,24 @@ function launch(bubble: Bubble, input: BubbleStepInput, t: Tuning, events: GameE
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Anti-camping clock (§2.3, "máximo 3,0 s de reposo continuado"). It counts every step Bur spends
- * ATTACHED, aiming included: §2.3 justifies the 1.800 ms rest overcharge threshold with "con el
- * temporizador de reposo de 3,0 s, eso deja presupuesto de puntería de sobra sin necesidad de quitar
- * el anti-camping", and that argument only holds if the clock keeps running while she charges —
- * otherwise drumming a finger under a ledge parks Bur there forever.
- * The EJECT waits for the gesture to end, though: pulling a charged shot out of the player's hands
- * mid-gesture is not what §2.3 asks for, and the wait is bounded by AUTO_RELEASE_MS (2.500 ms), after
- * which the hold launches itself and detaches anyway.
+ * Anti-camping clock (§2.3), as revised by D2.
+ *
+ * On a POSADERO the clock is FROZEN while Bur aims: v1.1 could argue that a 3,0 s budget left room to
+ * point because power was a 550 ms hold, and D2 replaced that with a 6 s slingshot the player is
+ * expected to line up. Camping is still impossible, but not because the finger has to lift — that
+ * costs one frame: the freeze is a loan, and `cancelAim` charges every gesture that ends without a
+ * shot back to `restMs`, so a rest lasts at most REST_MAX_MS + AIM_MAX_MS however the finger drums.
+ * IMPACIENTE and PEGAJOSA keep counting through the aim and eject Bur mid-gesture: "las superficies
+ * impaciente y pegajosa mantienen sus temporizadores propios corriendo: es su carácter". The eject
+ * cancels the aim through `detachRest`, so the player loses the shot, which is exactly the threat
+ * those two surfaces are for.
  */
 function stepRestClock(bubble: Bubble, input: BubbleStepInput, t: Tuning, events: GameEvent[]): void {
   const ceiling = findCeiling(input.solids, bubble.restingOnId);
   if (ceiling === null) return; // Already detached above; nothing left to time.
+  if (bubble.state === 'AIMING' && ceiling.kind === 'posadero') return;
 
   bubble.restMs += input.dt * 1000;
-  if (bubble.state === 'CHARGING') return;
   const maxRestMs = ceiling.maxRestMs ?? t.REST_MAX_MS[ceiling.kind];
   if (bubble.restMs + TIME_EPS_MS < maxRestMs) return;
 
@@ -417,12 +505,19 @@ function stepRestClock(bubble: Bubble, input: BubbleStepInput, t: Tuning, events
   addPassThrough(bubble, ceiling.id, input.nowMs + t.LAUNCH_LOCK_MS);
 }
 
-/** Ends the attachment to a ceiling. Returns to IDLE only if Bur was actually RESTING. */
+/**
+ * Ends the attachment to a ceiling. Returns to IDLE if Bur was RESTING or aiming from the ledge, and
+ * an aim that loses its ledge is CANCELLED (D2): the shot was pulled against a surface that is no
+ * longer there. It is also what lets `launch` assume that a detached aim is an air aim — `launch`
+ * itself calls this AFTER moving to LAUNCHED, so it never cancels its own shot.
+ */
 function detachRest(bubble: Bubble, reason: 'timeout' | 'launch' | 'displaced', events: GameEvent[]): void {
-  if (bubble.state === 'RESTING') bubble.state = 'IDLE';
+  const aiming = bubble.state === 'AIMING';
+  if (bubble.state === 'RESTING' || aiming) bubble.state = 'IDLE';
   bubble.restingOnId = null;
   bubble.restMs = 0;
   events.push({ type: 'restRelease', reason });
+  if (aiming) cancelAim(bubble, 'displaced', events);
 }
 
 /**
@@ -514,13 +609,15 @@ function capturingCeiling(contact: Contact, launched: boolean, t: Tuning): Ceili
 /**
  * Turns a capturing contact into the attachment (§2.3). The pose is the canonical `restPose`, not the
  * contact point, so a corner graze cannot leave Bur hanging next to the ledge.
- * The capture arrow of §11.3 lands on RESTING whatever Bur was doing, but it does NOT end a hold that
- * is running: `chargeMs` and `aimOrigin` are left alone, so the next input phase resumes the gesture
- * as a hold from rest (pinned, 1.800 ms of threshold, sticky launch) instead of throwing away the
- * half second of charge the player is holding.
+ * The capture arrow of §11.3 lands on RESTING whatever Bur was doing, but it does NOT end an aim that
+ * is running: `aimOrigin` and the pull are left alone, so the next input phase resumes the gesture as
+ * an aim from rest (pinned, free, sticky-launch aware) instead of throwing away the pull the player
+ * is holding — and the shot stops costing a pip, because she is no longer in open water.
+ * Resting is also what refills the D1 double jump: `airLaunchesUsed` is per AIRBORNE PHASE.
  */
 function enterRest(bubble: Bubble, ceiling: Ceiling, input: BubbleStepInput, events: GameEvent[]): void {
   bubble.state = 'RESTING';
+  bubble.airLaunchesUsed = 0;
   bubble.vel = { x: 0, y: 0 };
   // Snap to the rest pose (touching the face, not CONTACT_EPSILON away from it) so the very first
   // attached frame already shows the position every later step will pin Bur to.

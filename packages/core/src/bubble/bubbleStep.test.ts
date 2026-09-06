@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { vec } from '../math/vec';
 import { SeededRNG } from '../ports';
 import { createTuning } from '../tuning';
-import { chargePower, impulseMagnitude } from '../control/charge';
+import { impulseMagnitude, pullPower } from '../control/pull';
+import { pullGesture } from '../game/testHarness';
 import { createNeutralEnv, NEUTRAL_ENV } from '../physics/forceFields';
 import { solidRectAt } from '../physics/collision';
-import { applyAirLoss, createBubble, radiusForZone, stepBubble } from './bubbleStep';
+import { applyAirLoss, canAirLaunch, createBubble, radiusForZone, stepBubble } from './bubbleStep';
 import type { BubbleStepResult } from './bubbleStep';
 import type { Vec2 } from '../math/vec';
 import type { ReadonlyPhysicsEnv } from '../physics/forceFields';
@@ -107,9 +108,22 @@ class Sim {
   }
 }
 
-/** A still finger `dy` px below (and `dx` px beside) the point where the charge was started. */
-function fingerAt(origin: Vec2, dx = 0, dy = t.DRAG_NEUTRAL_PX): PointerInput {
-  return { down: true, x: origin.x + dx, y: origin.y + dy };
+/**
+ * The pointer that OPENS a gesture. `aimOrigin` freezes exactly here (D2: the finger, not Bur), so
+ * every later sample is written relative to this same point.
+ */
+function press(at: Vec2): PointerInput {
+  return { down: true, x: at.x, y: at.y };
+}
+
+/**
+ * A still finger holding the sling at `power` for a launch `thetaDeg` off straight down. The pull
+ * points the OPPOSITE way to the shot, which is what `pullGesture` encodes: asking for a full-power
+ * shot straight down puts the finger PULL_MAX_PX *above* the origin.
+ */
+function pullTo(origin: Vec2, power = 1, thetaDeg = 0): PointerInput {
+  const d = pullGesture(power, thetaDeg, t);
+  return { down: true, x: origin.x + d.x, y: origin.y + d.y };
 }
 
 const speed = (v: Vec2): number => Math.hypot(v.x, v.y);
@@ -126,220 +140,378 @@ function lastLaunchSpeed(sim: Sim): number {
   return speed(last.vel);
 }
 
-/** Impulse of a neutral-drag hold at full power in zone 0 — the §2.2 table value (430 px/s). */
-const FULL_IMPULSE = impulseMagnitude(
-  { power: 1, dragDist: t.DRAG_NEUTRAL_PX, radius: t.RADIUS_BASE, stunned: false, externalMul: 1 },
-  t,
-);
+/** Impulse of a full pull in zone 0 — the §2.2 table value, IMPULSE_MAX after D4. */
+const FULL_IMPULSE = impulseMagnitude({ power: 1, radius: t.RADIUS_BASE, stunned: false, externalMul: 1 }, t);
 
 // ---------------------------------------------------------------------------------------------
 // The gesture (§2.1, §11.7.3)
 // ---------------------------------------------------------------------------------------------
 
-describe('stepBubble — the gesture (§2.1)', () => {
-  it('freezes aimOrigin at the press and emits chargeStart', () => {
+describe('stepBubble — the slingshot gesture (D2)', () => {
+  it('freezes aimOrigin at the FINGER, not at Bur, and emits aimStart', () => {
     const sim = new Sim(vec(90, 200));
-    const origin = { ...sim.bubble.pos };
-    sim.step(fingerAt(origin));
+    const finger = vec(40, 260);
+    sim.step(press(finger));
 
-    expect(sim.bubble.state).toBe('CHARGING');
-    expect(sim.bubble.aimOrigin).toEqual(origin);
-    expect(sim.bubble.chargeMs).toBeCloseTo(STEP_MS, 9);
-    expect(sim.of('chargeStart')).toHaveLength(1);
+    expect(sim.bubble.state).toBe('AIMING');
+    expect(sim.bubble.aimOrigin).toEqual(finger);
+    expect(sim.bubble.aimOrigin).not.toEqual(sim.bubble.pos);
+    expect(sim.bubble.aimMs).toBeCloseTo(STEP_MS, 9);
+    expect(sim.of('aimStart')).toEqual([{ type: 'aimStart', at: finger, fromRest: false }]);
   });
 
-  it('§11.7.3: a 60 ms tap produces no impulse and no state change', () => {
-    const sim = new Sim(vec(90, 200));
-    const origin = { ...sim.bubble.pos };
-    sim.run_(60, fingerAt(origin));
-    expect(sim.bubble.chargeMs).toBeLessThan(t.MIN_TAP_MS);
-
-    sim.step(POINTER_UP);
-    expect(sim.of('launch')).toHaveLength(0);
-    expect(sim.bubble.state).toBe('IDLE');
-    expect(sim.bubble.chargeMs).toBe(0);
-    // Only buoyancy has acted: nowhere near IMPULSE_MIN.
-    expect(speed(sim.bubble.vel)).toBeLessThan(10);
-  });
-
-  it('§11.7.3: a tap that short from RESTING leaves Bur resting', () => {
+  it('reports fromRest on an aim opened from a ledge', () => {
     const sim = restingSim();
-    const origin = { ...sim.bubble.pos };
-    sim.run_(60, fingerAt(origin));
-    sim.step(POINTER_UP);
-
-    expect(sim.bubble.state).toBe('RESTING');
-    expect(sim.bubble.restingOnId).toBe('ceil');
-    expect(sim.of('launch')).toHaveLength(0);
-    expect(sim.of('restRelease')).toHaveLength(0);
+    sim.step(press(vec(90, 300)));
+    expect(sim.of('aimStart')[0]?.fromRest).toBe(true);
   });
 
-  it('measures the aim from the FROZEN origin: a still finger is a still shot while Bur drifts', () => {
+  it('power is the pull length over PULL_MAX_PX: p(70) = 1, p(35) = 0.5, p(0) = 0 (§11.7.1 rewritten)', () => {
+    expect(pullPower(t.PULL_MAX_PX, t)).toBe(1);
+    expect(pullPower(t.PULL_MAX_PX / 2, t)).toBeCloseTo(0.5, 12);
+    expect(pullPower(0, t)).toBe(0);
+
+    // And the state machine agrees: a half pull launches at exactly half of the impulse span.
+    const sim = restingSim();
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(100, pullTo(origin, 0.5));
+    sim.step(POINTER_UP);
+
+    expect(sim.of('launch')[0]?.power).toBeCloseTo(0.5, 9);
+    expect(lastLaunchSpeed(sim)).toBeCloseTo(t.IMPULSE_MIN + 0.5 * (t.IMPULSE_MAX - t.IMPULSE_MIN), 6);
+  });
+
+  it('cancels inside PULL_CANCEL_PX: no launch, back to RESTING, and aimCancel is the only event', () => {
+    const sim = restingSim();
+    const origin = vec(90, 300);
+    const restedOn = sim.bubble.restingOnId;
+    const pos = { ...sim.bubble.pos };
+    sim.step(press(origin));
+    // 11 px of pull: inside the 12 px radius, so the ring is empty and there is no shot to take.
+    sim.run_(200, { down: true, x: origin.x, y: origin.y - (t.PULL_CANCEL_PX - 1) });
+    expect(sim.bubble.cancelZone).toBe(true);
+
+    sim.step(POINTER_UP);
+    expect(sim.of('launch')).toHaveLength(0);
+    expect(sim.bubble.state).toBe('RESTING');
+    expect(sim.bubble.restingOnId).toBe(restedOn);
+    expect(sim.bubble.pos).toEqual(pos);
+    expect(sim.bubble.vel).toEqual({ x: 0, y: 0 });
+    expect(sim.events.map((e) => e.type)).toEqual(['aimStart', 'aimCancel']);
+    expect(sim.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'zone' }]);
+  });
+
+  it('cancels an air aim back to IDLE at no cost', () => {
     const sim = new Sim(vec(90, 200));
-    const origin = { ...sim.bubble.pos };
-    const finger = fingerAt(origin, 20);
+    sim.bubble.air = 5;
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.step({ down: true, x: origin.x + 4, y: origin.y });
+    sim.step(POINTER_UP);
+
+    expect(sim.bubble.state).toBe('IDLE');
+    expect(sim.bubble.air).toBe(5);
+    expect(sim.bubble.airLaunchesUsed).toBe(0);
+    expect(sim.of('airLost')).toHaveLength(0);
+    expect(sim.of('aimCancel')).toHaveLength(1);
+  });
+
+  it('a pull that asks to go UP clamps to the horizontal on that side, and says so', () => {
+    const sim = restingSim();
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    // Finger BELOW the origin = pulling down = asking Bur to fly UP, and a touch to the left of
+    // centre = asking her to fly up and to the RIGHT. The nearest legal shot is the right horizontal.
+    sim.step({ down: true, x: origin.x - 5, y: origin.y + 60 });
+
+    expect(sim.bubble.aimValid).toBe(false);
+    expect(sim.bubble.pullTheta).toBeCloseTo(Math.PI / 2, 9);
+
+    sim.step(POINTER_UP);
+    const [launch] = sim.of('launch');
+    expect(launch).toBeDefined();
+    expect(launch?.vel.x).toBeGreaterThan(0);
+    expect(Math.abs(launch?.vel.y ?? 1)).toBeLessThan(1e-9); // horizontal, never upward
+
+    // ...and the mirror image goes the other way.
+    const other = restingSim();
+    other.step(press(origin));
+    other.step({ down: true, x: origin.x + 5, y: origin.y + 60 });
+    expect(other.bubble.pullTheta).toBeCloseTo(-Math.PI / 2, 9);
+  });
+
+  it('a pull inside the cone is valid and points where the finger says', () => {
+    const sim = restingSim();
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.step(pullTo(origin, 1, 40));
+
+    expect(sim.bubble.aimValid).toBe(true);
+    expect(sim.bubble.pullTheta).toBeCloseTo((40 * Math.PI) / 180, 9);
+    expect(sim.bubble.pullDist).toBeCloseTo(t.PULL_MAX_PX, 9);
+  });
+
+  it('measures the pull from the FROZEN origin: a still finger is a still shot while Bur drifts', () => {
+    const sim = new Sim(vec(90, 200));
+    sim.bubble.air = 5;
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    const finger = pullTo(origin, 1, 20);
 
     sim.step(finger);
-    const theta = sim.bubble.aimTheta;
+    const theta = sim.bubble.pullTheta;
+    const start = { ...sim.bubble.pos };
     expect(theta).toBeGreaterThan(0);
 
     for (let i = 0; i < 20; i++) {
       sim.step(finger);
-      expect(sim.bubble.aimTheta).toBe(theta);
-      expect(sim.bubble.dragDist).toBeCloseTo(Math.hypot(20, t.DRAG_NEUTRAL_PX), 9);
+      expect(sim.bubble.pullTheta).toBe(theta);
+      expect(sim.bubble.pullDist).toBeCloseTo(t.PULL_MAX_PX, 9);
     }
-    // The test is only meaningful because Bur moved: buoyancy lifted her while she charged.
-    expect(sim.bubble.pos.y).toBeLessThan(origin.y - 0.5);
+    // The test is only meaningful because Bur moved: an air aim gets the full buoyancy (D2).
+    expect(sim.bubble.pos.y).toBeLessThan(start.y - 0.5);
   });
 
-  it('launches by ASSIGNMENT: two full charges in a row give one impulse, never their sum (§2.2)', () => {
-    const sim = new Sim(vec(90, 200));
-    const firstOrigin = { ...sim.bubble.pos };
-    sim.run_(t.CHARGE_FULL_MS, fingerAt(firstOrigin));
+  it('launches by ASSIGNMENT: two full pulls in a row give one impulse, never their sum (§2.2)', () => {
+    const sim = restingSim();
+    const first = vec(90, 300);
+    sim.step(press(first));
+    sim.run_(100, pullTo(first, 1));
     sim.step(POINTER_UP);
 
-    const first = lastLaunchSpeed(sim);
-    expect(first).toBeCloseTo(FULL_IMPULSE, 9);
+    const speed1 = lastLaunchSpeed(sim);
+    expect(speed1).toBeCloseTo(FULL_IMPULSE, 9);
     expect(sim.bubble.state).toBe('LAUNCHED');
 
-    // Wait out the launch lock, then charge again in mid-air and release.
+    // Wait out the launch lock, then spend the double jump on a second full pull in mid-air.
     sim.run_(400);
-    const secondOrigin = { ...sim.bubble.pos };
-    sim.run_(t.CHARGE_FULL_MS, fingerAt(secondOrigin));
+    const second = vec(90, 400);
+    sim.step(press(second));
+    sim.run_(100, pullTo(second, 1));
     sim.step(POINTER_UP);
 
     expect(lastLaunchSpeed(sim)).toBeCloseTo(FULL_IMPULSE, 9);
-    expect(lastLaunchSpeed(sim)).toBeLessThan(first * 1.5);
+    expect(lastLaunchSpeed(sim)).toBeLessThan(speed1 * 1.5);
     expect(sim.of('launch')).toHaveLength(2);
   });
 
-  it('reports power and the assigned velocity in the launch event', () => {
-    const sim = new Sim(vec(90, 200));
-    const origin = { ...sim.bubble.pos };
-    sim.run_(t.CHARGE_FULL_MS, fingerAt(origin, 20));
+  it('reports power, the assigned velocity and airLaunch in the launch event', () => {
+    const sim = restingSim();
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(100, pullTo(origin, 1, 20));
     sim.step(POINTER_UP);
 
     const [launch] = sim.of('launch');
     expect(launch?.power).toBe(1);
-    // Dragging 20 px sideways also moves the ±15 % fine tune, so the expected magnitude is the
-    // §11.4 formula for THIS drag distance, not the neutral one.
-    const expected = impulseMagnitude(
-      { power: 1, dragDist: Math.hypot(20, t.DRAG_NEUTRAL_PX), radius: t.RADIUS_BASE, stunned: false, externalMul: 1 },
-      t,
-    );
-    expect(speed(launch?.vel ?? vec())).toBeCloseTo(expected, 9);
-    expect(expected).toBeGreaterThan(FULL_IMPULSE);
-    expect(sim.bubble.lastChargePower).toBe(1);
-    // Inside the ±62° cone and always DOWNWARD (§2.1: never launch upward).
+    expect(launch?.airLaunch).toBe(false);
+    expect(speed(launch?.vel ?? vec())).toBeCloseTo(FULL_IMPULSE, 9);
+    expect(sim.bubble.lastLaunchPower).toBe(1);
+    // Inside the cone and always DOWNWARD (D2: never launch upward).
     expect(sim.bubble.vel.y).toBeGreaterThan(0);
     expect(sim.bubble.vel.x).toBeGreaterThan(0);
-    expect(Math.abs(sim.bubble.aimTheta)).toBeLessThanOrEqual((t.AIM_CONE_DEG * Math.PI) / 180);
+    expect(Math.abs(sim.bubble.pullTheta)).toBeLessThanOrEqual((t.AIM_CONE_DEG * Math.PI) / 180 + 1e-12);
   });
 
   it('applies stun, force-field and sticky multipliers to the impulse (§11.4)', () => {
-    const stunned = new Sim(vec(90, 200));
+    const stunned = restingSim();
     stunned.bubble.flags.stunUntil = 10_000;
-    const origin = { ...stunned.bubble.pos };
-    stunned.run_(t.CHARGE_FULL_MS, fingerAt(origin));
+    const origin = vec(90, 300);
+    stunned.step(press(origin));
+    stunned.run_(100, pullTo(origin, 1));
     stunned.step(POINTER_UP);
     expect(lastLaunchSpeed(stunned)).toBeCloseTo(FULL_IMPULSE * t.STUN_IMPULSE_MUL, 9);
 
-    const field = new Sim(vec(90, 200));
+    const field = restingSim();
     const env = createNeutralEnv();
     env.impulseMul = 0.4;
     env.chargeMul = 0.75;
     field.env = env;
-    const fieldOrigin = { ...field.bubble.pos };
-    field.run_(t.CHARGE_FULL_MS, fingerAt(fieldOrigin));
+    field.step(press(origin));
+    field.run_(100, pullTo(origin, 1));
     field.step(POINTER_UP);
     expect(lastLaunchSpeed(field)).toBeCloseTo(FULL_IMPULSE * 0.4 * 0.75, 9);
   });
 
-  it('auto-releases at AUTO_RELEASE_MS with the accumulated power (§2.2)', () => {
-    const sim = new Sim(vec(90, 200));
-    sim.bubble.air = 8;
-    const origin = { ...sim.bubble.pos };
-    sim.run_(t.AUTO_RELEASE_MS, fingerAt(origin));
+  it('AIM_MAX_MS CANCELS the shot; it never fires it (D2)', () => {
+    const sim = restingSim({ maxRestMs: 60_000 });
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(t.AIM_MAX_MS, pullTo(origin, 1));
 
-    expect(sim.of('launch')).toHaveLength(1);
-    expect(sim.bubble.state).toBe('LAUNCHED');
-    expect(lastLaunchSpeed(sim)).toBeCloseTo(FULL_IMPULSE, 9);
+    expect(sim.of('launch')).toHaveLength(0);
+    expect(sim.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'timeout' }]);
+    expect(sim.bubble.state).toBe('RESTING');
+    expect(sim.bubble.vel).toEqual({ x: 0, y: 0 });
+  });
+
+  it('the finger that timed out cannot open a second aim without lifting', () => {
+    const sim = restingSim({ maxRestMs: 60_000 });
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(t.AIM_MAX_MS + 2000, pullTo(origin, 1));
+
+    expect(sim.of('aimStart')).toHaveLength(1);
+    expect(sim.of('aimCancel')).toHaveLength(1);
+    expect(sim.of('launch')).toHaveLength(0);
+
+    sim.step(POINTER_UP);
+    sim.step(press(origin));
+    expect(sim.of('aimStart')).toHaveLength(2);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-// Overcharge (§2.2, §11.7.4)
+// The mid-air launch ("double jump", D1)
 // ---------------------------------------------------------------------------------------------
 
-describe('stepBubble — overcharge (§11.7.4)', () => {
-  it('holding 1.400 ms drains exactly one pip', () => {
+describe('stepBubble — the mid-air launch (D1)', () => {
+  /** Bur adrift in open water with `air` pips and a fresh airborne phase. */
+  function airborne(air: number): Sim {
     const sim = new Sim(vec(90, 200));
-    sim.bubble.air = 5;
-    const origin = { ...sim.bubble.pos };
-    sim.run_(1400, fingerAt(origin));
+    sim.bubble.air = air;
+    return sim;
+  }
 
-    expect(sim.of('airLost')).toHaveLength(1);
-    expect(sim.of('airLost')[0]?.reason).toBe('overcharge');
-    expect(sim.bubble.air).toBe(4);
-    expect(sim.of('overchargeStart')).toHaveLength(1);
-  });
-
-  it('holding 1.399 ms drains nothing: the first tick lands OVERCHARGE_DRAIN_MS after the threshold', () => {
-    const sim = new Sim(vec(90, 200));
-    const origin = { ...sim.bubble.pos };
-    sim.run_(1380, fingerAt(origin));
-    expect(sim.of('airLost')).toHaveLength(0);
-    expect(sim.of('overchargeStart')).toHaveLength(1);
-  });
-
-  it('holding 5 s with a single pip drains nothing (hard floor)', () => {
-    const sim = new Sim(vec(90, 200));
-    sim.bubble.air = t.OVERCHARGE_MIN_AIR;
-    const origin = { ...sim.bubble.pos };
-    sim.run_(5000, fingerAt(origin));
-
-    expect(sim.of('airLost')).toHaveLength(0);
-    expect(sim.bubble.air).toBe(t.OVERCHARGE_MIN_AIR);
-    expect(sim.bubble.state).not.toBe('DEAD');
-  });
-
-  it('never drains more than OVERCHARGE_MAX_DRAIN in one hold', () => {
-    const sim = new Sim(vec(90, 200));
-    sim.bubble.air = 8;
-    const origin = { ...sim.bubble.pos };
-    // A hold cannot last longer than the auto-release, and that window fits three drain ticks.
-    sim.run_(t.AUTO_RELEASE_MS, fingerAt(origin));
-
-    expect(sim.of('airLost')).toHaveLength(t.OVERCHARGE_MAX_DRAIN);
-    expect(sim.bubble.air).toBe(8 - t.OVERCHARGE_MAX_DRAIN);
-  });
-
-  it('resets the per-hold budget on the next press', () => {
-    const sim = new Sim(vec(90, 200));
-    sim.bubble.air = 8;
-    const first = { ...sim.bubble.pos };
-    sim.run_(1400, fingerAt(first));
+  it('costs exactly one pip and reports itself as an air launch', () => {
+    const sim = airborne(5);
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(100, pullTo(origin, 1));
     sim.step(POINTER_UP);
-    expect(sim.bubble.overchargeDrained).toBe(1);
 
-    sim.run_(400);
-    const second = { ...sim.bubble.pos };
-    sim.step(fingerAt(second));
-    expect(sim.bubble.overchargeDrained).toBe(0);
+    expect(sim.bubble.air).toBe(4);
+    const [lost] = sim.of('airLost');
+    expect(lost?.reason).toBe('airLaunch');
+    expect(lost?.air).toBe(4);
+    // Charged where the shot left, which is the point the launch event reports too.
+    expect(lost?.at).toEqual(sim.of('launch')[0]?.at);
+    expect(sim.of('launch')[0]?.airLaunch).toBe(true);
+    expect(sim.bubble.airLaunchesUsed).toBe(1);
+    expect(sim.bubble.state).toBe('LAUNCHED');
+    expect(lastLaunchSpeed(sim)).toBeCloseTo(FULL_IMPULSE, 9);
   });
 
-  it('uses the 1.800 ms threshold while charging from rest (§11.3)', () => {
-    const patient = restingSim();
-    const origin = { ...patient.bubble.pos };
-    patient.run_(1400, fingerAt(origin));
-    expect(patient.of('airLost')).toHaveLength(0);
-    expect(patient.of('overchargeStart')).toHaveLength(0);
+  it('is a price, not a blow: no invulnerability, no stun, no broken bounce chain', () => {
+    const sim = airborne(5);
+    sim.bubble.bounceChain = 3;
+    sim.bubble.bounceChainBodies.push('a', 'b', 'c');
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(100, pullTo(origin, 1));
+    sim.step(POINTER_UP);
 
-    const overcharged = restingSim();
-    const restOrigin = { ...overcharged.bubble.pos };
-    overcharged.run_(t.OVERCHARGE_MS_RESTING + t.OVERCHARGE_DRAIN_MS, fingerAt(restOrigin));
-    expect(overcharged.of('airLost')).toHaveLength(1);
-    expect(overcharged.of('overchargeStart')).toHaveLength(1);
+    expect(sim.bubble.flags.invulnUntil).toBe(0);
+    expect(sim.bubble.flags.stunUntil).toBe(0);
+    expect(sim.bubble.bounceChain).toBe(3);
+  });
+
+  it('is refused on the last pip: the touch does nothing at all', () => {
+    const sim = airborne(t.AIR_LAUNCH_COST);
+    const before = sim.bubble.state;
+    sim.run_(300, press(vec(90, 300)));
+
+    expect(canAirLaunch(sim.bubble, t)).toBe(false);
+    expect(sim.bubble.state).toBe(before);
+    expect(sim.bubble.aimOrigin).toBeNull();
+    expect(sim.events).toHaveLength(0);
+  });
+
+  /**
+   * D1 is a rule about the SHOT, not about the pointerdown: a gesture opened with the budget in hand
+   * and released after a hazard (or §2.4.4's pressure clock) took the pip it was counting on asks for
+   * exactly the launch "nunca está disponible con el último pip" forbids. The release is DECLINED —
+   * and it says so, because by then the shell has been drawing a rubber band for six seconds.
+   */
+  it('declines the release when the pip the aim was counting on is gone by then', () => {
+    const sim = airborne(t.AIR_LAUNCH_COST + 1);
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(160, pullTo(origin, 1));
+    expect(sim.of('aimStart')).toHaveLength(1);
+
+    sim.bubble.air = t.AIR_LAUNCH_COST; // the hazard connects mid-pull
+    sim.step(POINTER_UP);
+
+    expect(sim.of('launch')).toHaveLength(0);
+    expect(sim.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'noAir' }]);
+    expect(sim.bubble.airLaunchesUsed).toBe(0);
+    expect(sim.bubble.air).toBe(t.AIR_LAUNCH_COST); // and the refusal is not charged for either
+    expect(sim.bubble.state).not.toBe('LAUNCHED');
+  });
+
+  /**
+   * §2.4.5, §5 nº 7: the anemone is "recurso, NO muerte". A pinned Bur is held AGAINST a surface, so
+   * her escape is a rest launch and not the mid-air correction D1 took away — which is what keeps a
+   * crown met on the last pip survivable. `flags.trapVentAt` is the crown's own stamp (`hazards.ts`).
+   */
+  it('lets a Bur the anemone holds shoot her way out on her last pip, free', () => {
+    const sim = airborne(t.AIR_LAUNCH_COST);
+    sim.bubble.flags.trapVentAt = sim.nowMs + t.TRAP_VENT_MS;
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(160, pullTo(origin, 1));
+    sim.step(POINTER_UP);
+
+    const launch = sim.of('launch')[0];
+    expect(launch?.type === 'launch' && launch.airLaunch).toBe(false);
+    expect(launch?.type === 'launch' && launch.power).toBeGreaterThanOrEqual(0.6);
+    expect(sim.bubble.air).toBe(t.AIR_LAUNCH_COST);
+    expect(sim.bubble.airLaunchesUsed).toBe(0);
+    expect(sim.of('restRelease')).toHaveLength(0); // there was no ledge to release
+  });
+
+  it('is refused once AIR_LAUNCHES_MAX have been spent in the same airborne phase', () => {
+    const sim = airborne(8);
+    for (let i = 0; i < t.AIR_LAUNCHES_MAX; i++) {
+      const origin = vec(90, 300 + i * 10);
+      sim.step(press(origin));
+      sim.run_(100, pullTo(origin, 1));
+      sim.step(POINTER_UP);
+      sim.run_(t.LAUNCH_LOCK_MS + 100);
+    }
+    expect(sim.bubble.airLaunchesUsed).toBe(t.AIR_LAUNCHES_MAX);
+    const launches = sim.of('launch').length;
+    const air = sim.bubble.air;
+
+    sim.clearEvents();
+    sim.run_(300, press(vec(90, 500)));
+    sim.step(POINTER_UP);
+
+    expect(sim.of('launch')).toHaveLength(0);
+    expect(sim.of('launch').length + launches).toBe(launches);
+    expect(sim.bubble.air).toBe(air);
+    expect(sim.events).toHaveLength(0);
+  });
+
+  it('refills on a rest capture: the budget is per AIRBORNE PHASE, not per life', () => {
+    const sim = approachSim(-200);
+    sim.bubble.airLaunchesUsed = t.AIR_LAUNCHES_MAX;
+    sim.step();
+    expect(sim.bubble.state).toBe('RESTING');
+    expect(sim.bubble.airLaunchesUsed).toBe(0);
+    expect(canAirLaunch(sim.bubble, t)).toBe(true);
+  });
+
+  it('an aim captured by a ledge mid-flight stops being an air launch and stops costing', () => {
+    const slab = ceiling('ceil', { x: 60, y: 100, w: 60, h: 10 });
+    const sim = new Sim(vec(90, 121), [slab]);
+    sim.bubble.air = 5;
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    const finger = pullTo(origin, 1);
+    for (let i = 0; i < 200 && sim.bubble.restingOnId === null; i++) sim.step(finger);
+    expect(sim.bubble.restingOnId).toBe('ceil');
+
+    sim.step(finger); // the gesture resumes from the ledge, never restarted
+    expect(sim.bubble.state).toBe('AIMING');
+    expect(sim.of('aimStart')).toHaveLength(1);
+
+    sim.step(POINTER_UP);
+    expect(sim.of('launch')[0]?.airLaunch).toBe(false);
+    expect(sim.bubble.air).toBe(5);
+    expect(sim.bubble.airLaunchesUsed).toBe(0);
   });
 });
 
@@ -444,8 +616,10 @@ describe('stepBubble — rest capture (§2.3)', () => {
 
   it('leaves LAUNCHED for IDLE after exactly LAUNCH_LOCK_MS of stepping', () => {
     const sim = new Sim(vec(90, 200));
-    const origin = { ...sim.bubble.pos };
-    sim.run_(t.CHARGE_FULL_MS, fingerAt(origin));
+    sim.bubble.air = 5;
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(100, pullTo(origin, 1));
     sim.step(POINTER_UP); // launch step: the first LAUNCHED step
     expect(sim.bubble.state).toBe('LAUNCHED');
 
@@ -540,8 +714,9 @@ describe('stepBubble — resting (§2.3)', () => {
 
   it('launches from rest with the sticky penalty and reports restRelease("launch")', () => {
     const sim = restingSim({ kind: 'pegajosa', restitution: t.RESTITUTION_SOFT, material: 'kelp' });
-    const origin = { ...sim.bubble.pos };
-    sim.run_(t.CHARGE_FULL_MS, fingerAt(origin));
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(100, pullTo(origin, 1));
     sim.step(POINTER_UP);
 
     expect(lastLaunchSpeed(sim)).toBeCloseTo(FULL_IMPULSE * t.REST_STICKY_IMPULSE_MUL, 9);
@@ -552,19 +727,22 @@ describe('stepBubble — resting (§2.3)', () => {
 
   it('launches from a firm ceiling at full strength', () => {
     const sim = restingSim();
-    const origin = { ...sim.bubble.pos };
-    sim.run_(t.CHARGE_FULL_MS, fingerAt(origin));
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(100, pullTo(origin, 1));
     sim.step(POINTER_UP);
     expect(lastLaunchSpeed(sim)).toBeCloseTo(FULL_IMPULSE, 9);
   });
 
-  it('stays pinned while charging from rest (§2.1 "cargar ancla")', () => {
+  it('stays pinned while aiming from rest (D2: pos pinned, vel 0)', () => {
     const sim = restingSim();
-    const origin = { ...sim.bubble.pos };
-    sim.run_(600, fingerAt(origin));
+    const pos = { ...sim.bubble.pos };
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(600, pullTo(origin, 1));
 
-    expect(sim.bubble.state).toBe('CHARGING');
-    expect(sim.bubble.pos).toEqual(origin);
+    expect(sim.bubble.state).toBe('AIMING');
+    expect(sim.bubble.pos).toEqual(pos);
     expect(sim.bubble.vel).toEqual({ x: 0, y: 0 });
   });
 });
@@ -712,9 +890,8 @@ describe('stepBubble — DEAD (§2.4, §11.7.6)', () => {
     expect(sim.bubble.state).toBe('DEAD');
 
     const dead = { ...sim.bubble.pos };
-    const origin = { ...sim.bubble.pos };
     sim.clearEvents();
-    sim.run_(5000, fingerAt(origin)); // pressing does nothing at all
+    sim.run_(5000, press(vec(90, 300))); // pressing does nothing at all
     expect(sim.bubble.state).toBe('DEAD');
     expect(sim.bubble.pos).toEqual(dead);
     expect(sim.bubble.deadMs).toBeCloseTo(5000, 6);
@@ -802,6 +979,9 @@ describe('stepBubble — invariants over a long random session (§11.7.12)', () 
       wall('left', { x: -20, y: 0, w: 20, h: 4000 }),
       wall('right', { x: 180, y: 0, w: 20, h: 4000 }),
       wall('floor', { x: -20, y: 900, w: 220, h: 40 }),
+      // A roof above the start: since D1 a Bur adrift in open water has exactly one shot, so a world
+      // with nothing to rise into would park her at the top and never exercise RESTING again.
+      ceiling('c0', { x: 20, y: 120, w: 140, h: 10 }),
       ceiling('c1', { x: 40, y: 300, w: 80, h: 10 }),
       ceiling('c2', { x: 20, y: 520, w: 60, h: 10 }, { kind: 'impaciente' }),
       ceiling('c3', { x: 100, y: 700, w: 60, h: 10 }, {
@@ -817,12 +997,23 @@ describe('stepBubble — invariants over a long random session (§11.7.12)', () 
     const rng = new SeededRNG(20260906);
     const states = new Set<string>();
 
+    // A press freezes an origin and then HOLDS a pull: a finger that never moved off its own origin
+    // is a cancel every time (D2), and would never exercise the launch half of the machine.
     let pointer: PointerInput = POINTER_UP;
+    let anchor: Vec2 | null = null;
+    let pull = { x: 0, y: 0 };
     for (let i = 0; i < 6000; i++) {
       if (rng.next() < 0.02) {
-        pointer = pointer.down
-          ? POINTER_UP
-          : { down: true, x: sim.bubble.pos.x + (rng.next() - 0.5) * 120, y: sim.bubble.pos.y + 30 + rng.next() * 60 };
+        if (pointer.down) {
+          pointer = POINTER_UP;
+          anchor = null;
+        } else {
+          anchor = { x: sim.bubble.pos.x + (rng.next() - 0.5) * 120, y: sim.bubble.pos.y + (rng.next() - 0.5) * 160 };
+          pull = { x: (rng.next() - 0.5) * 160, y: (rng.next() - 0.5) * 160 };
+          pointer = { down: true, x: anchor.x, y: anchor.y };
+        }
+      } else if (anchor !== null) {
+        pointer = { down: true, x: anchor.x + pull.x, y: anchor.y + pull.y };
       }
       if (sim.bubble.state === 'DEAD') {
         // The only way out of DEAD is external (§11.7.6): the harness plays the part of GameWorld.
@@ -839,10 +1030,10 @@ describe('stepBubble — invariants over a long random session (§11.7.12)', () 
       expect(sim.bubble.radius).toBeGreaterThan(0);
     }
 
-    expect(states.has('CHARGING')).toBe(true);
+    expect(states.has('AIMING')).toBe(true);
     expect(states.has('LAUNCHED')).toBe(true);
     expect(states.has('RESTING')).toBe(true);
-    expect([...states].every((s) => ['IDLE', 'CHARGING', 'LAUNCHED', 'RESTING', 'DEAD'].includes(s))).toBe(true);
+    expect([...states].every((s) => ['IDLE', 'AIMING', 'LAUNCHED', 'RESTING', 'DEAD'].includes(s))).toBe(true);
   });
 
   it('is reproducible: two runs of the same script agree step for step', () => {
@@ -863,111 +1054,149 @@ describe('stepBubble — invariants over a long random session (§11.7.12)', () 
   });
 });
 
-describe('chargePower agreement', () => {
-  it('the launch power is exactly the §11.4 curve of the accumulated hold', () => {
-    const sim = new Sim(vec(90, 200));
-    const origin = { ...sim.bubble.pos };
-    sim.run_(300, fingerAt(origin));
-    const held = sim.bubble.chargeMs;
+describe('pullPower agreement', () => {
+  it('the launch power is exactly the D2 ratio of the pull the finger was holding', () => {
+    const sim = restingSim();
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(200, pullTo(origin, 0.4));
+    const pulled = sim.bubble.pullDist;
     sim.step(POINTER_UP);
-    expect(sim.bubble.lastChargePower).toBeCloseTo(chargePower(held, t), 12);
+    expect(sim.bubble.lastLaunchPower).toBeCloseTo(pullPower(pulled, t), 12);
+    expect(sim.bubble.lastLaunchPower).toBeCloseTo(0.4, 9);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-// One finger contact = one hold (§2.2 auto-release, §11.7.4 cap)
+// One finger contact = one gesture (D2: the AIM_MAX_MS cancel does not re-arm)
 // ---------------------------------------------------------------------------------------------
 
-describe('stepBubble — a hold ends with the finger, not with the auto-release (§2.2)', () => {
+describe('stepBubble — a gesture ends with the finger, not with the timeout (D2)', () => {
   /**
-   * The auto-release fires with the finger still on the glass, and 250 ms later the LAUNCHED lock
-   * expires. Deriving the press edge from the state would read that as a brand-new pointerdown and
-   * start a second hold: a second `chargeStart`, a shot nobody asked for and a re-armed overcharge
-   * budget. §2.2 gives a `mantenido` one auto-release, not a metronome.
+   * The aim timeout fires with the finger still on the glass. Deriving the press edge from the state
+   * would read the very next step as a brand-new pointerdown and open a second aim: a second
+   * `aimStart`, and — in the water — a second pip spent on a shot nobody asked for.
    */
-  it('does not start a second hold under a finger that never lifted', () => {
-    const sim = new Sim(vec(90, 200));
-    sim.bubble.air = 8;
-    const origin = { ...sim.bubble.pos };
-    sim.run_(t.AUTO_RELEASE_MS + t.LAUNCH_LOCK_MS + 500, fingerAt(origin));
+  it('does not open a second aim under a finger that never lifted', () => {
+    const sim = restingSim({ maxRestMs: 60_000 });
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(t.AIM_MAX_MS + 3000, pullTo(origin, 1));
 
-    expect(sim.of('chargeStart')).toHaveLength(1);
-    expect(sim.of('launch')).toHaveLength(1);
-    expect(sim.bubble.state).toBe('IDLE');
-    expect(sim.bubble.chargeMs).toBe(0);
+    expect(sim.of('aimStart')).toHaveLength(1);
+    expect(sim.of('aimCancel')).toHaveLength(1);
+    expect(sim.of('launch')).toHaveLength(0);
+    expect(sim.bubble.state).toBe('RESTING');
   });
 
-  /** §11.7.4, taken literally: "nunca drena más de 2 en un mismo mantenido", of any length. */
-  it('caps one uninterrupted press at OVERCHARGE_MAX_DRAIN however long it lasts', () => {
-    const sim = new Sim(vec(90, 200));
-    sim.bubble.air = 8;
-    const origin = { ...sim.bubble.pos };
-    sim.run_(10_000, fingerAt(origin));
+  /** D1, taken literally: a refused air touch is not a gesture, so it does not burn the contact. */
+  it('a touch refused in the air becomes an aim the moment Bur lands, without lifting', () => {
+    const slab = ceiling('ceil', { x: 60, y: 100, w: 60, h: 10 });
+    const sim = new Sim(vec(90, 121), [slab]);
+    sim.bubble.air = t.AIR_LAUNCH_COST; // last pip: no double jump
+    const finger = press(vec(90, 300));
 
-    expect(sim.of('airLost').map((e) => e.reason)).toEqual(['overcharge', 'overcharge']);
-    expect(sim.bubble.air).toBe(8 - t.OVERCHARGE_MAX_DRAIN);
+    sim.step(finger);
+    expect(sim.bubble.state).toBe('IDLE');
+    expect(sim.events).toHaveLength(0);
+
+    for (let i = 0; i < 200 && sim.bubble.restingOnId === null; i++) sim.step(finger);
+    expect(sim.bubble.restingOnId).toBe('ceil');
+
+    sim.step(finger);
+    expect(sim.bubble.state).toBe('AIMING');
+    expect(sim.of('aimStart')).toHaveLength(1);
   });
 
   it('re-arms the gesture only after a real release', () => {
-    const sim = new Sim(vec(90, 200));
-    sim.bubble.air = 8;
-    const first = { ...sim.bubble.pos };
-    sim.run_(t.AUTO_RELEASE_MS + t.LAUNCH_LOCK_MS + 200, fingerAt(first));
-    expect(sim.bubble.air).toBe(8 - t.OVERCHARGE_MAX_DRAIN);
+    const sim = restingSim({ maxRestMs: 60_000 });
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(t.AIM_MAX_MS + 200, pullTo(origin, 1));
+    expect(sim.of('aimStart')).toHaveLength(1);
 
     sim.step(POINTER_UP);
-    const second = { ...sim.bubble.pos };
-    sim.run_(t.OVERCHARGE_MS + t.OVERCHARGE_DRAIN_MS, fingerAt(second));
+    sim.step(press(origin));
+    sim.run_(100, pullTo(origin, 1));
+    sim.step(POINTER_UP);
 
-    expect(sim.of('chargeStart')).toHaveLength(2);
-    expect(sim.bubble.air).toBe(8 - t.OVERCHARGE_MAX_DRAIN - 1);
+    expect(sim.of('aimStart')).toHaveLength(2);
+    expect(sim.of('launch')).toHaveLength(1);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-// The anti-camping clock while aiming (§2.3)
+// The anti-camping clock while aiming (§2.3 as revised by D2)
 // ---------------------------------------------------------------------------------------------
 
-describe('stepBubble — anti-camping while Bur aims (§2.3)', () => {
-  /**
-   * §2.3 argues the 1.800 ms rest threshold against the 3,0 s rest timer ("eso deja presupuesto de
-   * puntería de sobra sin necesidad de quitar el anti-camping"). The argument is only true if the
-   * timer keeps running while she aims — otherwise a drummed finger parks Bur under a ledge forever.
-   */
-  it('keeps counting rest time while Bur charges from the ledge', () => {
+describe('stepBubble — the rest clock while Bur aims (D2)', () => {
+  /** "El temporizador anti-camping del posadero se congela" — 4 s of aiming on a 3 s ledge. */
+  it('FREEZES the posadero clock while Bur aims: four seconds on a three-second ledge', () => {
     const sim = restingSim();
-    const origin = { ...sim.bubble.pos };
-    sim.run_(1000, fingerAt(origin));
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(4000, pullTo(origin, 1));
 
-    expect(sim.bubble.state).toBe('CHARGING');
+    expect(sim.bubble.state).toBe('AIMING');
     expect(sim.bubble.restingOnId).toBe('ceil');
-    expect(sim.bubble.restMs).toBeCloseTo(1000, 6);
+    expect(sim.bubble.restMs).toBeLessThan(t.REST_MAX_MS.posadero);
+    expect(sim.of('restRelease')).toHaveLength(0);
   });
 
-  /** The eject waits for the gesture to end: a charged shot is never yanked out of a player's hands. */
-  it('ejects on the step the drumming finger comes up, not mid-charge', () => {
+  /**
+   * ...and the freeze is a LOAN: a gesture that ends without a shot pays its time back to the ledge,
+   * so a rest lasts at most REST_MAX_MS + AIM_MAX_MS however the finger drums (see `cancelAim`).
+   */
+  it('charges a cancelled aim back to the posadero clock, so the ledge expires sooner, not later', () => {
     const sim = restingSim();
-    sim.run_(t.REST_MAX_MS.posadero - 3 * STEP_MS);
-    const origin = { ...sim.bubble.pos };
-    sim.run_(4 * STEP_MS, fingerAt(origin)); // 66,7 ms: under MIN_TAP_MS, so nothing can launch
-
-    expect(sim.bubble.state).toBe('CHARGING');
-    expect(sim.bubble.restMs).toBeGreaterThan(t.REST_MAX_MS.posadero);
-    expect(sim.of('restRelease')).toHaveLength(0);
-
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(2000, { down: true, x: origin.x + 3, y: origin.y }); // cancel zone: release takes no shot
     sim.step(POINTER_UP);
-    expect(sim.of('launch')).toHaveLength(0);
+    expect(sim.bubble.state).toBe('RESTING');
+    expect(sim.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'zone' }]);
+    expect(sim.bubble.restMs).toBeGreaterThanOrEqual(2000);
+
+    // Two of the posadero's three seconds went into the aim, so about one is left — not three.
+    sim.run_(t.REST_MAX_MS.posadero - 2000 + 100);
     expect(sim.of('restRelease')).toEqual([{ type: 'restRelease', reason: 'timeout' }]);
-    expect(sim.bubble.state).toBe('IDLE');
     expect(sim.bubble.vel.y).toBeGreaterThan(0); // downward, always (§2.3)
   });
 
-  /** A hold that overstays the timer still fires; the launch is what ends the attachment. */
-  it('lets an overdue hold launch instead of ejecting it', () => {
+  /** "Impaciente y pegajosa mantienen sus temporizadores propios corriendo: es su carácter." */
+  it('does NOT freeze an impaciente ledge: it ejects Bur mid-aim and the shot is cancelled', () => {
+    const sim = restingSim({ kind: 'impaciente' });
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(t.REST_MAX_MS.impaciente + 100, pullTo(origin, 1));
+
+    expect(sim.of('restRelease')).toEqual([{ type: 'restRelease', reason: 'timeout' }]);
+    expect(sim.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'displaced' }]);
+    expect(sim.of('launch')).toHaveLength(0);
+    expect(sim.bubble.state).not.toBe('AIMING');
+    expect(sim.bubble.aimOrigin).toBeNull();
+  });
+
+  it('cancels the aim when the ledge stops existing under it', () => {
+    const sim = restingSim({ maxRestMs: 60_000 });
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.step(pullTo(origin, 1));
+    sim.solids = [];
+    sim.step(pullTo(origin, 1));
+
+    expect(sim.of('restRelease')).toEqual([{ type: 'restRelease', reason: 'displaced' }]);
+    expect(sim.of('aimCancel')).toEqual([{ type: 'aimCancel', reason: 'displaced' }]);
+    expect(sim.bubble.state).toBe('IDLE');
+  });
+
+  /** A pull that overstays a frozen clock still fires; the launch is what ends the attachment. */
+  it('lets a long aim launch instead of ejecting it', () => {
     const sim = restingSim();
     sim.run_(t.REST_MAX_MS.posadero - 500);
-    const origin = { ...sim.bubble.pos };
-    sim.run_(600, fingerAt(origin));
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(1200, pullTo(origin, 1));
     expect(sim.of('restRelease')).toHaveLength(0);
 
     sim.step(POINTER_UP);
@@ -980,10 +1209,11 @@ describe('stepBubble — anti-camping while Bur aims (§2.3)', () => {
     const sim = restingSim({ maxRestMs: 60_000 });
     sim.zone = 5;
     sim.bubble.air = 6;
-    const origin = { ...sim.bubble.pos };
-    sim.run_(2000, fingerAt(origin));
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    sim.run_(2000, pullTo(origin, 1));
 
-    expect(sim.bubble.state).toBe('CHARGING');
+    expect(sim.bubble.state).toBe('AIMING');
     expect(sim.bubble.pressureDrainMs).toBe(0);
     expect(sim.of('airLost')).toHaveLength(0);
   });
@@ -1020,76 +1250,34 @@ describe('stepBubble — the rest pose hangs under the face, never beside it (§
 // A capture that lands in the middle of a hold (§2.1, §2.3, §11.3)
 // ---------------------------------------------------------------------------------------------
 
-describe('stepBubble — capture during an in-air charge (§11.3)', () => {
+describe('stepBubble — capture during an in-air aim (§11.3, D1)', () => {
   /**
-   * Charging in the water is legal (§2.1) and buoyancy still lifts Bur at 35 %, so a hold started
-   * under a ledge ends in a slow ascending contact that §2.3 captures. The capture attaches her; it
-   * does not end the gesture, so the charge she is holding survives and launches from the ledge with
-   * the rules of that ledge (here `pegajosa`: 60 % of impulse).
+   * Aiming in the water is the D1 double jump, and buoyancy still lifts Bur at full strength, so an
+   * aim opened under a ledge ends in a slow ascending contact that §2.3 captures. The capture
+   * attaches her; it does not end the gesture, so the pull she is holding survives and launches from
+   * the ledge with the rules of that ledge (here `pegajosa`: 60 % of impulse) — and for free.
    */
-  it('keeps the accumulated hold and launches it from the ledge', () => {
+  it('keeps the pull and launches it from the ledge, at the ledge price', () => {
     const slab = ceiling('ceil', { x: 60, y: 100, w: 60, h: 10 }, { kind: 'pegajosa' });
     const sim = new Sim(vec(90, 121), [slab]);
-    const origin = { ...sim.bubble.pos };
-    const finger = fingerAt(origin);
+    sim.bubble.air = 5;
+    const origin = vec(90, 300);
+    sim.step(press(origin));
+    const finger = pullTo(origin, 1);
 
     for (let i = 0; i < 200 && sim.bubble.restingOnId === null; i++) sim.step(finger);
-    const heldAtCapture = sim.bubble.chargeMs;
     expect(sim.bubble.restingOnId).toBe('ceil');
     expect(sim.bubble.state).toBe('RESTING');
-    expect(heldAtCapture).toBeGreaterThan(t.MIN_TAP_MS);
+    expect(sim.bubble.pullDist).toBeCloseTo(t.PULL_MAX_PX, 9);
 
     sim.step(finger); // resumed, never restarted
-    expect(sim.bubble.state).toBe('CHARGING');
-    expect(sim.bubble.chargeMs).toBeGreaterThan(heldAtCapture);
-    expect(sim.of('chargeStart')).toHaveLength(1);
+    expect(sim.bubble.state).toBe('AIMING');
+    expect(sim.of('aimStart')).toHaveLength(1);
 
-    const held = sim.bubble.chargeMs;
     sim.step(POINTER_UP);
-    expect(sim.bubble.lastChargePower).toBeCloseTo(chargePower(held, t), 12);
-    expect(lastLaunchSpeed(sim)).toBeCloseTo(
-      impulseMagnitude(
-        {
-          power: chargePower(held, t),
-          dragDist: t.DRAG_NEUTRAL_PX,
-          radius: t.RADIUS_BASE,
-          stunned: false,
-          externalMul: t.REST_STICKY_IMPULSE_MUL,
-        },
-        t,
-      ),
-      9,
-    );
+    expect(sim.bubble.lastLaunchPower).toBe(1);
+    expect(lastLaunchSpeed(sim)).toBeCloseTo(FULL_IMPULSE * t.REST_STICKY_IMPULSE_MUL, 9);
     expect(sim.of('restRelease')).toEqual([{ type: 'restRelease', reason: 'launch' }]);
-  });
-});
-
-// ---------------------------------------------------------------------------------------------
-// The overcharge tell (§2.2)
-// ---------------------------------------------------------------------------------------------
-
-describe('stepBubble — overchargeStart is the tell for every drain (§2.2)', () => {
-  /**
-   * The threshold moves mid-hold: 1.800 ms while Bur hangs from a ceiling, 900 ms once it stops
-   * holding her (marine snow dissolving, a slab carried away, the streamer dropping the chunk). A
-   * hold already past 900 ms then enters overcharge without ever "crossing" a threshold, and §2.2
-   * has no silent cost — the tell is latched per hold, not derived from the crossing.
-   */
-  it('announces once per hold, including when the threshold drops under a running hold', () => {
-    const sim = restingSim();
-    sim.bubble.air = 5;
-    const origin = { ...sim.bubble.pos };
-    const finger = fingerAt(origin);
-    sim.run_(t.OVERCHARGE_MS + 300, finger); // past the water threshold, inside the rest budget
-    expect(sim.of('overchargeStart')).toHaveLength(0);
-    expect(sim.of('airLost')).toHaveLength(0);
-
-    sim.solids = []; // the ledge is gone: 1.800 ms → 900 ms
-    sim.step(finger);
-    expect(sim.of('overchargeStart')).toHaveLength(1);
-
-    sim.run_(t.OVERCHARGE_DRAIN_MS, finger);
-    expect(sim.of('airLost').map((e) => e.reason)).toEqual(['overcharge']);
-    expect(sim.of('overchargeStart')).toHaveLength(1); // one hold, one tell
+    expect(sim.bubble.air).toBe(5);
   });
 });

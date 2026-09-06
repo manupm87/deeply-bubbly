@@ -287,7 +287,8 @@ export class TuningPanel {
     if (this.root.hidden) return;
     const snap = this.ctx.snapshot;
     const fps = this.scene.game.loop.actualFps.toFixed(0);
-    const state = snap ? `${snap.bubble.state} air ${snap.hud.air}/${snap.hud.airMax} ${snap.hud.depthM.toFixed(1)}m z${snap.zone} chunk ${this.chunkId()}` : 'no snapshot';
+    // `x`/`cam` are the D3 axis: read them while tuning CAM_DEADZONE_X or checking a chunk's width.
+    const state = snap ? `${snap.bubble.state} x${snap.bubble.pos.x.toFixed(0)} cam${snap.camera.x.toFixed(0)} air ${snap.hud.air}/${snap.hud.airMax} ${snap.hud.depthM.toFixed(1)}m z${snap.zone} chunk ${this.chunkId()}` : 'no snapshot';
     this.readout.textContent = `${fps} fps · ${state}\n${this.events.join(' ')}`;
   }
 }

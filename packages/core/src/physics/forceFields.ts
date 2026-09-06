@@ -31,7 +31,7 @@ export function accelForDriftX(driftX: number, t: Pick<Tuning, 'DAMPING_X'>): nu
 /**
  * Read-only view of a sampled environment. Consumers that only READ the environment (the integrator,
  * the trajectory guide) take this, so the shared frozen `NEUTRAL_ENV` can be handed to them without
- * allocating a copy per step (§11.5.10: the guide is rebuilt every frame while CHARGING).
+ * allocating a copy per step (§11.5.10: the guide is rebuilt every frame while AIMING).
  */
 export interface ReadonlyPhysicsEnv {
   /** Sum of field vectors (px/s²). Applied as vel += vector * dt AFTER buoyancy/damping. */

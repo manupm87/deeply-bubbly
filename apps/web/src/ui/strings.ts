@@ -46,7 +46,11 @@ const ES: StringTable = {
   quit: 'Salir',
   noShake: 'Sin temblor',
   assistedTrajectory: 'Guía',
-  slowCharge: 'Carga lenta',
+  // §8/D2 call the option "tirachinas largo". The settings strip gives each toggle half of
+  // viewW * 0.9 — 80 design px — and the label is centred and never clipped or shrunk (`Button` only
+  // has 8 / 10 / 12 px text), so the full phrase plus its ✕ measures 87 px and spills into the plate
+  // beside it. This names the same thing by the part of it the player can see getting longer.
+  slowCharge: 'Goma larga',
   calmDive: 'Tranquilo',
   dive: 'Bajar',
   fromSurface: 'Desde la superficie',
@@ -66,7 +70,7 @@ const EN: StringTable = {
   quit: 'Quit',
   noShake: 'No shake',
   assistedTrajectory: 'Guide',
-  slowCharge: 'Slow charge',
+  slowCharge: 'Long slingshot',
   calmDive: 'Calm',
   dive: 'Dive',
   fromSurface: 'From the surface',

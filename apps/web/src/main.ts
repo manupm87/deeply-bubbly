@@ -6,7 +6,7 @@
  * context in the registry, scenes started. Everything else lives in its own module.
  */
 import * as Phaser from 'phaser';
-import { DEFAULT_TUNING, GameWorld, buildMvpCampaign, loadSave, noopAds, writeSave } from '@deeply-bubbly/core';
+import { DEFAULT_TUNING, GameWorld, buildMvpCampaign, loadSave, noopAds, pickShot, writeSave } from '@deeply-bubbly/core';
 import type { Campaign, KeyValueStore, SaveData, Telemetry, Tuning } from '@deeply-bubbly/core';
 import { CTX_KEY } from './context';
 import type { GameContext, Settings } from './context';
@@ -215,6 +215,22 @@ function exposeDebugHandle(game: Phaser.Game, ctx: GameContext): void {
       },
       /** Live HUD buttons as CSS-px rects, so a test can press the real thing (see `debug.ts`). */
       buttons: () => debugButtons(ctx.scale),
+      /**
+       * The shot core would take from where Bur is standing (`game/autoPlayer.pickShot`), for the
+       * screenshot bot of `e2e/tools/bot.mjs`. It is a READ of a core rule, not a rule: since
+       * DECISIONS-v1.2 D1 the game rewards calculating the shot, so a bot that presses at a fixed
+       * cadence never lands one and photographs nothing but the first ledge.
+       */
+      nextShot: () => pickShot(ctx.world.snapshot(), ctx.tuning),
+      /**
+       * The LIVE tuning the simulation is running — the tuning panel and the accessibility toggles
+       * both replace it. Published so the test layer can read the gesture constants it drives the
+       * game with instead of re-typing them: a `PULL_MAX_PX` that moved would otherwise turn every
+       * drag in the suite into a wrong-power gesture that still passes.
+       */
+      get tuning(): Tuning {
+        return ctx.tuning;
+      },
     },
   });
 }

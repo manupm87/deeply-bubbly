@@ -17,7 +17,8 @@ import { DEFAULT_TUNING } from '../tuning';
 import { NEUTRAL_ENV } from '../physics/forceFields';
 import { createBubble, stepBubble } from '../bubble/bubbleStep';
 import { createRunState } from '../run/runState';
-import { createTrapState, stepHazards } from './hazards';
+import { TRAP_ESCAPE_POWER, createTrapState, escapeTrap, stepHazards } from './hazards';
+import { pullGesture } from './testHarness';
 import type { GameEvent, Hazard, PointerInput, RunState } from '../types';
 import type { TrapState } from './hazards';
 
@@ -98,5 +99,89 @@ describe('anemone trap (GDD §2.4.5, §5 nº 7)', () => {
     // §2.4.5: venting is also what frees her — the anemone has had its pip.
     expect(held.trap.hazardId).toBeNull();
     expect(held.events.filter((e) => e.type === 'airLost' && e.reason === 'trap')).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// D1 × §2.4.5 — the escape shot is now a mid-air launch, and D1 forbids it on the last pip
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The same anemone, with the player doing everything §2.4.5 asks of her: she waits out the 0,8 s hold
+ * (`GameWorld` suppresses her input for exactly that long) and then pulls a full slingshot, which is
+ * well past the 60 % escape threshold.
+ */
+function pullOutOfTheAnemone(air: number, steps: number): Run {
+  const bubble = createBubble({ x: 90, y: 100 }, 0, T);
+  bubble.air = air;
+  const run = createRunState(1, 'expedicion');
+  const trap = createTrapState();
+  const events: GameEvent[] = [];
+  let ventedAtMs = -1;
+  let freedAtMs = -1;
+  let nowMs = 0;
+  const origin = { x: 90, y: 300 };
+  const pull = pullGesture(1, 0, T);
+
+  for (let i = 0; i < steps; i++) {
+    // §5 nº 7 pins her for TRAP_HOLD_MS: GameWorld drops the pointer while `trap.pinUntil` runs.
+    // The moment it lets go she presses, draws the sling over 100 ms and lifts — a full-power shot
+    // released 1,05 s into a 1,5 s window, exactly the "cabe de sobra" §2.4.5 promises.
+    const since = nowMs - T.TRAP_HOLD_MS;
+    const held = nowMs < trap.pinUntil || since < 0;
+    const stretch = Math.min(1, since / 100);
+    const pointer: PointerInput =
+      held || since > 250 ? UP : { down: true, x: origin.x + pull.x * stretch, y: origin.y + pull.y * stretch };
+    const stepped = stepBubble(
+      bubble,
+      run,
+      { pointer, solids: [], env: NEUTRAL_ENV, zone: 0, nowMs, dt: T.FIXED_DT, currentChunkId: 'c' },
+      T,
+    );
+    events.push(...stepped.events);
+    // `GameWorld.escapeTrapOnLaunch`, reproduced: the shot is what frees her (§2.4.5).
+    if (stepped.events.some((e) => e.type === 'launch' && e.power >= TRAP_ESCAPE_POWER)) escapeTrap(bubble, trap);
+    const hazards = stepHazards(bubble, run, trap, { hazards: [ANEMONE], nowMs }, T);
+    events.push(...hazards.events);
+    if (ventedAtMs < 0 && hazards.events.some((e) => e.type === 'airLost' && e.reason === 'trap')) ventedAtMs = nowMs;
+    if (freedAtMs < 0 && i > 0 && trap.hazardId === null) freedAtMs = nowMs;
+    nowMs += STEP_MS;
+  }
+  return { bubble, run, trap, events, ventedAtMs, freedAtMs };
+}
+
+describe('ADVERSARIAL — the anemone after DECISIONS-v1.2 D1 (§2.4.5, §5 nº 7)', () => {
+  /**
+   * A pinned Bur is not RESTING, so the escape shot §2.4.5 prices at "una carga del 60 %" is, since
+   * D1, the one mid-air launch of the fall — and D1 refuses that launch outright when Bur is on her
+   * last pip ("nunca está disponible con el último pip"). The player therefore presses, pulls and
+   * releases with nothing at all happening ("ni evento ni castigo"), and 1,5 s later the vent takes
+   * the pip she had left.
+   *
+   * That is the exact opposite of what both §2.4.5 and §5 nº 7 promise about this hazard — "recurso,
+   * NO muerte" — and it is the case in which the promise mattered. The rule is not "the anemone costs
+   * a pip"; it is that the player always has a way out that is cheaper than dying.
+   */
+  it('still lets a player on her last pip buy her way out with the 60 % shot', () => {
+    const escape = pullOutOfTheAnemone(1, Math.ceil((T.TRAP_VENT_MS + 500) / STEP_MS));
+
+    expect(escape.bubble.state).not.toBe('DEAD');
+    expect(escape.bubble.air).toBe(1);
+    expect(escape.freedAtMs).toBeGreaterThan(0);
+    expect(escape.freedAtMs).toBeLessThan(T.TRAP_VENT_MS);
+  });
+
+  /**
+   * The companion half, and the reason the one above is not a matter of taste: with two pips the same
+   * player, the same press and the same pull DO escape. Nothing about her input changed — only the
+   * size of the bar — so the escape is not a skill the game teaches, it is a purchase the game
+   * silently refuses her exactly when she cannot afford the alternative.
+   */
+  it('escapes with two pips, which is what makes the refusal on one a rule and not a difficulty', () => {
+    const escape = pullOutOfTheAnemone(2, Math.ceil((T.TRAP_VENT_MS + 500) / STEP_MS));
+
+    expect(escape.freedAtMs).toBeGreaterThan(0);
+    expect(escape.freedAtMs).toBeLessThan(T.TRAP_VENT_MS);
+    expect(escape.bubble.state).not.toBe('DEAD');
   });
 });

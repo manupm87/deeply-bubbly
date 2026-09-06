@@ -1,17 +1,19 @@
 /**
- * Zone 2's binding of the shared authoring vocabulary (`level/content/builders.ts`), plus the three
- * numbers every "Borde de arrecife" chunk is authored against.
+ * Zone 2's binding of the shared authoring vocabulary (`level/content/builders.ts`, `../ladder.ts`).
+ * The only thing a zone changes is Bur's radius (§2.6) and therefore the height of every rest pose, so
+ * this file fixes that one parameter and re-exports the vocabulary under Zone 2's names.
  *
  * The zone's verb is **"leer y usar las corrientes"** (§3.2), so its geometry is not a zigzag with a
- * hazard bolted on: a current band is placed BETWEEN two anchors and the landing is moved downstream
- * of the straight line, so the drift is the thing that gets you there. `CURRENT_TRAVEL_PX` is what
- * that costs, and the reach rule (§11.5.11) certifies every one of those hops with the real integrator.
+ * hazard bolted on: a `corriente` is placed ACROSS a hop and pointed at the landing, and the reach rule
+ * (§11.5.11) certifies every one of those hops with the current sampled, exactly as the player flies it.
  */
 import { zoneRadius } from '../../../control/charge';
 import { DEFAULT_TUNING } from '../../../tuning';
-import { LEDGE_H, kelpIn, perchIn, pulpoLedge, zoneRestY } from '../builders';
+import { LEDGE_H, perchIn, pulpoLedge, reefRock, zoneRestY } from '../builders';
+import { ladderIn, rungIn, sideStructures } from '../ladder';
 import type { PerchSpec } from '../builders';
-import type { Anchor, Ceiling, ZoneIndex } from '../../../types';
+import type { Ladder, Rung, RungSpec, SideStructures } from '../ladder';
+import type { Anchor, Ceiling, Wall, ZoneIndex } from '../../../types';
 
 const T = DEFAULT_TUNING;
 
@@ -21,8 +23,11 @@ export const Z2: ZoneIndex = 1;
 /** Bur's radius in Z2 (§2.6): `RADIUS_BASE * ZONE_RADIUS_PCT[1]` = 7 · 0,92 = 6,44 px. */
 export const Z2_RADIUS = zoneRadius(Z2, T);
 
-/** Vertical gap the reach rule allows between two consecutive anchors in this zone (§11.5.11). */
-export const Z2_MAX_HOP = T.MAX_HOP_PX[Z2] ?? 195;
+/** Vertical gap the reach rule allows between two consecutive anchors in this zone (§11.5.11, D4). */
+export const Z2_MAX_HOP = T.MAX_HOP_PX[Z2] ?? 105;
+
+/** Lateral gap the reach rule allows between two consecutive anchors in this zone (D4). */
+export const Z2_MAX_HOP_X = T.MAX_HOP_X_PX[Z2] ?? 190;
 
 export {
   ANEMONA_H,
@@ -38,13 +43,26 @@ export {
   anemona,
   currentBand,
   erizo,
-  laneOf,
   pearl,
   reefRock,
   shell,
   sideRock,
 } from '../builders';
+export {
+  ENTRY_X_LEFT,
+  ENTRY_X_RIGHT,
+  EXIT_X,
+  LEDGE_INSET,
+  RUNG_Y_4,
+  RUNG_Y_5,
+  RUNG_Y_STATION,
+  SIDE_BAND_L,
+  SIDE_BAND_R,
+  exitRung,
+  rung,
+} from '../ladder';
 export type { PerchSpec } from '../builders';
+export type { Ladder, Rung, RungSpec, SideStructures } from '../ladder';
 
 /** Where Bur's centre sits when resting under a Z2 ledge whose top is at `y` and thickness `h` (§2.3). */
 export function z2RestY(y: number, h: number = LEDGE_H): number {
@@ -56,22 +74,22 @@ export function z2Perch(spec: PerchSpec): [Ceiling, Anchor] {
   return perchIn(Z2, spec);
 }
 
-/** Catalogue nº 2, **Alga Cinta** (§5, "Z1–Z2"), at Z2's rest height. */
-export function z2Kelp(id: string, x: number, y: number, w: number, anchorX: number): [Ceiling, Anchor] {
-  return kelpIn(Z2, id, x, y, w, anchorX);
-}
-
-/** Catalogue nº 9, **Pulpo Camuflado** (§5), at Z2's rest height. */
+/** Catalogue nº 9, **Pulpo Camuflado** (§5), as a standalone ledge (fixtures). */
 export function z2Pulpo(id: string, x: number, y: number, w: number, anchorX: number): [Ceiling, Anchor] {
   return pulpoLedge(Z2, id, x, y, w, anchorX);
 }
 
-/**
- * Standard authoring heights of a Z2 chunk. Every chunk enters on a ledge whose top is at
- * `ENTRY_LEDGE_Y` and leaves on one at `EXIT_LEDGE_Y`, which makes every seam between chunks exactly
- * 70 px: `(240 − (188 + 16,44)) + (18 + 16,44)`. Well inside `Z2_MAX_HOP`, and identical to the seam
- * Zone 1 already ships, so the two zones join without a special case (§11.5.11 applies to the Z1 → Z2
- * junction like to any other).
- */
-export const ENTRY_LEDGE_Y = 18;
-export const EXIT_LEDGE_Y = 188;
+/** A whole Z2 chunk ladder: 3–5 rest points, each one a single shot from the one above (§11.5.11). */
+export function ladder(prefix: string, specs: readonly RungSpec[]): Ladder {
+  return ladderIn(Z2, prefix, specs);
+}
+
+/** One rung on its own, for the fixtures that place a ledge outside the ladder. */
+export function z2Rung(id: string, spec: RungSpec, fromX: number): Rung {
+  return rungIn(Z2, id, spec, fromX);
+}
+
+/** The reef of Zone 2 (§3.2, D3): the same side slabs as Zone 1, wearing the zone's own material. */
+export function reefIn(prefix: string, spec: SideStructures): Wall[] {
+  return sideStructures(prefix, spec, reefRock);
+}

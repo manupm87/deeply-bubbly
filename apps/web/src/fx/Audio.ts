@@ -2,9 +2,9 @@
  * Synthesised SFX (GDD §7). No audio files: every sound is built from oscillators and noise.
  * The AudioContext is created on the first `pointerdown` (iOS requirement) — total silence before it.
  *
- * The charge "glub" is the only continuous voice: it starts on `chargeStart`, follows
- * `hud.chargePower` every frame (the ear knows how much charge you have without looking) and stops on
- * `launch` — or as soon as the bubble leaves CHARGING, so an auto-release can never leave it droning.
+ * The sling "glub" is the only continuous voice: it starts on `aimStart`, follows `hud.power` every
+ * frame (the ear knows how far the sling is drawn without looking) and stops on `launch` or
+ * `aimCancel` — or as soon as the bubble leaves AIMING, so a cancelled aim can never leave it droning.
  */
 import type { Ceiling, GameEvent, Wall, ZoneIndex } from '@deeply-bubbly/core';
 import type { GameContext } from '../context';
@@ -40,6 +40,9 @@ const AMBIENCE_CUTOFF: readonly number[] = [12000, 6000, 3200, 1800, 1200, 800];
 /** A minor pentatonic, in semitones from A3; the pickup note climbs with the bounce chain. */
 const PENTATONIC = [0, 3, 5, 7, 10];
 const PENTATONIC_ROOT = 220;
+
+/** D1: the mid-air launch is the same pop a fifth up — the one shot that spends Air is audibly apart. */
+const AIR_LAUNCH_PITCH = 1.5;
 
 const MASTER_GAIN = 0.8;
 const GLUB_GAIN = 0.07;
@@ -82,13 +85,28 @@ export class AudioFx {
     const s = this.synth;
     if (!s) return;
     switch (e.type) {
-      case 'chargeStart':
+      case 'aimStart':
         this.startGlub(s);
+        break;
+      case 'aimCancel':
+        // D2: a gesture can end without a shot. The sling voice has to end with it, and the ear gets
+        // a soft "plop" — quiet, low, with none of the launch pop's snap: nothing happened, and that
+        // is exactly what it has to sound like.
+        this.stopGlub();
+        blip(s, { type: 'sine', freq: 300, freqEnd: 150, dur: 0.09, gain: 0.06, attack: 0.25 });
         break;
       case 'launch':
         this.stopGlub();
-        // Pitch is inverse to power: a full charge pops deep, a tap pops high.
-        blip(s, { type: 'sine', freq: 760 - e.power * 430, freqEnd: 180, dur: 0.09, gain: 0.18, attack: 0.05 });
+        // Pitch is inverse to power: a full pull pops deep, a short one pops high. D1's mid-air launch
+        // rides a fifth above the same curve, so the shot that COSTS a pip never sounds like a free one.
+        blip(s, {
+          type: 'sine',
+          freq: (760 - e.power * 430) * (e.airLaunch ? AIR_LAUNCH_PITCH : 1),
+          freqEnd: e.airLaunch ? 270 : 180,
+          dur: 0.09,
+          gain: 0.18,
+          attack: 0.05,
+        });
         break;
       case 'bounce':
         this.bounce(s, e.material, e.speed);
@@ -97,6 +115,9 @@ export class AudioFx {
         blip(s, { type: 'triangle', freq: pentatonic(this.ctx.snapshot?.bubble.bounceChain ?? 0), dur: 0.22, gain: 0.12 });
         break;
       case 'airLost':
+        // The double jump SPENDS a pip, it does not take a hit: the launch pop a fifth higher already
+        // says it, and the damage blip on top of it would read as "you were hurt" (D1, §7).
+        if (e.reason === 'airLaunch') break;
         blip(s, { type: 'square', freq: 900, freqEnd: 420, dur: 0.05, gain: 0.09, attack: 0.05 });
         break;
       case 'resacaWarning':
@@ -137,12 +158,12 @@ export class AudioFx {
     }
     const snap = this.ctx.snapshot;
     if (!snap) return;
-    if (snap.bubble.state !== 'CHARGING') {
+    if (snap.bubble.state !== 'AIMING') {
       this.stopGlub();
       return;
     }
     if (this.glub) {
-      const freq = 200 + snap.hud.chargePower * 400;
+      const freq = 200 + snap.hud.power * 400;
       this.glub.osc.frequency.setTargetAtTime(freq, s.ctx.currentTime, 0.02);
     }
   }

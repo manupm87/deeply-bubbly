@@ -14,6 +14,25 @@ export default tseslint.config(
     },
   },
   {
+    // The e2e tree: Playwright specs are TypeScript (typescript-eslint turns `no-undef` off for those),
+    // but the driver scripts under `e2e/tools` are plain ESM that runs half in Node and half, through
+    // `page.evaluate`, in the browser. Declaring both sets of globals is what lets `pnpm lint` cover
+    // the drag helpers and the screenshot bot at all — they were outside every gate until now.
+    files: ['apps/web/e2e/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        console: 'readonly',
+        document: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        window: 'readonly',
+      },
+    },
+    rules: { 'no-console': 'off' },
+  },
+  {
     // The core package must stay free of rendering / DOM dependencies.
     files: ['packages/core/src/**/*.ts'],
     rules: {

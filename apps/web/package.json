@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src e2e",
     "test": "echo 'no unit tests in web shell (logic lives in @deeply-bubbly/core)'",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"

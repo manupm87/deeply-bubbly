@@ -7,7 +7,7 @@
  * mode included, because reading currents is the skill the ramp is made of. Their multipliers still
  * apply to the impulse — that part is felt at the fingertip, not drawn.
  */
-import { chargePower, impulseMagnitude } from '../control/charge';
+import { launchImpulse, pullPower } from '../control/pull';
 import { launchVelocity } from '../control/aim';
 import { predictTrajectory, sampleDots } from '../control/trajectory';
 import type { Vec2 } from '../math/vec';
@@ -16,14 +16,11 @@ import type { Bubble, EntityId, SolidEntity, ZoneIndex } from '../types';
 import type { ReadonlyPhysicsEnv } from '../physics/forceFields';
 
 /**
- * Impulse the current hold would produce if released now (§11.4, §2.3's sticky ledge included).
- *
- * NOTE for whoever touches `bubbleStep.launch` next: those five lines and these are the same rule, and
- * §2.7's promise of an exact arc is exactly the statement that they agree. The clean fix is to export
- * this function from `bubble/bubbleStep.ts` and have `launch` call it; that file was owned by another
- * module while this one was written, so the duplication is flagged here instead of made silently.
+ * Impulse the current pull would produce if released now (§11.4, §2.3's sticky ledge included).
+ * The formula itself is `control/pull.launchImpulse`, the same call `bubbleStep.launch` makes: §2.7's
+ * promise of an exact arc IS the statement that the guide and the release agree, so there is one copy.
  */
-export function holdImpulse(
+export function aimImpulse(
   bubble: Bubble,
   solids: readonly SolidEntity[],
   env: ReadonlyPhysicsEnv,
@@ -31,18 +28,17 @@ export function holdImpulse(
   t: Tuning,
 ): number {
   const ceiling = solids.find((s) => s.id === bubble.restingOnId && s.type === 'ceiling');
-  const sticky = ceiling !== undefined && ceiling.type === 'ceiling' && ceiling.kind === 'pegajosa';
-  const magnitude = impulseMagnitude(
+  return launchImpulse(
     {
-      power: chargePower(bubble.chargeMs, t),
-      dragDist: bubble.dragDist,
+      power: pullPower(bubble.pullDist, t),
       radius: bubble.radius,
       stunned: nowMs < bubble.flags.stunUntil,
-      externalMul: env.chargeMul * (sticky ? t.REST_STICKY_IMPULSE_MUL : 1),
+      sticky: ceiling !== undefined && ceiling.type === 'ceiling' && ceiling.kind === 'pegajosa',
+      chargeMul: env.chargeMul,
+      impulseMul: env.impulseMul,
     },
     t,
   );
-  return magnitude * env.impulseMul;
 }
 
 /**
@@ -78,7 +74,24 @@ export function trajectoryDots(zone: ZoneIndex, t: Tuning): number {
   return t.TRAJECTORY_DOTS[zone] ?? t.TRAJECTORY_DOTS[t.TRAJECTORY_DOTS.length - 1] ?? 0;
 }
 
-/** The `trajectoryDots(zone)` points of the guide, or [] when there is no hold to preview. */
+/**
+ * The richest zone's dot count, which is the SPACING every zone draws at (see `sampleDots`). It is
+ * what turns §2.7's table into a real ramp: the first zone gets the whole arc, and the deeper ones
+ * get a shorter and shorter prefix of it rather than the same answer told in fewer words.
+ */
+export function maxTrajectoryDots(t: Tuning): number {
+  let max = 0;
+  for (const n of t.TRAJECTORY_DOTS) max = Math.max(max, n);
+  return max;
+}
+
+/**
+ * The `trajectoryDots(zone)` points of the guide, or [] when there is no shot to preview.
+ *
+ * The cancel zone of D2 is one of those "no shot" cases, and drawing nothing is the RULE, not an
+ * optimisation: "mientras el dedo está dentro de ese radio la guía no se dibuja [...]: el jugador ve
+ * que aquí no hay tiro". A guide drawn from a 3 px pull would promise a shot the release will refuse.
+ */
 export function previewTrajectory(
   bubble: Bubble,
   solids: readonly SolidEntity[],
@@ -87,9 +100,10 @@ export function previewTrajectory(
   nowMs: number,
   t: Tuning,
 ): Vec2[] {
+  if (bubble.cancelZone) return [];
   // The sticky-ledge multiplier reads the ceiling Bur hangs from, which is never a body she passes
   // through, so the impulse is measured against the full list and the ARC against the collidable one.
-  const vel = launchVelocity(bubble.aimTheta, holdImpulse(bubble, solids, env, nowMs, t));
+  const vel = launchVelocity(bubble.pullTheta, aimImpulse(bubble, solids, env, nowMs, t));
   const points = predictTrajectory(
     {
       start: bubble.pos,
@@ -101,5 +115,5 @@ export function previewTrajectory(
     },
     t,
   );
-  return sampleDots(points, trajectoryDots(zone, t));
+  return sampleDots(points, trajectoryDots(zone, t), maxTrajectoryDots(t));
 }

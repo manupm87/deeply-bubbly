@@ -1,9 +1,10 @@
 /**
  * Air: the only bar (GDD §2.4, §2.5). Every pip Bur loses or gains goes through this file — the
  * ARCHITECTURE "un solo lugar para cada regla" rule names it explicitly — so the shield, the
- * invulnerability window, the overcharge floor and the capacity clamp cannot drift apart.
+ * invulnerability window, the air-launch floor and the capacity clamp cannot drift apart.
  *
- * What lives here and NOT in the callers: the five ways to lose air (§2.4) are all `loseAir` reasons,
+ * What lives here and NOT in the callers: the ways to lose air (§2.4, revised by DECISIONS-v1.2 D1:
+ * four hazards of the world plus the optional cost of the mid-air launch) are all `loseAir` reasons,
  * so the shell, `GameWorld` and `bubbleStep` never touch `bubble.air` themselves.
  */
 import { clamp } from '../math/vec';
@@ -20,11 +21,17 @@ export interface AirChange {
 /** §11.7.9: no entity in the catalogue ever costs more than one pip per contact. */
 const AIR_COST = 1;
 
+/** Pips a reason takes. Every hazard costs one; only the D1 "double jump" has its own tunable price. */
+function costOf(reason: AirLossReason, t: Tuning): number {
+  return reason === 'airLaunch' ? Math.max(0, t.AIR_LAUNCH_COST) : AIR_COST;
+}
+
 /**
  * The ONLY entry point for losing air (§2.4). Handles: invulnerability (hit/trap ignored while invulnerable),
- * the shell shield (absorbs the first 'hit' of the zone, emits shieldUsed), the overcharge floor
- * (never below OVERCHARGE_MIN_AIR, never more than OVERCHARGE_MAX_DRAIN per hold), and emits airLost.
- * Sets invulnUntil/stunUntil for 'hit' and 'trap'. Never mutates run.pearls/shells.
+ * the shell shield (absorbs the first 'hit' of the zone, emits shieldUsed), the air-launch floor
+ * (D1: the "double jump" is never available on the last pip), and emits airLost.
+ * Sets invulnUntil/stunUntil for 'hit' and 'trap' — never for 'airLaunch', which is a price Bur pays
+ * on purpose, not a blow: no invulnerability, no stun, no pushback.
  *
  * NOT done here, by design:
  *  - the HIT_PUSHBACK impulse (§2.4.1): only the caller knows the hazard geometry, so only the caller
@@ -33,8 +40,8 @@ const AIR_COST = 1;
  *
  * Side effects worth knowing about (they are air rules, and this is where air rules live):
  *  - a hazard that connects ('hit'/'trap', shield-absorbed or not) breaks the bounce chain, because
- *    §2.5 pays the chain only when it is "sin tocar peligro";
- *  - a successful 'overcharge' drain counts against `bubble.overchargeDrained` (the per-hold cap).
+ *    §2.5 pays the chain only when it is "sin tocar peligro". An 'airLaunch' does not: paying for a
+ *    mid-air shot is not touching a hazard, and a chain flown with a double jump is still elegant.
  */
 export function loseAir(
   bubble: Bubble,
@@ -52,12 +59,13 @@ export function loseAir(
   const fromHazard = reason === 'hit' || reason === 'trap';
   if (fromHazard && nowMs < bubble.flags.invulnUntil) return { events, died: false };
 
-  if (reason === 'overcharge') {
-    // Hard floor and per-hold cap (§2.2): a long hold is a cost, never a lost run.
-    if (bubble.air <= t.OVERCHARGE_MIN_AIR) return { events, died: false };
-    if (bubble.overchargeDrained >= t.OVERCHARGE_MAX_DRAIN) return { events, died: false };
-    bubble.overchargeDrained += 1;
-  }
+  const cost = costOf(reason, t);
+  // D1's hard floor: "nunca está disponible con el último pip". `bubbleStep` already refuses to START
+  // an air aim that cannot afford it; this second guard is what makes the rule an invariant of the
+  // bar rather than a property of one call site, for the case where a hazard takes the pip the aim
+  // was counting on (Bur keeps the free shot, and lives).
+  // A zero-cost double jump (the owner left that open, D1) is a free shot, not a silent "-0 Aire".
+  if (reason === 'airLaunch' && (cost <= 0 || bubble.air <= cost)) return { events, died: false };
 
   // Copy: events outlive the step, and the caller usually passes `bubble.pos` itself.
   const point: Vec2 = { x: at.x, y: at.y };
@@ -77,7 +85,7 @@ export function loseAir(
     bubble.flags.stunUntil = nowMs + t.STUN_MS;
   }
 
-  bubble.air = Math.max(0, bubble.air - AIR_COST);
+  bubble.air = Math.max(0, bubble.air - cost);
   events.push({ type: 'airLost', reason, air: bubble.air, at: point });
   return { events, died: bubble.air <= 0 };
 }
