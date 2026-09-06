@@ -59,7 +59,8 @@ dedo en escritorio.
 - [x] Núcleo jugable (física propia determinista, control, cámara, Zona 1) con 570+ tests
 - [x] Shell web con HUD, tutorial, pantallas, efectos, audio sintetizado y panel de ajuste (`?tuning=1`)
 - [x] Despliegue continuo en GitHub Pages y tests e2e en Chromium móvil
-- [ ] Zona 2 en *greybox* (en curso), Zona 3
+- [x] Zona 2 en *greybox*: corrientes, erizos, anémonas, pulpos; regla de misericordia activa
+- [ ] Zona 3 en *greybox*, jefe Pulpa
 - [ ] Playtest y ajuste de la sensación de juego
 - [ ] Arte final, sonido, jefes 2 a 6
 - [ ] Empaquetado móvil (Capacitor) y publicación en tiendas

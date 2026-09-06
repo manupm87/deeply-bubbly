@@ -6,11 +6,13 @@ Deudas conocidas y decisiones pendientes, con la sección del GDD que las gobier
 
 | # | Tema | Detalle | Ref. GDD |
 |---|---|---|---|
-| C1 | **Misericordia no reduce densidad** | `mercyDensityMul` está calculado pero el streamer/contenido no tiene gancho de densidad de peligros ni inyección de bolsa de aire. Necesita un filtro determinista por `mercyLevel` al instanciar chunks. | §4.2.3, §11.5.8 |
+| C1 | ~~Misericordia no reduce densidad~~ **Hecho** (2026-09-06): `level/mercy.ts` + `WorldStreamer.bindRun()`, retirada determinista de peligros y bolsas extra. | §4.2.3, §11.5.8 |
 | C2 | **Radio cambia en la frontera de zona, no en la estación** | `bubbleStep` usa `radiusForZone(zone)` por profundidad; el GDD dice que el cambio de presión ocurre dentro de la estación. Invisible en Z1 (una sola zona). Decidir antes del contenido de Z2: "zona de presión" fijada en estación y validador coherente. | §2.6, §3.3, §11.4 |
 | C3 | **Cálculo de impulso duplicado** | `game/aimPreview.ts (holdImpulse)` repite la fórmula de `bubbleStep.launch`. Exportar la regla desde `bubble/` y usarla en ambos. Un test asegura que coinciden mientras tanto. | §11.4 |
 | C4 | **Modo Abismo: estaciones siguen siendo checkpoint** | Fuera del MVP. Cuando entre Abismo, `run/respawn.ts` debe ignorar estaciones en ese modo. | §3.1, §12.2 |
 | C5 | **`restart()` no reinicia pickups consumidos** | Deliberado (evita farmear perlas). Revisar cuando exista economía real. | §6 |
+| C7 | **Corriente como verbo** | Con `DAMPING_X = 0,30` una banda desplaza ~25 px por tiro: la corriente se nota pero nunca es un muro. Si el playtest pide que sea obligatoria, subir el vector o bajar la amortiguación horizontal (afecta al encadenado de paredes de Z6). | §3.2, §5 nº 8 |
+| C8 | **Pulpa y Zona 3** | Jefe de Z2 fuera del MVP (H3). Z3 en greybox pendiente: reinflar, banco migratorio, señuelo, medusa fría, Kalamar. | §3.2, §12 |
 | C6 | Ensamblador procedural | Solo existe el validador; el generador (§11.5 reglas 2, 3, 7, 12) es H3. | §4.1, §11.5 |
 
 ## Shell (`apps/web`)
