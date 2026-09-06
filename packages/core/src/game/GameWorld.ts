@@ -1,7 +1,41 @@
+import { NEUTRAL_ENV, sampleForceFields } from '../physics/forceFields';
+import { createBubble, stepBubble } from '../bubble/bubbleStep';
+import { chargePower, fineTuneNormalized } from '../control/charge';
+import { createCamera, stepCamera } from '../camera/camera';
+import { pxToMeters, zoneAt } from '../level/depth';
+import { WorldStreamer } from '../level/streaming';
+import { createRunState, mayOfferSecondBreath, registerFailure } from '../run/runState';
+import { deathRespawnPoint, resacaRespawnPoint } from '../run/respawn';
+import { loadSave, writeSave } from '../run/save';
+import { previewTrajectory, trajectoryDots } from './aimPreview';
+import { advanceZone, createCheckpointState, crossBoyas, enterStation, reachedStation } from './checkpoints';
+import { createBuckets, fillBuckets } from './entities';
+import { TRAP_ESCAPE_POWER, createTrapState, escapeTrap, stepHazards } from './hazards';
+import { stepPickups } from './pickups';
+import { placeBubble } from './respawnFlow';
+import { updateResaca } from './resaca';
+import { createWorldWalls, updateWorldWalls } from './worldBounds';
+import type { Vec2 } from '../math/vec';
 import type { Tuning } from '../tuning';
-import type { GameEvent, PointerInput, WorldSnapshot } from '../types';
+import type {
+  Bubble,
+  Camera,
+  GameEvent,
+  GameMode,
+  GamePhase,
+  HudData,
+  PointerInput,
+  RunState,
+  SolidEntity,
+  WorldSnapshot,
+  ZoneIndex,
+} from '../types';
 import type { AdProvider, KeyValueStore, Telemetry } from '../ports';
 import type { Campaign } from '../level/campaign';
+import type { SaveData } from '../run/save';
+import type { CheckpointState } from './checkpoints';
+import type { TrapState } from './hazards';
+import type { WorldBuckets } from './entities';
 
 export interface GameWorldDeps {
   campaign: Campaign;
@@ -14,7 +48,18 @@ export interface GameWorldDeps {
   seed: number;
   /** Start from this station index (checkpoint), -1 = surface. */
   startStationIndex?: number;
+  /** §3.1 mode. 'expedicion' (the campaign) unless the shell asks for 'abismo'. */
+  mode?: GameMode;
 }
+
+/** Slack (ms) when comparing an accumulated duration against a threshold; see `bubbleStep`. */
+const TIME_EPS_MS = 1e-6;
+
+/** Hard cap on the undrained event queue; see `update`. Two seconds of the busiest step imaginable. */
+const MAX_QUEUED_EVENTS = 512;
+
+/** Shared empty guide: not charging is by far the common case and it must not allocate (§11.5.10). */
+const NO_TRAJECTORY: readonly Vec2[] = Object.freeze([]);
 
 /**
  * Façade composing every core module into one deterministic simulation (§11). This is the ONLY thing the
@@ -23,41 +68,525 @@ export interface GameWorldDeps {
  * stations (recharge to zone max, capacity change, immersionComplete, phase 'station'), zone changes (radius),
  * resaca detection with the camera, respawn, death flow (DEFLATE_MS → phase 'dead' → restart()), camera step,
  * trajectory preview while charging, telemetry, save on checkpoint.
+ *
+ * It owns no rule of its own: every one of those bullets is delegated to the module that owns it, and
+ * what is written here is the ORDER (§11.4: physics, then the camera, then the frame) and the wiring.
+ * Determinism (§11.7.14) is a property of that order plus the ban on `Date.now` — the only clock is
+ * `nowMs`, the running sum of fixed steps.
  */
 export class GameWorld {
+  private t: Tuning;
+  private readonly campaign: Campaign;
+  private readonly telemetry: Telemetry;
+  private readonly ads: AdProvider;
+  private readonly store: KeyValueStore;
+  private readonly streamer: WorldStreamer;
+
+  private readonly buckets: WorldBuckets = createBuckets();
+  /** Chunk solids plus the two column walls (§4.3); rebuilt in place every step. */
+  private readonly stepSolids: SolidEntity[] = [];
+  private readonly walls: ReturnType<typeof createWorldWalls>;
+  private readonly checkpoints: CheckpointState;
+  private readonly trap: TrapState = createTrapState();
+
+  private bubble: Bubble;
+  private camera: Camera;
+  private readonly run: RunState;
+  private save: SaveData;
+
+  private nowMs = 0;
+  /** Left-over frame time (ms) below one fixed step. */
+  private accMs = 0;
+  private phase: GamePhase = 'playing';
+  private zone: ZoneIndex;
+  private ascensoActive = false;
+  /** Camera offset frozen at the start of the current finger contact (§2.1), or null when it is up. */
+  private holdCamY: number | null = null;
+  private trajectory: readonly Vec2[] = NO_TRAJECTORY;
+
+  private readonly events: GameEvent[] = [];
+  private readonly listeners = new Set<(e: GameEvent) => void>();
+
+  /** Pearls and shells at the start of the current immersion, for the §3.3.5 summary. */
+  private immersionPearls = 0;
+  private immersionShells = 0;
+  /** Pearls of this run already written to the save, so a second write cannot bank them twice (§6.1). */
+  private bankedPearls = 0;
+
   constructor(deps: GameWorldDeps) {
-    void deps;
-    throw new Error('not implemented');
+    this.t = deps.tuning;
+    this.campaign = deps.campaign;
+    this.telemetry = deps.telemetry;
+    this.ads = deps.ads;
+    this.store = deps.store;
+    this.streamer = new WorldStreamer(deps.campaign, deps.tuning);
+    this.walls = createWorldWalls(deps.tuning);
+    this.save = loadSave(deps.store);
+
+    this.run = createRunState(deps.seed, deps.mode ?? 'expedicion');
+    const start = this.startPoint(deps.startStationIndex ?? -1);
+    this.zone = zoneAt(start.y).index;
+    this.bubble = createBubble(start, this.zone, deps.tuning);
+    this.bubble.air = Math.min(deps.tuning.AIR_START, this.bubble.airMax);
+    this.camera = createCamera(start.y, deps.viewH, deps.tuning);
+    this.run.maxProgressY = start.y;
+
+    this.checkpoints = createCheckpointState(this.zone);
+    for (let i = 0; i <= this.run.lastStationIndex; i++) this.checkpoints.completedStations.add(i);
+    this.streamer.update(start.y, false);
   }
+
   /** Advance by a rendered-frame delta (ms); runs 0..MAX_STEPS_PER_FRAME fixed steps. Pointer is in VIEWPORT design px. */
   update(frameDtMs: number, pointer: PointerInput): void {
-    void frameDtMs; void pointer;
-    throw new Error('not implemented');
+    const t = this.t;
+    const stepMs = t.FIXED_DT * 1000;
+    if (!(stepMs > 0)) return;
+
+    this.accMs += Number.isFinite(frameDtMs) ? Math.max(0, frameDtMs) : 0;
+    let steps = Math.floor(this.accMs / stepMs);
+    if (steps > t.MAX_STEPS_PER_FRAME) {
+      // Spiral of death (§11.4): a frame that took 400 ms does NOT buy 24 steps of catch-up. The excess
+      // is dropped, so the simulation runs slow for one frame instead of never catching up again.
+      steps = t.MAX_STEPS_PER_FRAME;
+      this.accMs = 0;
+    } else {
+      this.accMs -= steps * stepMs;
+    }
+
+    const from = this.events.length;
+    for (let i = 0; i < steps; i++) this.step(pointer);
+    this.dispatch(from);
+    // §11.5.10: a shell that only subscribes with `onEvent` never calls `snapshot()`, and an 18–24
+    // minute campaign would grow this array without bound. Every listener has already seen what is
+    // dropped, and a shell that drains through `snapshot()` keeps the most recent events.
+    if (this.events.length > MAX_QUEUED_EVENTS) this.events.splice(0, this.events.length - MAX_QUEUED_EVENTS);
   }
-  /** Read-only view for the renderer; drains the event queue. */
+
+  /**
+   * Read-only view for the renderer; drains the event queue.
+   * `bubble`, `camera` and `run` are the LIVE objects, handed out for free: the renderer must treat
+   * them as read-only. Mutating them from the shell corrupts the simulation and breaks §11.7.14.
+   */
   snapshot(): WorldSnapshot {
-    throw new Error('not implemented');
+    const events = this.events.slice();
+    this.events.length = 0;
+    return {
+      timeMs: this.nowMs,
+      bubble: this.bubble,
+      camera: this.camera,
+      run: this.run,
+      zone: this.zone,
+      entities: this.streamer.entities(),
+      trajectory: this.trajectory,
+      trajectoryDots: trajectoryDots(this.zone, this.t),
+      hud: this.hud(),
+      events,
+      phase: this.phase,
+    };
   }
+
   /** Player pressed "Otra vez" (from 'dead') — respawn at last boya/station in < RESTART_BUDGET_MS. */
   restart(): void {
-    throw new Error('not implemented');
+    if (this.phase !== 'dead' && this.phase !== 'gameOver') return;
+    const point = deathRespawnPoint(this.run, this.campaign, this.t);
+    this.push(placeBubble(this.bubble, point, this.nowMs, this.t));
+    this.bubble.air = Math.min(this.t.AIR_START, this.bubble.airMax);
+    // O(1): the campaign is already built and the streamer only re-instantiates the window it moves to.
+    this.camera = createCamera(point.pos.y, this.camera.viewH, this.t);
+    this.zone = zoneAt(point.pos.y).index;
+    this.streamer.update(point.pos.y, false);
+    this.resetTrap();
+    this.endAscenso();
+    this.holdCamY = null;
+    this.trajectory = NO_TRAJECTORY;
+    this.phase = 'playing';
   }
+
   /** Player pressed "Seguir bajando" (from 'station'). */
   continueDescent(): void {
-    throw new Error('not implemented');
+    if (this.phase !== 'station') return;
+    this.phase = 'playing';
   }
+
   setViewHeight(viewH: number): void {
-    void viewH;
-    throw new Error('not implemented');
+    if (!Number.isFinite(viewH) || viewH <= 0) return;
+    this.camera.viewH = viewH;
   }
+
   /** Replace tuning live (tuning panel). Derived values recomputed by the caller via createTuning. */
   setTuning(t: Tuning): void {
-    void t;
-    throw new Error('not implemented');
+    this.t = t;
   }
+
   /** Subscribe to events as they happen (alternative to snapshot().events). */
   onEvent(listener: (e: GameEvent) => void): () => void {
-    void listener;
-    throw new Error('not implemented');
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * §6.5: whether the "segundo aliento" rewarded slot may even be shown. Both halves must hold — the
+   * player has failed enough (§11.7.8 guarantees free mercy arrives first) and the provider has an ad.
+   * In the MVP the port is the no-op one, so this is always false and the slot stays laid out and dark.
+   */
+  mayOfferSecondBreath(): boolean {
+    return mayOfferSecondBreath(this.run, this.t) && this.ads.isAvailable('segundoAliento');
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // The fixed step
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * One step of FIXED_DT. The order is normative (§11.4 puts the camera "después de la física"): the
+   * world is built around Bur, the fields are sampled at her pre-move position, she moves, the world
+   * reacts, and only then do the camera and the frame bookkeeping run.
+   */
+  private step(pointer: PointerInput): void {
+    const t = this.t;
+    const dt = t.FIXED_DT;
+    const dtMs = dt * 1000;
+    const nowMs = this.nowMs;
+    const bubble = this.bubble;
+
+    // 1. Streaming window and the bodies of this step.
+    this.streamer.update(bubble.pos.y, bubble.flags.ascensoUntil > nowMs);
+    fillBuckets(this.buckets, this.streamer.entities());
+    this.zone = zoneAt(bubble.pos.y).index;
+    const solids = this.buildSolids();
+
+    // 2. Force fields, sampled ONCE at the pre-move position and reused by everything below.
+    const env =
+      this.buckets.fields.length === 0
+        ? NEUTRAL_ENV
+        : sampleForceFields(bubble.pos, bubble.radius, this.buckets.fields);
+
+    // 3. ASCENSO (§4.3). Set BEFORE the camera and the resaca read it, not after: the field was sampled
+    //    at the start of this step, so the window it opens is in force for this step. Deferring it would
+    //    give the resaca one step to fire inside a fumarola, which is the exact case §4.3 suspends.
+    this.updateAscenso(env.opensAscenso, nowMs);
+    const ascenso = bubble.flags.ascensoUntil > nowMs;
+
+    // 4. Bur herself. The pointer arrives in VIEWPORT px and is converted to world here (§11.1: x is
+    //    1:1, only y scrolls) with the camera offset FROZEN for the duration of the hold, exactly as
+    //    `beginCharge` freezes the origin. §2.1 is one promise — "con el origen congelado, dedo quieto
+    //    = tiro quieto" — and it only holds if BOTH ends of the aim vector are frozen: the origin is
+    //    in world coordinates and the finger in viewport ones, so re-adding a scrolling `camera.y`
+    //    every step rotates the shot under a motionless thumb (the camera chases Bur on every descent,
+    //    and from Z3 the "corriente mínima" of §4.3 scrolls it unconditionally).
+    //    The freeze is captured on a step boundary like every other input, so §11.7.14's "dos órdenes
+    //    de acumulador distintos" still produce the same world.
+    //    Input is suppressed outside 'playing' (§3.3: a station is a pause, not a level) and while the
+    //    anemone holds Bur (§5 nº 7: "atrapa 0,8 s", which is how long she cannot act).
+    const blocked = this.phase !== 'playing' || nowMs < this.trap.pinUntil;
+    if (blocked && bubble.aimOrigin !== null) {
+      // A suppressed step must not FIRE the hold it is taking away: the synthetic pointer-up would
+      // otherwise take `stepBubble`'s release branch and launch a shot the player never let go of
+      // (crossing a station seam mid-charge). Zeroing the charge routes it through §11.7.3's tap
+      // branch instead, which cancels the gesture and leaves the velocity alone.
+      bubble.chargeMs = 0;
+    }
+    const accepted: PointerInput = {
+      down: !blocked && pointer.down,
+      x: pointer.x,
+      y: pointer.y + this.pointerCamY(pointer.down, bubble),
+    };
+    const stepped = stepBubble(
+      bubble,
+      this.run,
+      {
+        pointer: accepted,
+        solids,
+        env,
+        zone: this.zone,
+        nowMs,
+        dt,
+        currentChunkId: this.streamer.currentChunk().chunk.id,
+      },
+      t,
+    );
+    this.push(stepped.events);
+    // §2.2 gives one hold per finger CONTACT, and a suppressed step is not a pointerup: without this
+    // a finger held through the whole station summary would start a brand-new charge on the first
+    // step after `continueDescent`, from a contact that already had its hold.
+    if (blocked && pointer.down) bubble.holdLatched = true;
+    this.escapeTrapOnLaunch(stepped.events);
+    // §2.4.2: the grace window expired inside `stepBubble`, which charged the pip; the anchor is ours.
+    if (stepped.requestRespawn) {
+      this.respawn(resacaRespawnPoint(bubble, this.run, this.camera, this.streamer.entities(), this.campaign, t));
+    }
+
+    // 5. Hazards, then pickups (§2.4.1, §2.5).
+    const hazards = stepHazards(bubble, this.run, this.trap, { hazards: this.buckets.hazards, nowMs }, t);
+    this.push(hazards.events);
+    if (hazards.hitId !== null) {
+      const data = { hazardId: hazards.hitId, depthM: this.depthM() };
+      this.telemetry.track({ name: 'hazardHit', timeMs: nowMs, data });
+    }
+
+    const pickups = stepPickups(bubble, this.run, this.buckets.pickups, nowMs, t);
+    this.push(pickups.events);
+    for (const id of pickups.consumed) this.streamer.consume(id);
+
+    // 6. Checkpoints and zone (§3.1, §3.3, §2.6).
+    const boyas = crossBoyas(bubble, this.run, this.buckets.boyas, this.checkpoints);
+    this.push(boyas);
+    for (const event of boyas) {
+      if (event.type !== 'boya') continue;
+      this.telemetry.track({ name: 'boya', timeMs: nowMs, data: { boyaId: event.boyaId, depthM: this.depthM() } });
+    }
+    this.checkStation();
+    this.push(advanceZone(this.run, this.zone, this.checkpoints));
+
+    // 7. Resaca window (§2.4.2), then the camera (§11.4: after the physics).
+    this.push(updateResaca(bubble, this.camera, { ascenso, playing: this.phase === 'playing', nowMs }, t));
+    this.push(
+      stepCamera(this.camera, { burY: bubble.pos.y, burVelY: bubble.vel.y, zone: this.zone, ascenso, nowMs, dt }, t),
+    );
+
+    // 8. The guide (§2.7), predicted from the CURRENT aim and charge with no force fields drawn.
+    this.trajectory =
+      bubble.state === 'CHARGING' ? previewTrajectory(bubble, solids, env, this.zone, nowMs, t) : NO_TRAJECTORY;
+
+    // 9. Frame bookkeeping. `maxProgressY` is the progress ratchet of §4.3, distinct from `camera.maxY`.
+    this.run.elapsedMs += dtMs;
+    this.run.maxProgressY = Math.max(this.run.maxProgressY, bubble.pos.y);
+    this.trackAirLosses(nowMs, stepped.events, hazards.events);
+
+    // 10. Endings.
+    this.checkDeath();
+    this.checkCampaignEnd();
+
+    this.nowMs = nowMs + dtMs;
+  }
+
+  /**
+   * Camera offset used to convert the pointer this step (§2.1). It is captured when the contact
+   * begins and held for as long as the gesture owns a frozen origin, so the WORLD point under a
+   * motionless finger cannot move while the camera scrolls. With no live hold it simply tracks the
+   * live camera, which is what makes the first step of a charge read the finger where the player
+   * actually sees it — the origin is frozen on that same step.
+   */
+  private pointerCamY(down: boolean, bubble: Bubble): number {
+    if (!down) {
+      this.holdCamY = null;
+      return this.camera.y;
+    }
+    if (bubble.aimOrigin === null || this.holdCamY === null) this.holdCamY = this.camera.y;
+    return this.holdCamY;
+  }
+
+  /** Chunk solids plus the two column walls (§4.3). Rebuilt in place: a step must not allocate. */
+  private buildSolids(): SolidEntity[] {
+    const solids = this.stepSolids;
+    solids.length = 0;
+    for (const solid of this.buckets.solids) solids.push(solid);
+    updateWorldWalls(this.walls, this.bubble.pos.y, this.zone, this.t);
+    solids.push(this.walls[0], this.walls[1]);
+    return solids;
+  }
+
+  /**
+   * §4.3: the ascenso window lasts while Bur is inside an `opensAscenso` field and ASCENSO_TAIL_MS
+   * after it. The flag is the "until" stamp of §11.3; the two events mark its edges exactly once.
+   */
+  private updateAscenso(inside: boolean, nowMs: number): void {
+    if (inside) this.bubble.flags.ascensoUntil = nowMs + this.t.ASCENSO_TAIL_MS;
+    const active = this.bubble.flags.ascensoUntil > nowMs;
+    if (active === this.ascensoActive) return;
+    this.ascensoActive = active;
+    this.push([{ type: active ? 'ascensoStart' : 'ascensoEnd' }]);
+  }
+
+  /** §2.4.5: a launch of 60 % or more is the escape from the anemone, and the launch has just happened. */
+  private escapeTrapOnLaunch(events: readonly GameEvent[]): void {
+    if (this.trap.hazardId === null) return;
+    for (const event of events) {
+      if (event.type === 'launch' && event.power >= TRAP_ESCAPE_POWER) {
+        escapeTrap(this.bubble, this.trap);
+        return;
+      }
+    }
+  }
+
+  private respawn(point: ReturnType<typeof deathRespawnPoint>): void {
+    this.push(placeBubble(this.bubble, point, this.nowMs, this.t));
+    this.resetTrap();
+    this.endAscenso();
+  }
+
+  /**
+   * §4.3: `placeBubble` clears the ascenso stamp, because a teleport to a checkpoint must not carry a
+   * window that widens the camera recall band to 640 px and suspends the resaca at the new point.
+   * Clearing the stamp is only half of it — the pair of edge events has to close too, or the next
+   * `updateAscenso` re-fires `ascensoStart` for a field Bur is no longer inside.
+   */
+  private endAscenso(): void {
+    if (!this.ascensoActive) return;
+    this.ascensoActive = false;
+    this.push([{ type: 'ascensoEnd' }]);
+  }
+
+  private resetTrap(): void {
+    this.trap.hazardId = null;
+    this.trap.pinUntil = 0;
+    this.trap.pos = null;
+    this.trap.escapedFrom = null;
+  }
+
+  /**
+   * §3.3: reaching the top of a station band ends the immersion. The simulation keeps running behind
+   * the summary screen — Bur floats and rests as usual — but input is ignored until `continueDescent`.
+   */
+  private checkStation(): void {
+    // DEAD is excluded on purpose: a deflate that happens to end past the seam must not refill the bar
+    // the death flow is about to report as empty, nor open a summary screen over the end screen.
+    if (this.phase !== 'playing' || this.bubble.state === 'DEAD') return;
+    const station = reachedStation(this.bubble, this.buckets.stations, this.checkpoints);
+    if (station === null) return;
+
+    this.push(enterStation(this.bubble, this.run, station, this.checkpoints, this.t));
+    this.push([
+      {
+        type: 'immersionComplete',
+        immersionIndex: station.immersionIndex,
+        pearls: this.run.pearls - this.immersionPearls,
+        shells: this.run.shells - this.immersionShells,
+      },
+    ]);
+    this.telemetry.track({
+      name: 'immersionComplete',
+      timeMs: this.nowMs,
+      data: { immersionIndex: station.immersionIndex, depthM: this.depthM(), elapsedMs: this.run.elapsedMs },
+    });
+    this.persist(station.immersionIndex, station.immersionIndex, this.run.shells - this.immersionShells);
+    this.immersionPearls = this.run.pearls;
+    this.immersionShells = this.run.shells;
+    this.phase = 'station';
+  }
+
+  /**
+   * §2.4: 700 ms of deflate, THEN the end screen. Leaving it is the player's call (`restart`).
+   * 'station' is accepted as well as 'playing': the Z5–Z6 pressure clock (§2.4.4) keeps running while
+   * a summary screen is open, so a player who walks away at a station can still run out of Air there,
+   * and that must reach the end screen instead of parking the run in a phase nothing can leave.
+   */
+  private checkDeath(): void {
+    if ((this.phase !== 'playing' && this.phase !== 'station') || this.bubble.state !== 'DEAD') return;
+    if (this.bubble.deadMs + TIME_EPS_MS < this.t.DEFLATE_MS) return;
+    this.phase = 'dead';
+    registerFailure(this.run, this.t);
+    this.push([{ type: 'gameOver' }]);
+    this.telemetry.track({
+      name: 'gameOver',
+      timeMs: this.nowMs,
+      data: {
+        depthM: this.depthM(),
+        immersionIndex: this.run.immersionIndex,
+        fails: this.run.failCountThisImmersion,
+        mercyLevel: this.run.mercyLevel,
+      },
+    });
+  }
+
+  /** Past the bottom of the last placed chunk there is no more world (§11.1: 25.920 px). */
+  private checkCampaignEnd(): void {
+    if (this.phase !== 'playing') return;
+    if (this.bubble.pos.y < this.campaign.bottomY) return;
+    this.phase = 'campaignComplete';
+    // The immersion being played when the column ends has no station to bank it: its conchas are
+    // recorded here, under ITS index. Never under `lastStationIndex`, whose immersion was already
+    // banked correctly when its station was entered.
+    this.persist(this.run.lastStationIndex, this.run.immersionIndex, this.run.shells - this.immersionShells);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Small helpers
+  // -------------------------------------------------------------------------------------------
+
+  private startPoint(startStationIndex: number): Vec2 {
+    const last = this.campaign.immersions.length - 1;
+    if (startStationIndex >= 0) {
+      const index = Math.min(Math.trunc(startStationIndex), last);
+      this.run.lastStationIndex = index;
+      this.run.immersionIndex = index + 1;
+    }
+    // One chain, one answer: with no checkpoint it lands at CAMPAIGN_START_Y (§2.4, respawn.ts).
+    return deathRespawnPoint(this.run, this.campaign, this.t).pos;
+  }
+
+  private push(events: readonly GameEvent[]): void {
+    for (const event of events) this.events.push(event);
+  }
+
+  private dispatch(from: number): void {
+    if (this.listeners.size === 0) return;
+    for (let i = from; i < this.events.length; i++) {
+      const event = this.events[i];
+      if (event === undefined) continue;
+      for (const listener of this.listeners) listener(event);
+    }
+  }
+
+  /** §12.1: "telemetría local: profundidad de cada pérdida de Aire", whichever of the five it was. */
+  private trackAirLosses(nowMs: number, ...batches: readonly (readonly GameEvent[])[]): void {
+    for (const batch of batches) {
+      for (const event of batch) {
+        if (event.type !== 'airLost') continue;
+        this.telemetry.track({
+          name: 'airLost',
+          timeMs: nowMs,
+          data: { reason: event.reason, air: event.air, depthM: pxToMeters(event.at.y) },
+        });
+      }
+    }
+  }
+
+  private depthM(): number {
+    return pxToMeters(this.bubble.pos.y);
+  }
+
+  /**
+   * §6.1 / §12.1: the save is permanent meta-progression, not a report of the current run. Every field
+   * is therefore monotonic — a fresh run can only ADD to what is banked, never overwrite it with its
+   * own smaller counters. Perlas accumulate by delta (what this run has earned since the last write),
+   * conchas keep the best haul of each immersion, and the two records take a `Math.max`.
+   */
+  private persist(unlockedStation: number, immersionIndex: number, shellsThisImmersion: number): void {
+    const previous = this.save;
+    const shells = { ...previous.shellsByImmersion };
+    const haul = Math.max(0, shellsThisImmersion);
+    if (immersionIndex >= 0 && haul > 0) shells[immersionIndex] = Math.max(shells[immersionIndex] ?? 0, haul);
+    const earned = Math.max(0, this.run.pearls - this.bankedPearls);
+    this.bankedPearls = this.run.pearls;
+    this.save = {
+      ...previous,
+      unlockedStation: Math.max(previous.unlockedStation, unlockedStation),
+      bestDepthM: Math.max(previous.bestDepthM, pxToMeters(this.run.maxProgressY)),
+      pearls: previous.pearls + earned,
+      shellsByImmersion: shells,
+    };
+    writeSave(this.store, this.save);
+  }
+
+  private hud(): HudData {
+    const bubble = this.bubble;
+    const charging = bubble.state === 'CHARGING';
+    return {
+      air: bubble.air,
+      airMax: bubble.airMax,
+      airMaxBase: this.t.AIR_MAX_BASE,
+      depthM: this.depthM(),
+      bestDepthM: Math.max(this.save.bestDepthM, pxToMeters(this.run.maxProgressY)),
+      zone: this.zone,
+      pearls: this.run.pearls,
+      shells: this.run.shells,
+      chargePower: charging ? chargePower(bubble.chargeMs, this.t) : 0,
+      overcharging: charging && bubble.overchargeAnnounced === true,
+      lastPip: bubble.air > 0 && bubble.air <= 1,
+      fineTune: charging ? fineTuneNormalized(bubble.dragDist, this.t) : 0,
+    };
   }
 }
