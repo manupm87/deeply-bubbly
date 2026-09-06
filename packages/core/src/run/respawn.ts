@@ -13,11 +13,32 @@ export interface RespawnPoint {
 }
 
 /**
- * Depth of the very first spawn of the campaign, a bit under the surface. This is the ONLY situation in
- * which a respawn lands at the start of an immersion (§2.4: "nunca al principio de la Inmersión"): the first
- * immersion before its first boya, where no checkpoint exists yet. It is reported as 'chunkEntry'.
+ * Fallback depth of the very first spawn when the first chunk declares no usable entry anchor. This is the
+ * ONLY situation in which a respawn lands at the start of an immersion (§2.4: "nunca al principio de la
+ * Inmersión"): the first immersion before its first boya, where no checkpoint exists yet. Reported as 'chunkEntry'.
  */
 export const CAMPAIGN_START_Y = 40;
+
+/**
+ * Bur is born this far BELOW the first entry anchor, so the very first thing the player sees is Bur rising
+ * on her own and coming to rest under the foam raft (§8 tutorial step 1: "Bur sube sola y se queda quieta
+ * bajo un techo de espuma"). Rising from below into a capturable bottom face is exactly the capture rule of §2.3.
+ */
+export const SPAWN_BELOW_ANCHOR_PX = 24;
+
+/**
+ * Where a fresh campaign starts: just under the entry anchor of the first placed chunk, so the surface is
+ * never crossed before the player touches the screen. Falls back to CAMPAIGN_START_Y for a campaign whose
+ * first chunk has no entry anchor (fixtures).
+ */
+export function campaignStartPoint(campaign: Campaign, t: Tuning = DEFAULT_TUNING): RespawnPoint {
+  const first = campaign.placed[0];
+  const anchor = first?.chunk.entities.find(
+    (e): e is Anchor => e.type === 'anchor' && e.id === first.chunk.entryAnchorId,
+  );
+  if (!first || !anchor) return { pos: { x: t.WORLD_W / 2, y: CAMPAIGN_START_Y }, kind: 'chunkEntry' };
+  return { pos: { x: anchor.pos.x, y: first.worldY + anchor.pos.y + SPAWN_BELOW_ANCHOR_PX }, kind: 'chunkEntry' };
+}
 
 /**
  * Resaca respawn chain (§2.4.2): (a) last resting ceiling if still instantiated and within the camera recall band,
@@ -35,13 +56,13 @@ export function resacaRespawnPoint(
     restingCeilingPoint(bubble, cam, liveEntities) ??
     chunkEntryPoint(bubble, liveEntities, campaign, t) ??
     lastCheckpoint(run, campaign, t) ??
-    campaignStartPoint(t);
+    campaignStartPoint(campaign, t);
   return clampToProgress(candidate, run, campaign, t);
 }
 
 /** Death respawn (§2.4): last boya or station reached, whichever is deeper. Never the start of the immersion. */
 export function deathRespawnPoint(run: RunState, campaign: Campaign, t: Tuning = DEFAULT_TUNING): RespawnPoint {
-  const candidate = lastCheckpoint(run, campaign, t) ?? campaignStartPoint(t);
+  const candidate = lastCheckpoint(run, campaign, t) ?? campaignStartPoint(campaign, t);
   return clampToProgress(candidate, run, campaign, t);
 }
 
@@ -103,10 +124,6 @@ function boyaPoint(imm: Immersion, t: Tuning): RespawnPoint {
 /** Stations are a 240 px band; Bur reappears in the middle of it. */
 function stationPoint(imm: Immersion, t: Tuning): RespawnPoint {
   return { pos: { x: t.WORLD_W / 2, y: imm.stationY + t.CHUNK_H / 2 }, kind: 'station' };
-}
-
-function campaignStartPoint(t: Tuning): RespawnPoint {
-  return { pos: { x: t.WORLD_W / 2, y: CAMPAIGN_START_Y }, kind: 'chunkEntry' };
 }
 
 function deeper(a: RespawnPoint | null, b: RespawnPoint | null): RespawnPoint | null {

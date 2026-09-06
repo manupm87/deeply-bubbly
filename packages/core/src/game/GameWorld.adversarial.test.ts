@@ -40,16 +40,21 @@ describe('a still finger is a still shot (§2.1)', () => {
     const world = createTestWorld();
     let snap = world.snapshot();
 
-    // A full charge straight down, released: Bur now descends at ~417 px/s and the camera chases her.
-    for (let i = 0; i < 34; i++) {
-      world.update(STEP_MS, { down: true, x: snap.bubble.pos.x, y: snap.bubble.pos.y - snap.camera.y + 45 });
-      snap = world.snapshot();
-    }
-    for (let i = 0; i < 19; i++) {
-      world.update(STEP_MS, UP); // release + the LAUNCH_LOCK_MS window, so a press is accepted again
-      snap = world.snapshot();
+    // Full charges straight down, released. Bur starts resting under the foam raft of §8 and the raft
+    // catches the first shot on the way back up (§2.3), so the gesture is repeated until she is really
+    // falling — at ~417 px/s, with the camera chasing her, which is what this test needs.
+    for (let round = 0; round < 8 && !(snap.bubble.restingOnId === null && snap.bubble.vel.y > 200); round++) {
+      for (let i = 0; i < 34; i++) {
+        world.update(STEP_MS, { down: true, x: snap.bubble.pos.x, y: snap.bubble.pos.y - snap.camera.y + 45 });
+        snap = world.snapshot();
+      }
+      for (let i = 0; i < 19; i++) {
+        world.update(STEP_MS, UP); // release + the LAUNCH_LOCK_MS window, so a press is accepted again
+        snap = world.snapshot();
+      }
     }
     expect(snap.bubble.vel.y).toBeGreaterThan(200); // the camera really is following her down
+    expect(snap.bubble.restingOnId).toBeNull();
 
     // From here the finger never moves: one fixed viewport point, sampled every frame.
     const pointer: PointerInput = { down: true, x: snap.bubble.pos.x + 10, y: snap.bubble.pos.y - snap.camera.y + 45 };

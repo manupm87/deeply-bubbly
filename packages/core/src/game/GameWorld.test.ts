@@ -5,13 +5,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TUNING, createTuning } from '../tuning';
-import { MemoryStore } from '../ports';
+import { MemoryStore, noopAds, noopTelemetry } from '../ports';
 import { SAVE_KEY, defaultSave } from '../run/save';
-import { CAMPAIGN_START_Y } from '../run/respawn';
-import { ScriptedFinger, buildZ1Campaign, createTestWorld } from './testHarness';
-import type { GameEvent, PointerInput, WorldSnapshot } from '../types';
+import { SPAWN_BELOW_ANCHOR_PX } from '../run/respawn';
+import { ChunkLibrary } from '../level/library';
+import { buildCampaign } from '../level/campaign';
+import { Z1_CHUNKS, Z1_SEQUENCES, perch } from '../level/content/z1';
+import { GameWorld } from './GameWorld';
+import { HARNESS_VIEW_H, ScriptedFinger, buildZ1Campaign, createTestWorld } from './testHarness';
+import type { Campaign } from '../level/campaign';
+import type { Chunk, GameEvent, PointerInput, WorldSnapshot, ZoneIndex } from '../types';
 import type { SaveData } from '../run/save';
-import type { GameWorld } from './GameWorld';
 
 const T = DEFAULT_TUNING;
 const STEP_MS = T.FIXED_DT * 1000;
@@ -20,6 +24,107 @@ const IMMERSION_0 = CAMPAIGN.immersions[0];
 const UP: PointerInput = { down: false, x: 0, y: 0 };
 
 if (IMMERSION_0 === undefined) throw new Error('Z1 campaign has no first immersion');
+
+/**
+ * Where the Z1 campaign starts (§8 step 1, §2.3): SPAWN_BELOW_ANCHOR_PX under the declared rest point of
+ * the foam raft of `z1-open-1` — the raft is at y = 188 and 10 px thick, so with Bur's 7 px Z1 radius the
+ * anchor is (40, 205). Bur is born just below it and rises into it on her own, without crossing the surface.
+ */
+const Z1_START = { x: 40, y: 205 + SPAWN_BELOW_ANCHOR_PX };
+
+/** Falling free: nothing is holding her and she is fast enough that the camera has to chase her. */
+function falling(snap: WorldSnapshot): boolean {
+  return snap.bubble.restingOnId === null && snap.bubble.vel.y > 200;
+}
+
+/**
+ * `charge straight down, release` until Bur is really falling. From the start she is resting under the
+ * foam raft and the first shot is often caught by that same raft on the way back up (§2.3), so one round
+ * is not enough to get the camera moving.
+ */
+function fallFromTheRaft(world: GameWorld): WorldSnapshot {
+  let snap = world.snapshot();
+  for (let round = 0; round < 8 && !falling(snap); round++) {
+    for (let i = 0; i < 34; i++) {
+      world.update(STEP_MS, { down: true, x: snap.bubble.pos.x, y: snap.bubble.pos.y - snap.camera.y + 45 });
+      snap = world.snapshot();
+    }
+    for (let i = 0; i < 19; i++) {
+      world.update(STEP_MS, UP); // release + the LAUNCH_LOCK_MS window, so a press is accepted again
+      snap = world.snapshot();
+    }
+  }
+  return snap;
+}
+
+/** A world on a campaign of our own; `createTestWorld` always builds the shipped Z1 one. */
+function createWorldOn(campaign: Campaign): GameWorld {
+  return new GameWorld({
+    campaign,
+    tuning: T,
+    telemetry: noopTelemetry,
+    ads: noopAds,
+    store: new MemoryStore(),
+    viewH: HARNESS_VIEW_H,
+    seed: 1,
+  });
+}
+
+/** The ledge every open-water chunk carries, and the rest point `perch` declares under it (§11.2). */
+const [OPEN_LEDGE, OPEN_REST] = perch({ id: 'ow-ledge', x: 140, y: 60, w: 36, anchorX: 158 });
+
+/**
+ * A one-immersion campaign of open water: every chunk is that single narrow ledge on the right, with
+ * nothing at all over the other two thirds of the 180 px column. Bur is born under the first ledge and
+ * rests there exactly as she does on the real Z1 opening; what the real content never offers is the
+ * second half — ONE shot into the open column leaves her with no ceiling above her head, and buoyancy
+ * alone then carries her out of the top of the view, which is the resaca of §2.4.2 / §4.3.
+ */
+function openWaterCampaign(): Campaign {
+  const chunks: Chunk[] = [];
+  for (let i = 0; i < T.IMMERSION_CHUNKS; i++) {
+    chunks.push({
+      id: `ow-${i}`,
+      zone: 0 as ZoneIndex,
+      difficulty: 1,
+      verbs: ['cargar', 'soltar', 'reposar'],
+      entry: 'R',
+      exit: 'R',
+      entryAnchorId: OPEN_REST.id,
+      exitAnchorId: OPEN_REST.id,
+      airBudget: 0,
+      targetTimeS: 8,
+      tags: [],
+      role: i === T.IMMERSION_CHUNKS - 1 ? 'station' : 'playable',
+      // `instantiateChunk` deep-copies and prefixes with the placed index, so sharing the two entity
+      // objects between chunks is safe: every placement gets its own '<index>:ow-ledge'.
+      entities: [OPEN_LEDGE, OPEN_REST],
+    });
+  }
+  return buildCampaign(new ChunkLibrary(chunks), [chunks.map((c) => c.id)], T);
+}
+
+/**
+ * Bur off her ledge and into the open column: let her rise into the ledge and rest, then a hold aimed
+ * down and to the left, released. Chunk 0 sits at worldY 0, so its local anchor IS the world anchor.
+ */
+function shootIntoTheOpen(world: GameWorld): void {
+  let snap = world.snapshot();
+  for (let i = 0; i < 90; i++) {
+    world.update(STEP_MS, UP);
+    snap = world.snapshot();
+  }
+  expect(snap.bubble.restingOnId).toBe(`0:${OPEN_LEDGE.id}`);
+  for (let i = 0; i < 40; i++) {
+    world.update(STEP_MS, { down: true, x: snap.bubble.pos.x - 80, y: snap.bubble.pos.y - snap.camera.y + 45 });
+    snap = world.snapshot();
+  }
+  for (let i = 0; i < 5; i++) {
+    world.update(STEP_MS, UP); // release
+    snap = world.snapshot();
+  }
+  expect(snap.bubble.restingOnId).toBeNull();
+}
 
 /**
  * Runs the "charge, release, repeat" bot of §11.7.14 for `seconds`, answering the two prompts a player
@@ -275,7 +380,7 @@ describe('death flow (§2.4, §11.7.6)', () => {
     const world = createTestWorld();
     drown(world);
     world.restart();
-    expect(world.snapshot().bubble.pos.y).toBe(CAMPAIGN_START_Y);
+    expect(world.snapshot().bubble.pos).toEqual(Z1_START);
   });
 
   it('restarts from a station checkpoint when the world was started at one', () => {
@@ -297,10 +402,14 @@ describe('death flow (§2.4, §11.7.6)', () => {
 
   it('restartImmersion() restarts a LIVING run from the last checkpoint (§8 pause menu)', () => {
     const world = createTestWorld();
-    playBot(world, 6);
+    // Far enough down that conquered depth is worth something, and stopped short of the first boya so
+    // the last checkpoint really is the campaign start (the bot crosses boya:0 at about 5 s).
+    playBot(world, 6, { stopAt: (s) => s.run.maxProgressY > 400 });
     const before = world.snapshot();
     const progress = before.run.maxProgressY;
     expect(before.phase).toBe('playing');
+    expect(before.run.lastBoyaId).toBeNull();
+    expect(progress).toBeGreaterThan(Z1_START.y);
 
     const seen: GameEvent[] = [];
     const off = world.onEvent((e) => seen.push(e));
@@ -312,8 +421,8 @@ describe('death flow (§2.4, §11.7.6)', () => {
     expect(snap.bubble.state).toBe('IDLE');
     expect(snap.bubble.air).toBe(T.AIR_START);
     expect(snap.bubble.vel).toEqual({ x: 0, y: 0 });
-    expect(snap.bubble.pos.y).toBe(CAMPAIGN_START_Y); // no boya reached in 6 s
-    expect(snap.camera.y).toBeCloseTo(CAMPAIGN_START_Y - snap.camera.viewH * T.CAM_ANCHOR, 9);
+    expect(snap.bubble.pos).toEqual(Z1_START); // no boya reached yet
+    expect(snap.camera.y).toBeCloseTo(Z1_START.y - snap.camera.viewH * T.CAM_ANCHOR, 9);
     expect(snap.run.maxProgressY).toBe(progress); // conquered depth is never given back (§4.3)
     // The respawn is announced to BOTH channels: a shell that only listens must still see it.
     expect(seen.some((e) => e.type === 'respawn')).toBe(true);
@@ -333,11 +442,12 @@ describe('death flow (§2.4, §11.7.6)', () => {
 
 describe('resaca (§2.4.2, §4.3)', () => {
   it('warns, charges one pip and puts Bur back on an anchor, never above her progress', () => {
-    const world = createTestWorld();
+    const world = createWorldOn(openWaterCampaign());
+    shootIntoTheOpen(world); // from here nothing is above her head and buoyancy takes her out of the view
     const events: GameEvent[] = [];
     let snap = world.snapshot();
     for (let i = 0; i < 60 * 20; i++) {
-      world.update(STEP_MS, UP); // no input at all: buoyancy takes her out of the top of the view
+      world.update(STEP_MS, UP); // no input at all
       snap = world.snapshot();
       events.push(...snap.events);
       if (events.some((e) => e.type === 'respawn')) break;
@@ -352,12 +462,15 @@ describe('resaca (§2.4.2, §4.3)', () => {
     expect(snap.bubble.air).toBe(T.AIR_START - 1);
     expect(snap.bubble.vel).toEqual({ x: 0, y: 0 });
     expect(snap.bubble.flags.resacaUntil).toBe(0);
-    expect(snap.bubble.pos.y).toBeGreaterThanOrEqual(CAMPAIGN_START_Y);
-    expect(snap.run.maxProgressY).toBeGreaterThanOrEqual(CAMPAIGN_START_Y);
+    // (a) of the chain: the declared rest point of the ceiling she last hung from, never above her progress.
+    expect(respawn).toMatchObject({ type: 'respawn', anchorKind: 'ceiling' });
+    expect(snap.bubble.pos).toEqual(OPEN_REST.pos);
+    expect(snap.run.maxProgressY).toBeGreaterThanOrEqual(snap.bubble.pos.y);
   });
 
   it('takes exactly RESACA_GRACE_MS of warning before charging the pip', () => {
-    const world = createTestWorld();
+    const world = createWorldOn(openWaterCampaign());
+    shootIntoTheOpen(world);
     let warnedAt = -1;
     let lostAt = -1;
     for (let i = 0; i < 60 * 20 && lostAt < 0; i++) {
@@ -371,6 +484,27 @@ describe('resaca (§2.4.2, §4.3)', () => {
     expect(warnedAt).toBeGreaterThan(0);
     expect(lostAt - warnedAt).toBeGreaterThanOrEqual(T.RESACA_GRACE_MS);
     expect(lostAt - warnedAt).toBeLessThan(T.RESACA_GRACE_MS + 2 * STEP_MS);
+  });
+
+  it('never fires on the Z1 opening: 6 s of nobody touching the glass is a rest, not a penalty (§8)', () => {
+    const world = createTestWorld();
+    expect(world.snapshot().bubble.pos).toEqual(Z1_START);
+
+    const events: GameEvent[] = [];
+    let snap = world.snapshot();
+    for (let i = 0; i < 60 * 6; i++) {
+      world.update(STEP_MS, UP);
+      snap = world.snapshot();
+      events.push(...snap.events);
+    }
+
+    expect(events.some((e) => e.type === 'resacaWarning')).toBe(false);
+    expect(events.some((e) => e.type === 'airLost')).toBe(false);
+    expect(snap.bubble.air).toBe(T.AIR_START);
+    // §8 step 1: "Bur sube sola y se queda quieta bajo un techo de espuma" — the raft of `z1-open-1`,
+    // which she is still hanging from 6 s in (the 3 s anti-camping clock drops her and she rises back).
+    expect(snap.bubble.state).toBe('RESTING');
+    expect(snap.bubble.restingOnId).toContain('o1-foam');
   });
 });
 
@@ -443,17 +577,10 @@ describe('the pointer the simulation sees (§2.1, §3.3, §2.2)', () => {
    */
   it('freezes the viewport→world conversion for the whole contact', () => {
     const world = createTestWorld();
-    let snap = world.snapshot();
-
-    // A full charge released straight down, so the camera is chasing a descending Bur.
-    for (let i = 0; i < 34; i++) {
-      world.update(STEP_MS, { down: true, x: snap.bubble.pos.x, y: snap.bubble.pos.y - snap.camera.y + 45 });
-      snap = world.snapshot();
-    }
-    for (let i = 0; i < 19; i++) {
-      world.update(STEP_MS, UP); // release, plus the LAUNCH_LOCK_MS window
-      snap = world.snapshot();
-    }
+    // Charges released straight down until she is falling, so the camera is chasing a descending Bur.
+    let snap = fallFromTheRaft(world);
+    expect(snap.bubble.vel.y).toBeGreaterThan(200);
+    expect(snap.bubble.restingOnId).toBeNull();
     const camBefore = snap.camera.y;
 
     const still: PointerInput = { down: true, x: snap.bubble.pos.x + 10, y: snap.bubble.pos.y - snap.camera.y + 45 };
@@ -520,7 +647,9 @@ describe('the save is meta-progression, not a run report (§6.1, §12.1)', () =>
 
 describe('the event queue is bounded (§11.5.10)', () => {
   it('does not grow without end when the shell only subscribes', () => {
-    const world = createTestWorld();
+    // The Z1 sequences twice over: 200 s of play must never run out of column, because a finished
+    // campaign ignores input and stops producing the events this test is counting.
+    const world = createWorldOn(buildCampaign(new ChunkLibrary(Z1_CHUNKS), [...Z1_SEQUENCES, ...Z1_SEQUENCES], T));
     const heard: GameEvent[] = [];
     world.onEvent((e) => heard.push(e));
 
@@ -528,6 +657,10 @@ describe('the event queue is bounded (§11.5.10)', () => {
     for (let i = 0; i < 12_000; i++) {
       const cycle = i % 32;
       world.update(STEP_MS, cycle < 24 ? { down: true, x: 90, y: 300 } : UP);
+      // The two prompts, answered blind: reading the phase would take a `snapshot()`, and that would
+      // drain the very queue under test. Both calls are no-ops outside their own phase.
+      world.continueDescent();
+      world.restart();
     }
     expect(heard.length).toBeGreaterThan(600);
     expect(world.snapshot().events.length).toBeLessThanOrEqual(512);

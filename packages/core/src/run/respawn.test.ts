@@ -5,7 +5,7 @@ import type * as DepthModule from '../level/depth';
 import { ChunkLibrary } from '../level/library';
 import { boyaId, buildCampaign, instantiateChunk } from '../level/campaign';
 import type { Campaign } from '../level/campaign';
-import { CAMPAIGN_START_Y, deathRespawnPoint, resacaRespawnPoint } from './respawn';
+import { CAMPAIGN_START_Y, SPAWN_BELOW_ANCHOR_PX, deathRespawnPoint, resacaRespawnPoint } from './respawn';
 
 // `level/depth.ts` belongs to another module and campaign markers read it; mirror the normative §11.1 table.
 vi.mock('../level/depth', async (importOriginal) => {
@@ -81,6 +81,13 @@ function makeCampaign(immersions = 2): Campaign {
 }
 
 const campaign = makeCampaign();
+
+/**
+ * Where a fresh campaign starts (§8 step 1): SPAWN_BELOW_ANCHOR_PX under the entry anchor of the first
+ * placed chunk, so Bur rises into it on her own instead of being born above the surface. In this fixture
+ * that anchor is 'a-in' of chunk 0, declared at (50, 38) and placed at worldY 0.
+ */
+const CAMPAIGN_START = { x: 50, y: 38 + SPAWN_BELOW_ANCHOR_PX };
 
 /** Live geometry of a window of placed chunks, exactly as the streamer would produce it. */
 function live(indices: readonly number[]): WorldEntity[] {
@@ -232,7 +239,7 @@ describe('resacaRespawnPoint (c) boya / station', () => {
     const bubble = makeBubble({ pos: { x: 90, y: 100 } });
     const run = makeRun({ maxProgressY: 100 });
     const p = resacaRespawnPoint(bubble, run, makeCamera({ maxY: 0 }), [], campaign, t);
-    expect(p).toEqual({ kind: 'chunkEntry', pos: { x: t.WORLD_W / 2, y: CAMPAIGN_START_Y } });
+    expect(p).toEqual({ kind: 'chunkEntry', pos: CAMPAIGN_START });
   });
 });
 
@@ -276,9 +283,22 @@ describe('deathRespawnPoint', () => {
 
   it('falls back to the campaign start only when nothing has been reached (first immersion, before the first boya)', () => {
     const run = makeRun();
-    expect(deathRespawnPoint(run, campaign, t)).toEqual({
+    expect(deathRespawnPoint(run, campaign, t)).toEqual({ kind: 'chunkEntry', pos: CAMPAIGN_START });
+  });
+
+  it('falls back to CAMPAIGN_START_Y when the first chunk declares no entry anchor', () => {
+    const chunks: Chunk[] = [];
+    const seq: string[] = [];
+    for (let k = 0; k < t.IMMERSION_CHUNKS; k++) {
+      const chunk = makeChunk(`n${k}`, k === t.IMMERSION_CHUNKS - 1 ? 'station' : 'playable');
+      // Only the FIRST chunk loses its entry anchor: the fallback is about the very first spawn.
+      chunks.push(k === 0 ? { ...chunk, entryAnchorId: 'no-such-anchor' } : chunk);
+      seq.push(chunk.id);
+    }
+    const anchorless = buildCampaign(new ChunkLibrary(chunks), [seq], t);
+    expect(deathRespawnPoint(makeRun(), anchorless, t)).toEqual({
       kind: 'chunkEntry',
-      pos: { x: 90, y: CAMPAIGN_START_Y },
+      pos: { x: t.WORLD_W / 2, y: CAMPAIGN_START_Y },
     });
   });
 

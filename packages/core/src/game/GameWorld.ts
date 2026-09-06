@@ -532,7 +532,8 @@ export class GameWorld {
       this.run.lastStationIndex = index;
       this.run.immersionIndex = index + 1;
     }
-    // One chain, one answer: with no checkpoint it lands at CAMPAIGN_START_Y (§2.4, respawn.ts).
+    // One chain, one answer: with no checkpoint it lands at the campaign start, just under the entry
+    // anchor of the first chunk, so Bur rises into it on her own (§2.4, §8 step 1; respawn.ts).
     return deathRespawnPoint(this.run, this.campaign, this.t).pos;
   }
 
