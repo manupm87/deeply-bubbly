@@ -188,7 +188,25 @@ export class GameWorld {
   /** Player pressed "Otra vez" (from 'dead') — respawn at last boya/station in < RESTART_BUDGET_MS. */
   restart(): void {
     if (this.phase !== 'dead' && this.phase !== 'gameOver') return;
+    this.respawnAtCheckpoint();
+  }
+
+  /**
+   * §8 pause menu, "Reiniciar Inmersión": start the current immersion again from the last checkpoint
+   * WITHOUT dying first. Same reset as `restart()` — which stays gated on 'dead'/'gameOver' so a stray
+   * call during play cannot rewind the run — except that this one is the player asking for it out loud.
+   * 'campaignComplete' is excluded: there is no immersion left to restart, the shell starts a new run.
+   */
+  restartImmersion(): void {
+    if (this.phase === 'campaignComplete') return;
+    this.respawnAtCheckpoint();
+  }
+
+  private respawnAtCheckpoint(): void {
     const point = deathRespawnPoint(this.run, this.campaign, this.t);
+    // Outside a step, so `update`'s dispatch window will never see these: announce them here or a
+    // shell that only subscribes with `onEvent` would never learn that Bur is back (§11.5.10).
+    const from = this.events.length;
     this.push(placeBubble(this.bubble, point, this.nowMs, this.t));
     this.bubble.air = Math.min(this.t.AIR_START, this.bubble.airMax);
     // O(1): the campaign is already built and the streamer only re-instantiates the window it moves to.
@@ -200,6 +218,7 @@ export class GameWorld {
     this.holdCamY = null;
     this.trajectory = NO_TRAJECTORY;
     this.phase = 'playing';
+    this.dispatch(from);
   }
 
   /** Player pressed "Seguir bajando" (from 'station'). */

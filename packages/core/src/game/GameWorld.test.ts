@@ -294,6 +294,41 @@ describe('death flow (§2.4, §11.7.6)', () => {
     world.restart();
     expect(digest(world.snapshot())).toBe(before);
   });
+
+  it('restartImmersion() restarts a LIVING run from the last checkpoint (§8 pause menu)', () => {
+    const world = createTestWorld();
+    playBot(world, 6);
+    const before = world.snapshot();
+    const progress = before.run.maxProgressY;
+    expect(before.phase).toBe('playing');
+
+    const seen: GameEvent[] = [];
+    const off = world.onEvent((e) => seen.push(e));
+    world.restartImmersion();
+    off();
+
+    const snap = world.snapshot();
+    expect(snap.phase).toBe('playing');
+    expect(snap.bubble.state).toBe('IDLE');
+    expect(snap.bubble.air).toBe(T.AIR_START);
+    expect(snap.bubble.vel).toEqual({ x: 0, y: 0 });
+    expect(snap.bubble.pos.y).toBe(CAMPAIGN_START_Y); // no boya reached in 6 s
+    expect(snap.camera.y).toBeCloseTo(CAMPAIGN_START_Y - snap.camera.viewH * T.CAM_ANCHOR, 9);
+    expect(snap.run.maxProgressY).toBe(progress); // conquered depth is never given back (§4.3)
+    // The respawn is announced to BOTH channels: a shell that only listens must still see it.
+    expect(seen.some((e) => e.type === 'respawn')).toBe(true);
+    expect(snap.events.some((e) => e.type === 'respawn')).toBe(true);
+  });
+
+  it('restartImmersion() does nothing once the campaign is over (the shell starts a new run)', () => {
+    const world = createTestWorld();
+    playBot(world, 3);
+    const before = digest(world.snapshot());
+    (world as unknown as { phase: string }).phase = 'campaignComplete';
+    world.restartImmersion();
+    (world as unknown as { phase: string }).phase = 'playing';
+    expect(digest(world.snapshot())).toBe(before);
+  });
 });
 
 describe('resaca (§2.4.2, §4.3)', () => {

@@ -31,13 +31,15 @@ export interface GameContext {
   scale: ScaleState;
   settings: Settings;
   save: SaveData;
+  /** Live tuning: `applyTuning` keeps it in sync, so a scene created later reads the current numbers. */
+  tuning: Tuning;
   /** Latest snapshot read this frame by GameScene; HudScene reads it after (scene order guarantees it). */
   snapshot: WorldSnapshot | null;
   /** Current pointer sample in design px of the viewport. Written by PointerAdapter. */
   pointer: PointerInput;
   /** Cross-scene bus: 'pause', 'resume', 'restart', 'continue', 'settingsChanged', 'tuningChanged'. */
   bus: Phaser.Events.EventEmitter;
-  /** Replace tuning at runtime (tuning panel). */
+  /** Replace tuning at runtime (tuning panel, settings). Updates `tuning` and emits 'tuningChanged'. */
   applyTuning(t: Tuning): void;
   persistSettings(): void;
 }

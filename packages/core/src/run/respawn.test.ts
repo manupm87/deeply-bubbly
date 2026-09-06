@@ -131,6 +131,8 @@ function makeCamera(overrides: Partial<Camera> = {}): Camera {
     shakePx: 0,
     shakeUntil: 0,
     viewH: 360,
+    lookaheadPx: 0,
+    renderY: 1200,
     ...overrides,
   };
 }

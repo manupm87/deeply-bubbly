@@ -96,6 +96,8 @@ export const DEFAULT_TUNING = defineTuning({
   ASCENSO_TAIL_MS: 2000,
   CAM_DEADZONE: [0.34, 0.56] as readonly [number, number],
   CAM_ANCHOR: 0.45, // target fraction of H where Bur sits
+  CAM_LOOKAHEAD_PX: 20, // §7: the view leads Bur in the direction of travel
+  CAM_LOOKAHEAD_LERP: 0.12, // per fixed step
   CAM_MIN_SCROLL: 8, // px/s from Z3 (zone index 2)
   CAM_MIN_SCROLL_FROM_ZONE: 2,
   CAM_ZOOM_PUNCH_SPEED: 420,
@@ -125,6 +127,10 @@ export const DEFAULT_TUNING = defineTuning({
   RESTART_BUDGET_MS: 800,
   DEAD_IDLE_AUTO_MS: 8000,
   SLOW_CHARGE_MUL: 1.6,
+  // "Buceo tranquilo" (§8): rest ×2 (3,0 s → 6,0 s), resaca grace ×1,5, pressure drain ×1,4.
+  CALM_REST_MUL: 2,
+  CALM_RESACA_GRACE_MUL: 1.5,
+  CALM_PRESSURE_DRAIN_MUL: 1.4,
 
   // --- Presentation hints consumed by the shell (kept here so the panel can tune them) ---
   TRAJECTORY_DOTS: [6, 6, 5, 4, 3, 2] as readonly number[],
@@ -149,6 +155,25 @@ export function createTuning(overrides: Partial<Tuning> = {}): Tuning {
   // JSON round-trip is a safe deep copy here: tuning holds only numbers, strings, arrays and plain objects.
   const copy = JSON.parse(JSON.stringify(DEFAULT_TUNING)) as Tuning;
   return { ...copy, ...overrides };
+}
+
+/**
+ * Difficulty: "Buceo tranquilo" (§8). The gentler of the two dives — the same game with more room:
+ * every rest surface holds twice as long (posadero 3,0 s → 6,0 s, §2.3), the resaca grace window is
+ * 1,5× wider (§2.4.2) and the Z5–Z6 pressure drain is 1,4× slower (§2.6). Nothing else moves: it is a
+ * difficulty, never an easy mode.
+ */
+export function withCalmDive(t: Tuning): Tuning {
+  const rest = {} as Record<CeilingKind, number>;
+  for (const kind of Object.keys(t.REST_MAX_MS) as CeilingKind[]) {
+    rest[kind] = (t.REST_MAX_MS[kind] ?? 0) * t.CALM_REST_MUL;
+  }
+  return {
+    ...t,
+    REST_MAX_MS: rest,
+    RESACA_GRACE_MS: t.RESACA_GRACE_MS * t.CALM_RESACA_GRACE_MUL,
+    PRESSURE_DRAIN_S: t.PRESSURE_DRAIN_S * t.CALM_PRESSURE_DRAIN_MUL,
+  };
 }
 
 /** Accessibility: "carga lenta" scales *every* gesture time by the same factor (§8). */

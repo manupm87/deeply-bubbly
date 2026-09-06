@@ -186,6 +186,40 @@ describe('frame-rate independence (§11.4)', () => {
   });
 });
 
+describe('lookahead (§7)', () => {
+  const run = (burVelY: number, steps: number): ReturnType<typeof createCamera> => {
+    const cam = createCamera(1000, VIEW_H, t);
+    for (let i = 0; i < steps; i++) {
+      stepCamera(cam, { burY: 1000, burVelY, zone: 0, ascenso: false, nowMs: i * (1000 / 60), dt: 1 / 60 }, t);
+    }
+    return cam;
+  };
+
+  it('starts at zero and never leads the view by more than CAM_LOOKAHEAD_PX', () => {
+    expect(createCamera(1000, VIEW_H, t).lookaheadPx).toBe(0);
+    const down = run(t.MAX_FALL_SPEED * 4, 240); // clamped: four times terminal is still 20 px
+    expect(down.lookaheadPx).toBeCloseTo(t.CAM_LOOKAHEAD_PX, 3);
+    const up = run(-t.MAX_FALL_SPEED * 4, 240);
+    expect(up.lookaheadPx).toBeCloseTo(-t.CAM_LOOKAHEAD_PX, 3);
+  });
+
+  it('approaches the target with CAM_LOOKAHEAD_LERP and reports it in renderY', () => {
+    const one = run(t.MAX_FALL_SPEED, 1);
+    expect(one.lookaheadPx).toBeCloseTo(t.CAM_LOOKAHEAD_PX * t.CAM_LOOKAHEAD_LERP, 9);
+    expect(one.renderY).toBeCloseTo(one.y + one.lookaheadPx, 9);
+  });
+
+  it('is presentation only: the ratchet position and the recall band ignore it', () => {
+    const cam = run(t.MAX_FALL_SPEED, 240);
+    const still = createCamera(1000, VIEW_H, t);
+    for (let i = 0; i < 240; i++) {
+      stepCamera(still, { burY: 1000, burVelY: 0, zone: 0, ascenso: false, nowMs: i * (1000 / 60), dt: 1 / 60 }, t);
+    }
+    expect(cam.y).toBeCloseTo(still.y, 9);
+    expect(cam.maxY).toBeCloseTo(still.maxY, 9);
+  });
+});
+
 describe('isAboveView', () => {
   it('is true only when the whole circle is above the top edge', () => {
     const cam = createCamera(1000, VIEW_H, t);

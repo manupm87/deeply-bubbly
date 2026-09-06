@@ -71,7 +71,21 @@ export function stepCamera(cam: Camera, input: CameraStepInput, t: Tuning): Game
     cam.shakePx = 0;
   }
 
+  stepLookahead(cam, burVelY, t);
+
   return events;
+}
+
+/**
+ * §7 lookahead: the view leads Bur by up to CAM_LOOKAHEAD_PX in the direction she is travelling,
+ * approached with CAM_LOOKAHEAD_LERP per fixed step. It is a RENDERING offset only — `cam.y` stays
+ * the ratchet position every rule (resaca, recall band, deadzone) is written against, and `renderY`
+ * is what the shell must draw from, so the backdrop and the world can never disagree.
+ */
+function stepLookahead(cam: Camera, burVelY: number, t: Tuning): void {
+  const target = t.CAM_LOOKAHEAD_PX * clamp(burVelY / t.MAX_FALL_SPEED, -1, 1);
+  cam.lookaheadPx += (target - cam.lookaheadPx) * clamp(t.CAM_LOOKAHEAD_LERP, 0, 1);
+  cam.renderY = cam.y + cam.lookaheadPx;
 }
 
 export function createCamera(burY: number, viewH: number, t: Tuning): Camera {
@@ -85,6 +99,8 @@ export function createCamera(burY: number, viewH: number, t: Tuning): Camera {
     shakePx: 0,
     shakeUntil: 0,
     viewH,
+    lookaheadPx: 0,
+    renderY: y,
   };
 }
 

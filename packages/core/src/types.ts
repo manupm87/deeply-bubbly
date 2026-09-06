@@ -271,6 +271,10 @@ export interface Camera {
   shakePx: number;
   shakeUntil: number;
   viewH: number; // visible height in design px (320–420)
+  /** §7 lookahead: smoothed offset (px) added to `y` for RENDERING only, never for the rules. */
+  lookaheadPx: number;
+  /** World y of the top of the view as it must be DRAWN: `y + lookaheadPx`. */
+  renderY: number;
 }
 
 export type GameMode = 'expedicion' | 'abismo';
