@@ -277,9 +277,9 @@ function isAttached(bubble: Bubble): boolean {
 }
 
 /**
- * D1's "double jump": one mid-air launch per airborne phase, priced at AIR_LAUNCH_COST pips and
- * NEVER available on the last pip. The strict `>` is the whole of "nunca el último pip": with the
- * shipped cost of 1 it takes two pips to buy a shot that leaves one.
+ * D1's "double jump": one mid-air launch per airborne phase, priced at AIR_LAUNCH_COST pips. It ships
+ * free (D6), so the strict `>` only asks for a living Bur; with any price it is the whole of "nunca el
+ * último pip": at a cost of 1 it takes two pips to buy a shot that leaves one.
  * Exported because the HUD shows it (D1 makes it a resource the player counts) and because it is the
  * one place the rule is written.
  */

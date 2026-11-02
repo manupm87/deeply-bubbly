@@ -14,19 +14,32 @@
  *     shelf is unreachable however hard you pull. Measured with the real integrator, a rung is reachable
  *     when `inset + HOP_X_MARGIN_PX <= |Δx| <= MAX_HOP_X_DESIGN_PX`, and the ledge's WIDTH is irrelevant.
  *  3. Therefore the ladder alternates across the column on its own, which is what makes the 540 px world
- *     read as three screens of water instead of one screen with scenery: `VIEW_W` is 180, so a 70–180 px
- *     hop is between a third and a whole screen of lateral travel, and the camera has to follow (D3).
+ *     read as more than one screen with scenery: `VIEW_W` is 180, so a 70-120 px hop is between a third
+ *     and two thirds of a screen of lateral travel, and the camera has to follow (D3).
  *
- * **The seam.** §11.5.11 applies between chunks exactly as inside one, with entry velocity zero, so the
- * top and bottom rung of every chunk are fixed: entry at `ENTRY_LEDGE_Y` on one of two columns, exit on
- * the `EXIT_X` cornice at `EXIT_LEDGE_Y`. Any chunk can follow any other — which is what the H3 selector
- * will need — and the seam is always 53 px.
+ * **Every hop is a third of a chunk.** The ladder used to spend 17-19 shots between a station and its
+ * boya, and at ~2,2 s a shot that stretch alone broke pillar 3's 35 s. Three rungs a chunk at 80 px each,
+ * the seam included, is 240 px in three shots. Four-rung chunks (53 px hops) exist, but each one costs a
+ * shot, so a stretch can afford very few of them. `pacing.adversarial.test.ts` holds the clock.
  *
- * **Why the cornice spans the centre of the world.** A death sends Bur to the last boya, and §2.4.2 puts
- * that respawn at `WORLD_W / 2` on the seam between the third and fourth chunk of the immersion — in
- * open water, where she floats up. The chunk above her must therefore have a capturable ceiling over
- * `WORLD_W / 2` at its bottom, or a respawn is a slow rise into nothing. The exit cornice IS that
- * ceiling: it is the one rung whose geometry is owed to the respawn chain rather than to the descent.
+ * **What the view allows.** The view is `VIEW_W` = 180 px and `CAM_DEADZONE_X` parks Bur at 35-65 % of it,
+ * so after a hop she sits on the LEADING edge of the dead zone: 63 px of water ahead of her and 117 px
+ * behind. `MIN_HOP_X_PX` is 70, so a hop that keeps the same direction always has its rest point out of
+ * the view, and a hop that REVERSES has it in view up to 117 px. That is why these ladders zigzag, why
+ * `MAX_HOP_X_DESIGN_PX` is 120, and why a same-direction hop is a deliberate spend: the sweeps below, which
+ * make the camera travel and keep the 540 px column in use (D3), and little else.
+ *
+ * **The two cornices.** A death sends Bur to the last boya, and §2.4.2 puts that respawn at `WORLD_W / 2`
+ * on the seam, in open water where she floats up: every chunk's exit must have a ceiling over that column.
+ * Bur reaches a cornice past its near edge, so where the cornice can sit depends on the side she comes
+ * from, and a zigzag only closes if the exit changes side:
+ *
+ *   `EXIT_X_WEST`  (245) is met travelling LEFT; the next hop reverses to the right.
+ *   `EXIT_X_EAST`  (295) is met travelling RIGHT; the next hop reverses to the left.
+ *
+ * A three-rung chunk swaps side and a four-rung chunk keeps it, so a chunk is written against the exit
+ * above it (`ladderIn`'s `fromX`) and an immersion needs an odd number of four-rung chunks to come back
+ * to the west exit its station expects. The H3 selector has to honour this pairing (BACKLOG C6).
  */
 import { LEDGE_H, perchIn } from './builders';
 import { DEFAULT_TUNING } from '../../tuning';
@@ -38,43 +51,38 @@ const T = DEFAULT_TUNING;
 /** Top edge of every chunk's entry ledge, in chunk-local px. */
 export const ENTRY_LEDGE_Y = 18;
 
-/** Top edge of every chunk's exit cornice. `240 + ENTRY_LEDGE_Y - EXIT_LEDGE_Y` = the 53 px seam. */
-export const EXIT_LEDGE_Y = 205;
+/** Top edge of every chunk's exit cornice. `240 + ENTRY_LEDGE_Y - EXIT_LEDGE_Y` = the 80 px seam. */
+export const EXIT_LEDGE_Y = 178;
 
 /** The seam between two chunks: the drop from one chunk's exit anchor to the next chunk's entry anchor. */
 export const SEAM_DROP_PX = T.CHUNK_H + ENTRY_LEDGE_Y - EXIT_LEDGE_Y;
 
-/** The two entry columns. A chunk picks one; both are a legal hop from `EXIT_X`, in either direction. */
-export const ENTRY_X_LEFT = 190;
-export const ENTRY_X_RIGHT = 400;
+/** Exit met travelling left. See the file header. */
+export const EXIT_X_WEST = 245;
 
-/**
- * The only exit column. The cornice under it spans `CORNICE_W` px centred a little left of it, so it
- * covers `WORLD_W / 2` (see the file header) and is always met travelling LEFT — which is why the rung
- * above an exit always sits on the right of the world (`EXIT_APPROACH_MIN_X`).
- */
-export const EXIT_X = 310;
+/** Exit met travelling right. See the file header. */
+export const EXIT_X_EAST = 295;
 
-/** Width of the exit cornice: the widest rung of a playable chunk, and the one the respawn chain needs. */
+/** Width of the exit cornice: inside the 24-60 px band, and the ceiling the respawn chain needs. */
 export const CORNICE_W = 60;
 
-/** The rung above an exit must sit at least here, so the cornice is met travelling left past its lip. */
-export const EXIT_APPROACH_MIN_X = 380;
+/** How far past its near edge the cornice's rest point sits: what lets both exits span `WORLD_W / 2`. */
+export const CORNICE_INSET = 30;
 
 /** Default distance from a ledge's near edge to its anchor. Small = the arc barely has to clear the lip. */
 export const LEDGE_INSET = 12;
 
 /**
  * Margin over `inset` that a hop's lateral gap must keep. Measured against the real integrator over the
- * whole 40–102 px band of drops: a rung is met from `inset + ~25` px and comfortably from `inset + 45`.
+ * whole 40-102 px band of drops: a rung is met from `inset + ~25` px and comfortably from `inset + 45`.
  */
 export const HOP_X_MARGIN_PX = 45;
 
 /** Smallest lateral gap any authored hop uses. Below this the target's top face is what Bur meets. */
 export const MIN_HOP_X_PX = LEDGE_INSET + HOP_X_MARGIN_PX + 13;
 
-/** Largest lateral gap any authored hop uses: inside `MAX_HOP_X_PX` of every zone (Z6 is 140). */
-export const MAX_HOP_X_DESIGN_PX = 180;
+/** Largest lateral gap any authored hop uses: the reach rule's own `MAX_HOP_X_PX` in every zone. */
+export const MAX_HOP_X_DESIGN_PX = 120;
 
 /** Left band of the world reserved for side structures (reef, rock): no rung's ledge may reach into it. */
 export const SIDE_BAND_L = 44;
@@ -82,11 +90,15 @@ export const SIDE_BAND_L = 44;
 /** Right band of the world reserved for side structures. */
 export const SIDE_BAND_R = T.WORLD_W - 44;
 
-/** Vertical ladders the chunk files pick from. Every gap is inside `MAX_HOP_PX` of Zones 1 and 2. */
-export const RUNG_Y_4: readonly number[] = [ENTRY_LEDGE_Y, 80, 142, EXIT_LEDGE_Y];
-export const RUNG_Y_5: readonly number[] = [ENTRY_LEDGE_Y, 65, 112, 158, EXIT_LEDGE_Y];
+/** Middle rung of a three-rung chunk: every hop, seam included, is the same 80 px. */
+export const MID_Y = 98;
+
+/** Inner rungs of a four-rung chunk: 54 + 53 + 53 px, then the 80 px seam. */
+export const UPPER_Y = 72;
+export const LOWER_Y = 125;
+
 /** The station ladder: its second rung is the wide shelf the station respawn floats up into. */
-export const RUNG_Y_STATION: readonly number[] = [ENTRY_LEDGE_Y, 95, 155, EXIT_LEDGE_Y];
+export const RUNG_Y_STATION = { entry: ENTRY_LEDGE_Y, terrace: 88, lower: 135, exit: EXIT_LEDGE_Y } as const;
 
 /** One rung of a ladder: WHERE Bur rests, plus whatever the zone's catalogue makes of the ledge. */
 export interface RungSpec extends Omit<PerchSpec, 'id' | 'x' | 'w' | 'anchorX'> {
@@ -135,13 +147,12 @@ export interface Ladder {
  * Builds a chunk's ladder. Rung ids are `${prefix}-1`, `${prefix}-2`… and each anchor is `${id}-a`
  * (`anchorIdOf`), so a chunk file never spells an id twice and a hazard can name the rung it grows on.
  *
- * The first rung is met from the previous chunk's exit cornice — `EXIT_X`, which is the same column for
- * every chunk in the game — so a ladder is complete on its own: nothing about a chunk depends on WHICH
- * chunk precedes it, and the assembler may shuffle them freely (§4.1, §11.5.6).
+ * `fromX` is the exit above the chunk, `EXIT_X_WEST` or `EXIT_X_EAST`: it decides which edge of the entry
+ * ledge is the near one, and the chunk's own x's only make sense against it (see the file header).
  */
-export function ladderIn(zone: ZoneIndex, prefix: string, specs: readonly RungSpec[]): Ladder {
+export function ladderIn(zone: ZoneIndex, prefix: string, specs: readonly RungSpec[], from: number): Ladder {
   const rungs: Rung[] = [];
-  let fromX = EXIT_X;
+  let fromX = from;
   for (let i = 0; i < specs.length; i++) {
     const spec = specs[i];
     if (spec === undefined) continue;
@@ -159,8 +170,8 @@ export function ladderIn(zone: ZoneIndex, prefix: string, specs: readonly RungSp
   };
 }
 
-/** The exit cornice of every chunk: the rung the respawn chain needs over `WORLD_W / 2` (file header). */
-export const exitRung = (): RungSpec => ({ x: EXIT_X, y: EXIT_LEDGE_Y, w: CORNICE_W, inset: LEDGE_INSET });
+/** The exit cornice of a chunk, at `EXIT_X_WEST` or `EXIT_X_EAST`: it spans `WORLD_W / 2` (file header). */
+export const exitRung = (x: number): RungSpec => ({ x, y: EXIT_LEDGE_Y, w: CORNICE_W, inset: CORNICE_INSET });
 
 /** A normal rung: 40 px of ledge with its rest point just past the lip. */
 export const rung = (x: number, y: number, extra: Partial<RungSpec> = {}): RungSpec => ({ x, y, ...extra });

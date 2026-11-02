@@ -15,8 +15,7 @@ import { createCamera } from '../camera/camera';
 import { peekBounds, peekTopLeft } from '../camera/peek';
 import { SeededRNG } from '../ports';
 import { buildMinimap, minimapToWorld } from './minimap';
-import { GuidedFinger } from './autoPlayer';
-import { POINTER_UP, createMvpWorld } from './testHarness';
+import { POINTER_UP, createMvpWorld, ScriptedFinger } from './testHarness';
 import type { Rect } from '../math/vec';
 import type { Bubble, Camera, Ceiling, Hazard, MinimapModel, RestStation, WorldEntity } from '../types';
 
@@ -101,11 +100,22 @@ describe('nothing the shell draws from marks can land outside the panel', () => 
     // bounce puts her more than MINIMAP_ABOVE_PX above it. This pins BOTH halves: the mapping stays
     // exact, and `ui/Minimap.ts` may not draw `m.bur` verbatim (it clamps the 2x2 into the panel).
     const world = createMvpWorld();
-    const finger = new GuidedFinger();
+    // Full-power shots, not the guided bot: since the D6 ladders it lands every hop and never rises far
+    // enough to leave the camera, and what is pinned here is the player who overshoots.
+    const finger = new ScriptedFinger(1, 20);
     let snap = world.snapshot();
     let worst = 0;
     for (let i = 0; i < 3000; i++) {
-      world.update(STEP_MS, finger.next(STEP_MS, snap));
+      if (snap.phase === 'dead') world.restart();
+      if (snap.phase === 'station') world.continueDescent();
+      const pointer = finger.next(STEP_MS, {
+        burX: snap.bubble.pos.x,
+        burY: snap.bubble.pos.y,
+        camX: snap.camera.x,
+        camY: snap.camera.y,
+        canAim: snap.bubble.state === 'RESTING',
+      });
+      world.update(STEP_MS, pointer);
       snap = world.snapshot();
       const m = snap.minimap;
       worst = Math.min(worst, m.bur.y);

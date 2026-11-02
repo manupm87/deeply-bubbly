@@ -34,14 +34,15 @@ export {
   sideRock,
 } from '../builders';
 export {
-  ENTRY_X_LEFT,
-  ENTRY_X_RIGHT,
-  EXIT_X,
-  RUNG_Y_4,
-  RUNG_Y_5,
+  ENTRY_LEDGE_Y,
+  EXIT_X_EAST,
+  EXIT_X_WEST,
+  LOWER_Y,
+  MID_Y,
   RUNG_Y_STATION,
   SIDE_BAND_L,
   SIDE_BAND_R,
+  UPPER_Y,
   exitRung,
   rung,
 } from '../ladder';
@@ -64,8 +65,8 @@ export function perch(spec: PerchSpec): [Ceiling, Anchor] {
 }
 
 /** A whole Z1 chunk ladder: 3–5 rest points, each one a single shot from the one above (§11.5.11). */
-export function ladder(prefix: string, specs: readonly RungSpec[]): Ladder {
-  return ladderIn(Z1, prefix, specs);
+export function ladder(prefix: string, specs: readonly RungSpec[], from: number): Ladder {
+  return ladderIn(Z1, prefix, specs, from);
 }
 
 /** One rung on its own, for the chunks that place a ledge outside the ladder. */

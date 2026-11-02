@@ -9,31 +9,36 @@
  * continuous column, so a station's anchors are rungs of the same ladder as everything else: the last
  * chunk of the immersion drops into it and the first chunk of the next immersion is 240 px below. With
  * `MAX_HOP_PX` at 110 (D4) no single shelf can be both close enough to the chunk above and to the chunk
- * below — the two seams sum to 258 px — so the band carries an entry ledge, the terrace, and the same
- * exit cornice every other chunk uses.
+ * below, so the band carries an entry ledge, the terrace, and the same exit cornice every other chunk
+ * uses. It always opens and closes on `EXIT_X_WEST`, so each immersion has to arrive there.
  *
  * **Why the terrace is where it is.** §2.4.2 respawns Bur in the MIDDLE of the station band, at
  * `WORLD_W / 2`, in open water: she floats up from there and must meet a capturable underside. The
- * terrace is 240 px of ceiling centred over that point, which is the whole reason its rest point sits
- * 60 px inside its lip instead of the usual 12.
+ * terrace is 240 px of ceiling reaching past that point, which is the whole reason its rest point sits
+ * 30 px inside its lip instead of the usual 12.
  */
-import { ENTRY_X_RIGHT, RUNG_Y_STATION, exitRung, ladder, pearl, reefIn, rung } from './builders';
+import { EXIT_X_WEST, RUNG_Y_STATION, exitRung, ladder, pearl, reefIn, rung } from './builders';
 import type { Ceiling, Chunk } from '../../../types';
-
-const ys = (i: number): number => RUNG_Y_STATION[i] ?? 18;
 
 /** Width and inset of the terrace: the ceiling the station respawn floats up into (see the header). */
 export const TERRACE_W = 240;
-export const TERRACE_INSET = 60;
+export const TERRACE_INSET = 30;
+
+/** Rest point on the terrace: its near edge overhangs `WORLD_W / 2` by 20 px, so the respawn meets it. */
+export const TERRACE_X = 260;
 
 /** Shared shape: an entry ledge, the terrace, and the cornice the next immersion drops from. */
 function station(id: string, prefix: string, material: Ceiling['material'], tag: string): Chunk {
-  const band = ladder(prefix, [
-    rung(ENTRY_X_RIGHT, ys(0), { material }),
-    rung(270, ys(1), { w: TERRACE_W, inset: TERRACE_INSET, material }),
-    rung(390, ys(2), { material }),
-    exitRung(),
-  ]);
+  const band = ladder(
+    prefix,
+    [
+      rung(340, RUNG_Y_STATION.entry, { material }),
+      rung(TERRACE_X, RUNG_Y_STATION.terrace, { w: TERRACE_W, inset: TERRACE_INSET, material }),
+      rung(350, RUNG_Y_STATION.lower, { material }),
+      exitRung(EXIT_X_WEST),
+    ],
+    EXIT_X_WEST,
+  );
   return {
     id,
     zone: 0,

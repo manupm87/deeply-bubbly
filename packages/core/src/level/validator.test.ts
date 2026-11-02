@@ -346,8 +346,8 @@ describe('reach rule (§11.5.11, §11.7.7)', () => {
   });
 
   it('accepts a wide hop that stays inside MAX_HOP_X_PX', () => {
-    // 60 px down and 140 px across: a real Zone 1 traverse in the 540 px world, and a legal one.
-    expect(inChunkReach(twoStep('reach-across', 60, 170))).toEqual([]);
+    // 60 px down and 110 px across: a real Zone 1 hop, just inside the 120 px of DECISIONS-v1.2 D6.
+    expect(inChunkReach(twoStep('reach-across', 60, 140))).toEqual([]);
   });
 
   it('flags a pair that is inside MAX_HOP_PX but ballistically impossible', () => {
@@ -657,7 +657,7 @@ describe('validateJunction (§11.5.11, §11.1)', () => {
 
   it('accepts a seam whose drop is inside MAX_HOP_PX and lands', () => {
     // Station anchor at local y = 187; the next chunk's entry anchor is at world y = 275, 88 px lower
-    // and 80 px to the right — inside MAX_HOP_PX (110) and MAX_HOP_X_PX (200) both, since D4.
+    // and 80 px to the right — inside MAX_HOP_PX (110) and MAX_HOP_X_PX (120) both, since D6.
     expect(errors(validateJunction(shelfStation('st', 170), entryAt('next', 110), t))).toEqual([]);
   });
 
@@ -716,7 +716,7 @@ describe('the reach ladder and a shelf with two anchors', () => {
     const chunk = twoAnchorShelf();
     const issues = errors(validateSequence(new ChunkLibrary([chunk]), [chunk.id], t)).filter((i) => i.rule === 'reach');
     const text = issues.map((i) => i.message).join('\n');
-    // 460 px and 220 px of lateral gap: both are past MAX_HOP_X_PX (200), and both must be said.
+    // 460 px and 220 px of lateral gap: both are past MAX_HOP_X_PX (120), and both must be said.
     expect(text).toContain("'0:a-in' -> '0:a-out'");
     expect(text).toContain("'0:a-b' -> '0:a-out'");
   });

@@ -181,7 +181,7 @@ describe('Anémona Pegajosa end to end (§5 nº 7, §2.4.5)', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('Corriente de Arrecife end to end (§5 nº 8)', () => {
-  it('settles Bur at ±90 px/s of lateral drift, which is what v_term = a / DAMPING_X buys', () => {
+  it('settles Bur at CURRENT_DRIFT of lateral drift, which is what v_term = a / DAMPING_X buys', () => {
     // The derivation the content is authored against, run through the REAL integrator: an authored band
     // and nothing else. The discrete 1/60 s fixed point sits 0,25 % above the continuous limit.
     const band = currentBand('drift', 0, 0, 180, 240, 1);

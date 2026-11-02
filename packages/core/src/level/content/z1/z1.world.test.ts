@@ -147,8 +147,9 @@ describe('Zone 1, played (§12.3.2)', () => {
     expect(snap.bubble.air).toBeGreaterThan(0);
     expect(events.some((e) => e.type === 'gameOver')).toBe(false);
     // It got there by playing the zone, not by falling through it: every landing is a rest (§2.3).
-    expect(events.filter((e) => e.type === 'rest').length).toBeGreaterThanOrEqual(20);
-    expect(events.filter((e) => e.type === 'launch').length).toBeGreaterThanOrEqual(20);
+    // D6 re-authored the immersion at three rungs a chunk, so it takes 17 shots where it used to take 20+.
+    expect(events.filter((e) => e.type === 'rest').length).toBeGreaterThanOrEqual(15);
+    expect(events.filter((e) => e.type === 'launch').length).toBeGreaterThanOrEqual(15);
   });
 
   it('crosses the whole zone: both immersions, both stations, no death', () => {

@@ -23,9 +23,9 @@
 
 Se revisarán "más adelante" (palabras del owner, 2026-09-06). Están todas en `docs/engineering/BACKLOG.md`; aquí el índice:
 
-1. **Doble salto**: gratis o cuesta 1 pip (`AIR_LAUNCH_COST`). Recomendado gratis: un tiro fallido con coste son ~6 s flotando hasta la resaca.
-2. **Rediseñar los 30 chunks** con 3 anclajes más profundos y `MAX_HOP_X_PX` ≈ 120: hoy el 62 % de los objetivos quedan fuera de pantalla y los tramos entre boyas (37–43 s) superan los 35 s del pilar 3.
-3. **Corriente de Z2** demasiado débil para ser un verbo (~25 px por tiro; BACKLOG C7).
+1. **Doble salto**: resuelto en la rama `web3d` (D6: gratis); `main` sigue con el coste.
+2. **Chunks**: los 30 rediseñados en la rama `web3d`: objetivo fuera de pantalla del 62 % al 10 % y tramo más largo de 43 a 31,7 s, medido con bot (BACKLOG C12).
+3. **Corriente de Z2**: resuelta en la rama `web3d` (`CURRENT_DRIFT` 220 px/s, unos 110 px por vuelo; BACKLOG C7).
 4. **Ojeo**: el alcance puede superar `PEEK_UP_PX`/`PEEK_DOWN_PX` cuando la cámara va por delante de los chunks en memoria (se prefirió no enseñar agua sin cargar); grosor de 1 px de los trazos del minimapa.
 5. **Mapa**: al completar los 5 niveles el mapa no ofrece reanudar desde la última estación (BACKLOG C11); la pantalla de fallo no tiene botón "Mapa" (BACKLOG S12).
 
@@ -63,3 +63,26 @@ Node 22 o superior. `gh` (GitHub CLI) autenticado para lanzar el despliegue de P
 ## 7. Siguiente paso: app iOS
 
 Plan completo en `docs/engineering/IOS.md`. Resumen: Capacitor en `apps/mobile` envolviendo la build de `apps/web`; primero instalación gratuita en el iPhone del owner desde Xcode con un Apple ID normal (7 días, solo sus dispositivos); cuenta de desarrollador de pago solo cuando toque TestFlight y App Store.
+
+## 8. Shell 3D (`apps/web3d`, rama `web3d`, 2026-11-02)
+
+Contrato en `docs/engineering/WEB3D.md`. Es un shell Three.js completo sobre el mismo `packages/core`: mapa, zonas 1 y 2, HUD, tirachinas, ojeo, FX y audio. Publicado en https://manupm87.github.io/deeply-bubbly/3d/ desde `web3d` (`WEB3D_REF` en `pages.yml` de `main`), junto a `apps/web`, que sigue en la raíz. Para refrescarlo: `gh workflow run "Deploy to GitHub Pages" --ref main`. Capturas en `docs/art/review/gameplay_*.png`.
+
+```bash
+pnpm dev:3d                                  # http://localhost:5174
+cd apps/web3d && pnpm exec playwright test   # 62 specs, build propia en el puerto 4174
+```
+
+- Si Playwright no encuentra su navegador (pide el build 1243 y aquí solo está el 1228): `DB_CHROMIUM_PATH=<chrome.exe>` en `apps/web3d`. La config de `apps/web` no admite esa variable, y con Chromium completo sus specs fallan por el 404 de `/favicon.ico`: usar el `chrome-headless-shell`.
+- `apps/web/e2e/screenshots.spec.ts` reescribe capturas versionadas en cada pasada: `git restore apps/web/e2e/__screenshots__` si no se quieren conservar.
+- El puerto 4174 también lo usa otro proyecto de esta máquina (`worktrees/spec-1601`). Nunca liberarlo a la fuerza: usar otro con una config temporal de Playwright y `--port` en las herramientas.
+- `apps/web/e2e/peek.spec.ts:88` es intermitente (falló 1 de 5 a solas), aunque la suite entera puede pasar.
+
+Pendiente:
+
+- **Core**: `GameWorld.persist` reescribe el save cargado al crear el mundo y deshace ajustes y tutorial cambiados durante la partida. `web3d` lo esquiva volviendo a guardar en `main.ts` y al mostrar la pantalla de fin de campaña. `apps/web` sigue con el fallo.
+- **Sin probar**: móvil real, Safari e iOS (incluido reanudar el audio). Los 60 fps del objetivo solo se han medido con la RTX 5090 y CPU ÷4, no en un móvil de gama media.
+- **Para el playtest del owner**: las islas de estación aún tienen base plana y pueden parecer repisas; en Z2, a unos 262 m, el bot perdió aire y murió sin causa aclarada; la marca de aterrizaje puede fallar en repisas móviles y peligros con ritmo si se suelta tarde; la guía completa sustituye al recorte de puntos de D1; ojos de `pulpo_camuflado` y bandas de `peces_payaso` retocados a criterio de la revisión; el bloque `bd_z2_reef_wall` aún se ve algo rectangular.
+- `e2e/subpath.spec.ts` prueba la build de `/3d/` (`VITE_STORE_PREFIX=3d:`) con un servidor propio.
+- Los modelos `bd_*` que ya no se dibujan se siguen descargando, porque el manifiesto lo carga todo.
+- `apps/web/src/platform/LocalStorageStore.ts` conserva el fallo que `web3d` ya no tiene: si la telemetría llena la cuota, el save deja de leerse hasta recargar.

@@ -53,6 +53,24 @@ Fecha: 2026-09-06. Origen: playtest del owner en móvil tras el primer jugable. 
 - **El minimapa**: anclado siempre a la cámara viva (`worldTopY = camera.y − MINIMAP_ABOVE_PX`), nunca a la vista ojeada, para que el marco que se arrastra se mueva dentro de un mapa quieto y no al revés. Escala `MINIMAP_SCALE = 0,1` (540×600 px de mundo → 54×60 px de minimapa). Dibuja: repisas capturables e incapturables, peligros, coleccionables, campos de fuerza, boyas (línea a todo el ancho) y estaciones (banda de un *chunk* de alto), el marco de la vista dibujada (recortado al panel) y a Bur, que se dibuja como un 2×2 blanco con filo oscuro —una forma que ninguna marca tiene, porque con la vista ojeada al otro extremo del mundo el mapa es el único sitio donde Bur existe— y sujeta al panel cuando queda por encima de él (el modelo da su centro real, sin recortar). Alpha completo mientras Bur está en reposo, apuntando o con el ojeo activo; atenuado (0,45) en cualquier otro momento, con una transición de ~200 ms para que no parpadee al aterrizar.
 - **Ayuda de teclado en escritorio (opcional, para probar sin táctil)**: mientras se mantiene una de las teclas I/J/K/L, el objetivo del ojeo arranca en la posición de Bur y se mueve 12 px de diseño por evento en esa dirección (I arriba, K abajo, J izquierda, L derecha); al soltar las cuatro, `setPeek(null)`.
 
+## D6 — Diversión antes que paridad (2026-11-02, rama `web3d`)
+
+El owner pidió "un MVP jugable y atractivo". Resuelve los puntos 1, 2 y 3 de `docs/engineering/HANDOFF.md` §3 con la recomendación que ya estaba escrita. Sustituye lo que D1 y D4 dicen sobre estos valores.
+
+- **Doble salto gratis:** `AIR_LAUNCH_COST = 0`. Un tiro fallido con coste eran ~6 s flotando hasta la resaca, y además un pip. Sigue siendo **uno por fase aérea** y se recupera al reposar; al no costar nada, también vale con el último pip. La constante se queda: si un playtest pide precio, las reglas del último pip siguen escritas y con tests.
+- **Menos objetivos fuera de pantalla:** `MAX_HOP_X_PX = 120` en todas las zonas, porque la vista no encoge con la profundidad. Con `VIEW_W = 180` y la zona muerta de cámara, tras un salto Bur tiene 63 px de agua delante y 117 detrás, así que los chunks van en **zigzag**: un salto que invierte el sentido cae dentro de la vista y uno que lo mantiene, no. Los barridos laterales son la excepción, y existen para que el mundo de 540 px se siga cruzando.
+- **Tramos de 35 s como máximo:** chunks de **3 anclajes** (4 en contados casos) con saltos de 80 px, juntura incluida, en lugar de 4–5 con juntura de 53 px. Son 13–14 tiros por tramo en vez de 17–19. HANDOFF proponía "3 anclajes más profundos" y es lo que se hizo: un salto medio más hondo, con el salto más largo por debajo de `MAX_HOP_PX`.
+- **La corriente es un verbo:** `CURRENT_DRIFT` pasa de 90 a **220 px/s** (66 px/s²). Un vuelo entero dentro de una banda se desplaza unos 110 px, tanto como un salto. Los tiros que aterrizarían en agua quieta fallan con la banda activa en casi todos los saltos que la cruzan, y en el tutorial el segundo anclaje solo existe con ella. `DAMPING_X` no cambia, para no tocar el encadenado de paredes de Z6.
+
+| Medido con el autoplayer (mismo bot, vista de 400 px) | Antes | Después |
+|---|---|---|
+| Objetivos con el anclaje fuera de la vista | 62 % | 10 % |
+| Objetivos sin ninguna parte de la repisa en la vista | 47 % | 7 % |
+| Tramo estación → boya más largo | 43,0 s | 31,7 s |
+| Tiros en ese tramo | 19 | 14 |
+
+**Cuidado con el margen:** el bot apunta en un cuarto de segundo, así que esos tiempos son un suelo. Al tramo más largo le quedan 3,3 s en 14 tiros: una persona que tarde 0,25 s más por tiro ya llega a 35 s. El pilar 3 está cumplido para el bot y **sin comprobar con jugadores**.
+
 ## Lo que NO cambia
 
 Pilares §0, historia, zonas y catálogo de fauna, sistema de Aire (salvo la desaparición de la sobrecarga: quedan **cuatro** formas de perder Aire más el coste opcional del doble salto), presión, estaciones, boyas, misericordia, cámara Y, la cámara real (`camera.x/y`, trinquete, resaca, *streaming*: el ojeo es una capa de presentación por encima), tests §11.7 que no dependan de la carga por tiempo.

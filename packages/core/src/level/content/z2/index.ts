@@ -55,9 +55,8 @@ export const Z2_CHUNKS: readonly Chunk[] = [
  *   immersion 4 of the campaign:  2  3  4  3  4  · station
  *   immersion 5 of the campaign:  3  3  4  3  5  · station (delivery)
  *
- * The ladder is continuous through the Z1 → Z2 seam as well: every chunk of the game exits on the same
- * cornice column and enters on one of the two entry columns, so `z1-station-2` -> `z2-tut-corriente` is
- * the same 53 px hop as any other (`../ladder.ts`).
+ * The ladder is continuous through the Z1 → Z2 seam as well: every station exits on `EXIT_X_WEST`, so
+ * `z1-station-2` -> `z2-tut-corriente` is the same 80 px hop as any other (`../ladder.ts`).
  */
 export const Z2_SEQUENCES: readonly (readonly string[])[] = [
   [Z2_TUTORIAL.id, Z2_LIB_A.id, Z2_LIB_B.id, Z2_LIB_C.id, Z2_LIB_D.id, Z2_STATION_1.id],

@@ -51,13 +51,10 @@ describe('tuning', () => {
     expect(DEFAULT_TUNING.AIM_MAX_MS).toBe(6000);
     expect(DEFAULT_TUNING.AIM_CONE_DEG).toBe(90);
     expect(DEFAULT_TUNING.AIR_LAUNCHES_MAX).toBe(1);
-    expect(DEFAULT_TUNING.AIR_LAUNCH_COST).toBe(1);
+    expect(DEFAULT_TUNING.AIR_LAUNCH_COST).toBe(0); // D6 superseded D1's price of 1 pip
     expect(DEFAULT_TUNING.LONG_SLING_MUL).toBe(1.5);
     // §2.1 "apuntar ancla": the number that keeps the one mid-air aim of a fall inside a screen.
     expect(DEFAULT_TUNING.AIM_BUOYANCY_MUL).toBe(0.35);
-    // D1's floor is a consequence of the price, not a second constant: a shot costs more than it
-    // leaves, so a Bur on her last pip can never buy one.
-    expect(DEFAULT_TUNING.AIR_LAUNCH_COST).toBeGreaterThan(0);
   });
   it('MERCY fires before any ad offer (§11.7.8)', () => {
     expect(DEFAULT_TUNING.AD_OFFER_MIN_FAILS).toBeGreaterThan(DEFAULT_TUNING.MERCY_FAILS[0]);

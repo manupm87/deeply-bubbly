@@ -203,11 +203,13 @@ describe('setPeek and the slingshot (D2)', () => {
     }
 
     // The minimap finger lifts and the view starts gliding back...
+    const peak = world.snapshot().camera.peekX;
     world.setPeek(null);
     for (let i = 0; i < 10; i++) stepBoth(world, twin, POINTER_UP);
     const returning = world.snapshot().camera.peekX;
-    expect(returning).toBeGreaterThan(100);
-    expect(returning).toBeLessThan(T.WORLD_W); // it did move: the return is under way
+    // Relative to the peak: how far a peek can reach depends on where the level leaves the camera.
+    expect(returning).toBeGreaterThan(peak * 0.25);
+    expect(returning).toBeLessThan(peak); // it did move: the return is under way
 
     // ...and the player presses mid-glide. The view she aims on is the view she shoots on.
     const snap = world.snapshot();

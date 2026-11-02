@@ -12,7 +12,7 @@ export { Z1_STATION_1, Z1_STATION_2 } from './stations';
 
 /**
  * Hand-authored Zone 1 chunks (GDD §12.1: opening x3, verb tutorial, 6 library chunks with all difficulty
- * levels present, boss "Don Hinchón", stations). Chunk-local coordinates: x 0..180, y 0..240.
+ * levels present, boss "Don Hinchón", stations). Chunk-local coordinates: x 0..540, y 0..240.
  * Every chunk MUST pass validateChunk; every sequence in Z1_SEQUENCES MUST pass validateSequence.
  */
 export const Z1_CHUNKS: readonly Chunk[] = [
