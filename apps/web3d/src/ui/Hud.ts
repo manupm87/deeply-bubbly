@@ -4,6 +4,7 @@
  */
 import { DEFAULT_TUNING, WORLD_BOTTOM_PX, ZONES, metersToPx } from '@deeply-bubbly/core';
 import type { GameEvent, HudData, Tuning, WorldSnapshot } from '@deeply-bubbly/core';
+import { reducedMotion } from '../fx/motion';
 import { el } from './dom';
 import type { HudLayout } from './layout';
 import { formatMeters } from './strings';
@@ -61,7 +62,16 @@ class AirPips {
       const spent = event.reason === 'airLaunch';
       this.pop(Math.max(0, Math.round(event.air)), spent ? 'ghost-spent' : 'ghost-lost', spent ? -3 : 3);
     } else if (event.type === 'airGained') {
-      this.pop(Math.max(0, Math.round(event.air) - 1), 'ghost-gained', -3);
+      const index = Math.max(0, Math.round(event.air) - 1);
+      this.pop(index, 'ghost-gained', -3);
+      // The pip that filled swells as the air flying up from the pickup reaches it.
+      if (!reducedMotion()) {
+        this.pips[index]?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.8)' }, { transform: 'scale(1)' }], {
+          duration: 300,
+          delay: 240,
+          easing: 'ease-out',
+        });
+      }
     }
   }
 
@@ -184,7 +194,7 @@ export class Hud {
   }
 
   layout(l: HudLayout): void {
-    this.band.style.height = `${l.top + 12}px`;
+    this.band.style.height = `${l.top + 22}px`;
     this.pips.layout(l);
     this.depth.layout(l);
     this.resaca.layout(l);

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { hazardRectAt, solidRectAt } from '@deeply-bubbly/core';
 import type { Rect, WorldEntity, WorldSnapshot } from '@deeply-bubbly/core';
 import { createEntityView } from './EntityViews';
-import type { EntityView, ViewDeps } from './EntityViews';
+import type { Contact, EntityView, ViewDeps } from './EntityViews';
 import { PX } from './Stage';
 
 function collisionRect(e: WorldEntity, timeMs: number): Rect | null {
@@ -77,8 +77,8 @@ export class WorldView {
     }
   }
 
-  /** Bur touched this entity (a `GameEvent`); its view plays its answer. */
-  react(id: string, contact: 'bounce' | 'rest'): void {
+  /** Bur touched or reached this entity (a `GameEvent`); its view plays its answer. */
+  react(id: string, contact: Contact): void {
     this.slots.get(id)?.view?.react?.(contact);
   }
 

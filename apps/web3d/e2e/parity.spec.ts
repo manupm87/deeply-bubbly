@@ -223,7 +223,7 @@ test('a pull that asks for up is flagged and leaves flat, and a held pull times 
   expect((await read(page)).aim).toBe(false);
 });
 
-test('the double jump spends one pip once, and a third press in the air does nothing', async ({ page }) => {
+test('the double jump costs what tuning says (D6: free), once, and a third press in the air does nothing', async ({ page }) => {
   await seedSave(page, FIRST_RUN);
   await bootGame(page);
   await resting(page);
@@ -237,7 +237,8 @@ test('the double jump spends one pip once, and a third press in the air does not
   await hand.pull(page, 0, 0, -60);
   await hand.up(0);
   await page.waitForFunction(() => (window as unknown as Probe).__log.includes('launch:air'), undefined, { timeout: 15_000 });
-  expect((await read(page)).air).toBe(startAir - 1);
+  const cost = await page.evaluate(() => (window.__db?.tuning as unknown as { AIR_LAUNCH_COST: number }).AIR_LAUNCH_COST);
+  expect((await read(page)).air).toBe(startAir - cost);
 
   // Spent: this press must open no aim while she is still falling.
   await page.waitForFunction(() => (window as unknown as Probe).__db.ctx.snapshot?.bubble.state !== 'AIMING');
@@ -377,9 +378,17 @@ test('a station does not undo the tutorial or a setting changed during the run',
   await bootGame(page);
   await resting(page);
   const hand = await Hand.open(page);
-  await hand.pull(page, 0, 0, -60);
+  // The tutorial ends on a real hop, not on any launch: this is the pull that makes one.
+  const shot = await page.evaluate(() => {
+    const db = window.__db as unknown as { nextShot(): { power: number; thetaDeg: number }; tuning: { PULL_MAX_PX: number } };
+    const s = db.nextShot();
+    const reach = db.tuning.PULL_MAX_PX * s.power;
+    const theta = (s.thetaDeg * Math.PI) / 180;
+    return { dx: -Math.sin(theta) * reach, dy: -Math.cos(theta) * reach };
+  });
+  await hand.pull(page, 0, shot.dx, shot.dy);
   await hand.up(0);
-  await expect(page.locator('[data-testid=tutorial]')).toBeHidden();
+  await expect(page.locator('[data-testid=tutorial]')).toBeHidden({ timeout: 30_000 });
   await resting(page);
   await tapButton(page, 'pause.open');
   await tapButton(page, 'pause.noShake');

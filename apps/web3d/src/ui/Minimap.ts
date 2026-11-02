@@ -12,8 +12,13 @@ import { UI, css } from '../palette';
 import { el } from './dom';
 import type { HudLayout } from './layout';
 
-const ALPHA_ACTIVE = 1;
-const ALPHA_IDLE = 0.45;
+const ALPHA_PEEK = 1;
+const ALPHA_ACTIVE = 0.7;
+const ALPHA_IDLE = 0.28;
+/** Drawn smaller than core's model: `peekAt` reads fractions of the element, so the mapping holds. */
+const DISPLAY_SCALE = 0.6;
+/** Design px below the air pips. */
+const BELOW_PIPS = 9;
 const FADE_MS = 200;
 const KEY_STEP_PX = 12;
 
@@ -27,9 +32,9 @@ const MARK_STYLES: Readonly<Record<MinimapMarkKind, MarkStyle>> = {
   ledgeNoRest: { colour: UI.cyan, alpha: 0.45 },
   hazard: { colour: UI.amber, alpha: 0.9 },
   pickup: { colour: UI.white, alpha: 0.9 },
-  field: { colour: UI.cyan, alpha: 0.18 },
-  boya: { colour: UI.amber, alpha: 0.5 },
-  station: { colour: UI.amber, alpha: 0.3 },
+  field: { colour: UI.cyan, alpha: 0.12 },
+  boya: { colour: UI.amber, alpha: 0.4 },
+  station: { colour: UI.amber, alpha: 0.08 },
 };
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -74,10 +79,11 @@ export class Minimap {
 
   layout(l: HudLayout): void {
     const t = this.ctx.tuning;
-    const w = t.WORLD_W * t.MINIMAP_SCALE;
-    const h = t.MINIMAP_WORLD_H * t.MINIMAP_SCALE;
-    this.canvas.style.left = `${Math.round((l.viewW - w) / 2)}px`;
-    this.canvas.style.top = `${Math.round(l.top + l.bandH + 2)}px`;
+    const w = t.WORLD_W * t.MINIMAP_SCALE * DISPLAY_SCALE;
+    const h = t.MINIMAP_WORLD_H * t.MINIMAP_SCALE * DISPLAY_SCALE;
+    // Out of the top centre, where the next ledge usually is: the corner under the pips.
+    this.canvas.style.left = `${l.margin}px`;
+    this.canvas.style.top = `${Math.round(l.top + BELOW_PIPS)}px`;
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.backingScale = l.zoom * Math.min(globalThis.devicePixelRatio || 1, 2);
@@ -90,7 +96,7 @@ export class Minimap {
     this.draw(snapshot.minimap);
     const state = snapshot.bubble.state;
     const deciding = state === 'RESTING' || state === 'AIMING' || this.peeking;
-    const target = deciding ? ALPHA_ACTIVE : ALPHA_IDLE;
+    const target = this.peeking ? ALPHA_PEEK : deciding ? ALPHA_ACTIVE : ALPHA_IDLE;
     this.alpha += (target - this.alpha) * clamp(dtMs / FADE_MS, 0, 1);
     this.canvas.style.opacity = this.alpha.toFixed(3);
   }
@@ -103,9 +109,10 @@ export class Minimap {
 
   private draw(m: MinimapModel): void {
     const g = this.g;
-    g.setTransform(this.backingScale, 0, 0, this.backingScale, 0, 0);
+    const k = this.backingScale * DISPLAY_SCALE;
+    g.setTransform(k, 0, 0, k, 0, 0);
     g.clearRect(0, 0, m.w, m.h);
-    this.fill(UI.panel, 0.55, 0, 0, m.w, m.h);
+    this.fill(UI.panel, 0.34, 0, 0, m.w, m.h);
     for (const mark of m.marks) {
       const s = MARK_STYLES[mark.kind];
       this.fill(s.colour, s.alpha, mark.rect.x, mark.rect.y, Math.max(1, mark.rect.w), Math.max(1, mark.rect.h));
@@ -120,19 +127,19 @@ export class Minimap {
     const y0 = Math.max(0, m.view.y);
     const x1 = Math.min(m.w, m.view.x + m.view.w);
     const y1 = Math.min(m.h, m.view.y + m.view.h);
-    g.lineWidth = 0.75;
+    g.lineWidth = 1;
     if (x1 - x0 >= 1 && y1 - y0 >= 1) {
       g.globalAlpha = 0.9;
       g.strokeStyle = css(UI.white);
       g.strokeRect(x0 + 0.4, y0 + 0.4, x1 - x0 - 0.8, y1 - y0 - 0.8);
     }
-    g.globalAlpha = 0.6;
+    g.globalAlpha = 0.25;
     g.strokeStyle = css(UI.cyan);
     g.strokeRect(0.4, 0.4, m.w - 0.8, m.h - 0.8);
     g.globalAlpha = 1;
   }
 
-  private get peeking(): boolean {
+  get peeking(): boolean {
     return this.peekPointer !== null || this.heldKeys.size > 0;
   }
 

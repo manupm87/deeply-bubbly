@@ -32,7 +32,7 @@ export const DEFAULT_TUNING = defineTuning({
   PULL_CANCEL_PX: 12, // release inside this radius = cancel, no shot
   AIM_MAX_MS: 6000, // aiming longer than this cancels (never auto-fires)
   AIR_LAUNCHES_MAX: 1, // "double jump": mid-air launches per airborne phase
-  AIR_LAUNCH_COST: 1, // pips per mid-air launch; never available on the last pip
+  AIR_LAUNCH_COST: 0, // pips per mid-air launch (D6: free). If it is ever priced, it never takes the last pip
   LONG_SLING_MUL: 1.5, // accessibility: longer pull for the same power
 
   // --- Aim (§2.1, revised D2: any non-upward direction) ---
@@ -45,7 +45,7 @@ export const DEFAULT_TUNING = defineTuning({
   ZONE_RADIUS_PCT: [1.0, 0.92, 0.84, 0.74, 0.64, 0.55] as readonly number[],
   IMPULSE_RADIUS_EXP: 0.35,
   MAX_HOP_PX: [110, 105, 100, 95, 90, 80] as readonly number[], // D4
-  MAX_HOP_X_PX: [200, 190, 180, 170, 160, 140] as readonly number[], // D4: max lateral gap between anchors
+  MAX_HOP_X_PX: [120, 120, 120, 120, 120, 120] as readonly number[], // D6: max lateral gap between anchors; the view does not shrink with depth
   REINFLATE_MS: 12000,
   MIN_SILHOUETTE_PX: 8,
 

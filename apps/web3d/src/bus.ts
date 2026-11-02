@@ -10,7 +10,6 @@ export interface BusEvents {
   tuningChanged: [Tuning];
   scaleChanged: [];
   hitstop: [number];
-  shake: [number, number];
   /** Throw the world away and build one at this checkpoint (-1 = surface). */
   newRun: [{ startStationIndex: number }];
   toMap: [];

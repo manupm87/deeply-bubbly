@@ -61,6 +61,20 @@ def bleed(rgb, alpha):
     return result
 
 
+def blur_periodic(rgb, alpha, sigma):
+    """Gaussian blur that wraps around the tile, on premultiplied colour so the transparent side cannot fringe."""
+    h, w = alpha.shape
+    fy, fx = np.fft.fftfreq(h)[:, None], np.fft.rfftfreq(w)[None, :]
+    kernel = np.exp(-2 * (np.pi * sigma) ** 2 * (fx * fx + fy * fy))
+
+    def conv(a):
+        return np.fft.irfft2(np.fft.rfft2(a) * kernel, s=(h, w))
+
+    soft = np.clip(conv(alpha), 0, 1).astype(np.float32)
+    colour = np.dstack([conv(rgb[..., i] * alpha) for i in range(3)]).astype(np.float32)
+    return np.clip(colour / np.maximum(soft[..., None], 1e-3), 0, 1), soft
+
+
 def finish_reef(name, cfg, raw_dir):
     im = np.asarray(Image.open(raw_dir / f"{name}.png").convert("RGBA"))
     tile = periodic_close(im, OVERSCAN_PX) / 255.0
@@ -68,6 +82,7 @@ def finish_reef(name, cfg, raw_dir):
     post = cfg["post"]
     rgb = rgb * (1 - post["mix"]) + np.array(hx(post["haze"]), np.float32) * post["mix"]
     rgb = np.clip(rgb * post["gain"], 0, 1)
+    rgb, alpha = blur_periodic(rgb, alpha, post["blur"] * cfg["size"][0] / cfg["tile"][0])
     rgb = bleed(rgb, alpha)
     out = np.dstack([rgb, alpha])
     img = Image.fromarray((out * 255 + 0.5).astype(np.uint8), "RGBA")
@@ -83,13 +98,13 @@ def water_colour(zone, x, y, W, H, rng):
     t = min(1.0, max(0.0, y / (H * 0.92))) ** 0.85
     col = top + (bottom - top) * t
     if zone == 1:
-        # the sun: a warm bloom high in the water
+        # The light of the surface, not a sun: a wide, faint warm bloom that sinks into a pale band across the tile.
         d = min(abs(x - 118), W - abs(x - 118))
-        r = math.hypot(d * 0.8, (y - 8) * 0.8) / 150.0
-        glow = max(0.0, 1 - r) ** 2.1
-        col = col + (np.array(hx(0xffe78a)) - col) * glow * 0.5
+        r = math.hypot(d * 0.55, (y + 20) * 0.9) / 210.0
+        glow = max(0.0, 1 - r) ** 2.4
+        col = col + (np.array(hx(0xf4f0b4)) - col) * glow * 0.3
         d2 = max(0.0, 1 - y / 300.0)
-        col = col + (np.array(hx(0x9fe8e0)) - col) * d2 * d2 * 0.22
+        col = col + (np.array(hx(0xa6ece4)) - col) * d2 * d2 * 0.34
     else:
         # dusk light from above and a low coral glow, the zone's accent
         d2 = max(0.0, 1 - y / 240.0)
@@ -127,7 +142,6 @@ def paint_water(name, cfg):
                 cx, cy = sum(p[0] for p in tri) / 3, sum(p[1] for p in tri) / 3
                 poly(tri, water_colour(cfg["zone"], cx % W, cy, W, H, rng))
     if cfg["zone"] == 1:
-        paint_sun(poly, rng)
         paint_surface(poly, W, rng)
     out = img.resize((px, py), Image.BOX)
     path = OUT / f"{name}.webp"
@@ -135,20 +149,9 @@ def paint_water(name, cfg):
     return path
 
 
-def paint_sun(poly, rng):
-    """A faceted yellow sun seen through the water, just under the swell."""
-    cx, cy = 118.0, 70.0
-    rings = [(25, 0xa8e8cf, 14), (18, 0xf2eba0, 12), (12, 0xf9d56e, 10)]
-    for radius, colour, n in rings:
-        c = np.array(hx(colour))
-        pts = [(cx + radius * rng.uniform(0.94, 1.04) * math.cos(i / n * math.tau), cy + radius * rng.uniform(0.94, 1.04) * math.sin(i / n * math.tau)) for i in range(n)]
-        for i in range(n):
-            poly([(cx, cy), pts[i], pts[(i + 1) % n]], np.clip(c + rng.uniform(-0.03, 0.03), 0, 1))
-
-
 def paint_surface(poly, W, rng):
     """The sea's surface seen from below: faceted swells at the top edge, same language as bd_z1_surface_wave."""
-    bands = [(30, 7.0, 0x72dadd, 15), (20, 6.0, 0xa6ece8, 12), (11, 4.0, 0xdcf5f0, 9)]
+    bands = [(30, 7.0, 0x63d4d9, 15), (20, 6.0, 0x7fe0df, 12), (11, 4.0, 0x9eeae6, 9)]
     for base, amp, colour, step in bands:
         n = round(W / (step * 2)) * 2
         pts = []

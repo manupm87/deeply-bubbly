@@ -217,21 +217,24 @@ def build_layer(name, cfg):
             sx = w * (rng.uniform(0.14, 0.34) if wall else rng.uniform(0.32, 0.62))
             sz = w * (rng.uniform(0.2, 0.42) if wall else rng.uniform(0.55, 1.05))
             y = rng.uniform(-0.6, 1.0) * b.depth * 0.8
-            b.hull((x, y, z), (sx, sx * 0.8, sz), rng.randint(9, 14), mix(rock, light, rng.uniform(0, 0.25)), top=light, under=under)
-        # Terraces jut out and carry the living decor.
-        terraces = max(3, round(H / (58 if wall else 70)))
-        for i in range(terraces):
-            z = (i + rng.uniform(-0.2, 0.2)) / terraces * H
+            b.hull((x, y, z), (sx, sx * 0.8, sz), rng.randint(9, 14), mix(rock, light, rng.uniform(0, 0.25)), top=mix(rock, light, 0.45), under=under)
+        # Boulders jut out and carry the living decor. Round on purpose, and with no lit top: a flat slab with coral
+        # on it reads as a ledge, and gameplay ledges must be the only thing that does (GDD pillar 5).
+        boulders = max(3, round(H / (58 if wall else 70)))
+        for i in range(boulders):
+            z = (i + rng.uniform(-0.2, 0.2)) / boulders * H
             w = width(z)
             side = rng.choice((-1, 1))
-            reach = (1.0 if wall else 0.72) * w * rng.uniform(0.55, 1.0)
+            reach = (0.9 if wall else 0.6) * w * rng.uniform(0.55, 1.0)
             x = xc(z) + side * reach
-            sx = w * rng.uniform(0.32, 0.6) * (0.5 if wall else 1.0)
-            sz = rng.uniform(5.0, 9.0) * (cfg["decorScale"] + 0.3)
+            sx = w * rng.uniform(0.28, 0.46) * (0.6 if wall else 1.0)
+            sz = sx * rng.uniform(0.85, 1.25)
             y = -b.depth * rng.uniform(0.2, 0.75)
-            b.hull((x, y, z), (sx, sx * 0.7, sz), 12, mix(rock, light, 0.2), top=light, under=under)
+            b.hull((x, y, z), (sx, sx * 0.8, sz), 12, mix(rock, light, 0.1), under=under)
             for _ in range(rng.randint(1, 2)):
-                sites.append((x + rng.uniform(-0.8, 0.8) * sx, y - rng.uniform(1, 4), z + sz * 0.72))
+                # Growth sits on the boulder's flank, rooted inside it, so no row of decor draws a horizontal.
+                a = rng.uniform(-1.1, 1.1)
+                sites.append((x + math.sin(a) * sx * 0.75, y - rng.uniform(1, 4), z + math.cos(a) * sz * rng.uniform(0.35, 0.8)))
 
     weights = [(k, v) for k, v in cfg["decor"].items() if v > 0]
     colours = {"coral": [pal["coral"], pal["coral"], pal["gold"], pal["pink"]], "fan": [pal["coral"], pal["pink"]], "sponge": [pal["coral"], pal["coral"], pal["pink"]], "brain": [pal["coral"], pal["gold"]], "kelp": [pal["kelp"]], "grass": [pal["kelp"]]}

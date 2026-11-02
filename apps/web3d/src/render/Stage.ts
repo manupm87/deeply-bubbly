@@ -27,6 +27,9 @@ export class Stage {
   readonly camera = new THREE.PerspectiveCamera(FOV_DEG, 1, 1, 400);
   /** Distance from the camera to the play plane; re-derived whenever the view height changes. */
   distance = 100;
+  /** `distance` plus what the camera's juice adds this frame: the fog starts from where the camera really is. */
+  viewDistance = 100;
+  private dipEl: HTMLDivElement | null = null;
   private readonly canvas: HTMLCanvasElement;
   private readonly probe = new THREE.Vector3();
   /** Both are driven by the Atmosphere, which also owns the fog's colour and range. */
@@ -59,10 +62,34 @@ export class Stage {
     this.camera.updateProjectionMatrix();
   }
 
-  /** The camera is placed, never computed: `leftX`/`topY` are core's `renderX`/`renderY`. */
-  place(leftX: number, topY: number, viewW: number, viewH: number): void {
-    this.camera.position.set(wx(leftX + viewW / 2), wy(topY + viewH / 2), this.distance);
+  /**
+   * The camera is placed, never computed: `leftX`/`topY` are core's `renderX`/`renderY`. `zoom` is the
+   * presentation's: above 1 is further back, and the play plane then shows a little more than core's view.
+   */
+  place(leftX: number, topY: number, viewW: number, viewH: number, zoom = 1): void {
+    this.viewDistance = this.distance * zoom;
+    this.camera.position.set(wx(leftX + viewW / 2), wy(topY + viewH / 2), this.viewDistance);
     this.camera.updateMatrixWorld();
+  }
+
+  /**
+   * Hides a jump of the camera behind a moment of plain water. It sits under the UI and takes no touches.
+   * Sibling of the canvas and the same size, so a letterboxed column keeps its bars.
+   */
+  dip(colorCss: string, ms: number, from = 1): void {
+    const canvas = this.canvas;
+    if (!this.dipEl) {
+      this.dipEl = document.createElement('div');
+      this.dipEl.style.cssText = 'position:fixed;pointer-events:none;opacity:0';
+      canvas.after(this.dipEl);
+    }
+    const dip = this.dipEl;
+    dip.style.left = canvas.style.left;
+    dip.style.top = canvas.style.top;
+    dip.style.width = canvas.style.width;
+    dip.style.height = canvas.style.height;
+    dip.style.background = colorCss;
+    dip.animate([{ opacity: from }, { opacity: 0 }], { duration: ms, easing: 'ease-out' });
   }
 
   render(): void {

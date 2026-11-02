@@ -71,11 +71,11 @@ export const pulpoRung = (x: number, y: number, extra: Partial<RungSpec> = {}): 
   });
 
 /**
- * How far under its own shelf a `currentRung`'s rest point hides. Measured against the real integrator:
- * at this inset and a 102 px drop, NO shot in the ±90° cone lands there in still water, and two do once
- * the band is running. `tutorial.ts` is the chunk that teaches it and `z2.test.ts` flies both sets.
+ * How far under its own shelf a `currentRung`'s rest point hides. Tuned against the real integrator so
+ * that NO shot in the ±90° cone lands there in still water and several do once the band is running:
+ * `tutorial.ts` is the chunk that teaches it and `z2.test.ts` flies both sets.
  */
-export const CURRENT_RUNG_INSET = 88;
+export const CURRENT_RUNG_INSET = 76;
 
 /** A rung only the drift reaches. Always paired with a band that covers the hop (see the header). */
 export const currentRung = (x: number, y: number, extra: Partial<RungSpec> = {}): RungSpec =>

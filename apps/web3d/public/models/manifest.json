@@ -48,7 +48,7 @@
      "seconds": 0.5
     }
    ],
-   "bytes": 48988,
+   "bytes": 50808,
    "catalogId": 10,
    "depth": 12,
    "facing": "+x",
@@ -1598,7 +1598,7 @@
    ]
   }
  },
- "totalBytes": 5322240,
+ "totalBytes": 5324060,
  "units": {
   "threePerDesignPx": 0.1
  },

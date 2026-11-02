@@ -9,6 +9,8 @@ import { S, formatMeters } from './strings';
 
 const MAX_SHELLS = 3;
 const SHELL_STEP_MS = 180;
+/** After the screen's own fade, and in time with the notes in `Audio.ts`. */
+const SHELL_START_MS = 750;
 
 const clampShells = (value: number): number => Math.max(0, Math.min(MAX_SHELLS, Math.round(value)));
 
@@ -40,7 +42,7 @@ class ResultScreen extends Overlay {
     this.shells.forEach((shell, i) => {
       const won = i < shellsEarned;
       shell.className = won ? 'shell shell-won' : 'shell';
-      shell.style.animationDelay = `${i * SHELL_STEP_MS}ms`;
+      shell.style.animationDelay = `${SHELL_START_MS + i * SHELL_STEP_MS}ms`;
     });
     this.show();
   }
@@ -106,7 +108,7 @@ class DeadScreen extends ResultScreen {
 class CampaignScreen extends Overlay {
   private readonly depth: HTMLDivElement;
 
-  constructor(parent: HTMLElement, ctx: GameContext) {
+  constructor(parent: HTMLElement, private readonly ctx: GameContext) {
     super(parent, 'screen screen-complete');
     el('div', 'screen-title', this.root, S.bottomReached);
     this.depth = el('div', 'screen-depth', this.root);
@@ -117,6 +119,8 @@ class CampaignScreen extends Overlay {
   present(snapshot: WorldSnapshot): void {
     this.depth.textContent = formatMeters(snapshot.hud.depthM);
     this.show();
+    // Core just banked with the save it loaded at the start: settings changed since go back in, now.
+    this.ctx.persistSettings();
   }
 }
 

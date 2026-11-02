@@ -9,26 +9,31 @@
  *
  * The shape is Zone 1's, for Zone 1's two reasons, and `z1/stations.ts` documents both: a station is a
  * three-rung ladder because no single shelf can be inside `MAX_HOP_PX` of both of its seams (D4), and
- * its terrace is 240 px of ceiling centred on `WORLD_W / 2` because that is where §2.4.2 respawns Bur.
+ * its terrace is 240 px of ceiling reaching past `WORLD_W / 2` because that is where §2.4.2 respawns Bur.
  */
-import { ENTRY_X_RIGHT, RUNG_Y_STATION, exitRung, ladder, pearl, reefIn, rung } from './builders';
+import { EXIT_X_WEST, RUNG_Y_STATION, exitRung, ladder, pearl, reefIn, rung } from './builders';
 import { Z2_VERBS } from './pieces';
 import type { Ceiling, Chunk } from '../../../types';
 
-const ys = (i: number): number => RUNG_Y_STATION[i] ?? 18;
-
 /** Width and inset of the terrace: the ceiling the station respawn floats up into (see the header). */
 export const TERRACE_W = 240;
-export const TERRACE_INSET = 60;
+export const TERRACE_INSET = 30;
+
+/** Rest point on the terrace: its near edge overhangs `WORLD_W / 2` by 20 px, so the respawn meets it. */
+export const TERRACE_X = 260;
 
 /** Shared shape: an entry ledge, the terrace, and the cornice the next immersion drops from. */
 function station(id: string, prefix: string, material: Ceiling['material'], tag: string): Chunk {
-  const band = ladder(prefix, [
-    rung(ENTRY_X_RIGHT, ys(0), { material }),
-    rung(270, ys(1), { w: TERRACE_W, inset: TERRACE_INSET, material }),
-    rung(390, ys(2), { material }),
-    exitRung(),
-  ]);
+  const band = ladder(
+    prefix,
+    [
+      rung(340, RUNG_Y_STATION.entry, { material }),
+      rung(TERRACE_X, RUNG_Y_STATION.terrace, { w: TERRACE_W, inset: TERRACE_INSET, material }),
+      rung(350, RUNG_Y_STATION.lower, { material }),
+      exitRung(EXIT_X_WEST),
+    ],
+    EXIT_X_WEST,
+  );
   return {
     id,
     zone: 1,

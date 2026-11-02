@@ -1,4 +1,6 @@
-// Copied from apps/web/src/platform/LocalStorageStore.ts: same behaviour, kept apart so the Three.js shell never imports the Phaser one.
+// From apps/web/src/platform/LocalStorageStore.ts, kept apart so the Three.js shell never imports the Phaser one.
+// One difference: a refused write costs that key alone. There, the telemetry mirror filling the quota also
+// hides the save from every later read, and the map shows a player who has just lost all her progress.
 /**
  * `KeyValueStore` backed by `localStorage`, with a silent in-memory fallback.
  *
@@ -28,7 +30,7 @@ export function localStorageAvailable(): boolean {
 }
 
 export class LocalStorageStore implements KeyValueStore {
-  /** Used when localStorage is missing, or after the first failed write (quota, privacy mode). */
+  /** Used when localStorage is missing, and for each key whose last write it refused (quota, privacy mode). */
   private readonly fallback = new MemoryStore();
   private usable: boolean;
 
@@ -42,6 +44,8 @@ export class LocalStorageStore implements KeyValueStore {
   }
 
   get(key: string): string | null {
+    const unsaved = this.fallback.get(key);
+    if (unsaved !== null) return unsaved;
     if (this.usable) {
       try {
         return globalThis.localStorage.getItem(KEY_PREFIX + key);
@@ -56,9 +60,10 @@ export class LocalStorageStore implements KeyValueStore {
     if (this.usable) {
       try {
         globalThis.localStorage.setItem(KEY_PREFIX + key, value);
+        this.fallback.remove(key);
         return;
       } catch {
-        this.degrade();
+        // Below: readable for the rest of the session, and the next write of this key tries again.
       }
     }
     this.fallback.set(key, value);
@@ -68,6 +73,7 @@ export class LocalStorageStore implements KeyValueStore {
     if (this.usable) {
       try {
         globalThis.localStorage.removeItem(KEY_PREFIX + key);
+        this.fallback.remove(key);
         return;
       } catch {
         this.degrade();

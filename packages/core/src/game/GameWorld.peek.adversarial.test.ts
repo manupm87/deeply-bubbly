@@ -11,16 +11,41 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TUNING } from '../tuning';
+import { peekBounds } from '../camera/peek';
 import { WorldStreamer } from '../level/streaming';
 import { SeededRNG } from '../ports';
 import { GuidedFinger } from './autoPlayer';
-import { POINTER_UP, buildMvpCampaign, createMvpWorld, pullGesture } from './testHarness';
+import { POINTER_UP, ScriptedFinger, buildMvpCampaign, createMvpWorld, pullGesture } from './testHarness';
 import type { GameWorld } from './GameWorld';
 import type { Vec2 } from '../math/vec';
 import type { PointerInput, WorldSnapshot } from '../types';
 
 const T = DEFAULT_TUNING;
 const STEP_MS = T.FIXED_DT * 1000;
+
+/**
+ * A player who overshoots now and then. The guided bot no longer provokes the §4.3 ratchet: since the D6
+ * ladders it lands every hop, and Bur never rises far enough to leave the camera behind. The two tests
+ * below are about what happens when she does, so every so often this one fires full-power shots instead,
+ * which fly long and float back up. Most of the time it descends, because a peek at the very top of the
+ * world has nowhere to go.
+ */
+class OvershootingFinger {
+  private readonly guided = new GuidedFinger();
+  private readonly wild = new ScriptedFinger(1, 20);
+
+  next(step: number, snap: WorldSnapshot): PointerInput {
+    const pointer = this.guided.next(STEP_MS, snap);
+    if (step % 1500 >= 300) return pointer;
+    return this.wild.next(STEP_MS, {
+      burX: snap.bubble.pos.x,
+      burY: snap.bubble.pos.y,
+      camX: snap.camera.x,
+      camY: snap.camera.y,
+      canAim: snap.bubble.state === 'RESTING',
+    });
+  }
+}
 
 /**
  * Everything a peek is forbidden to change, as one comparable string.
@@ -491,12 +516,12 @@ describe('what the shell is told it may draw', () => {
   it('never makes the drawn view stick out FURTHER than the un-peeked camera already does', () => {
     // The general claim, over a whole guided descent with the finger yanking the map up and down.
     // It is the relative form on purpose: the §4.3 ratchet ALONE already outruns the streamed window
-    // (measured: the un-peeked view reaches 163 px past the window's bottom edge on this run, when
-    // Bur bounces back up and the camera stays down inside its recall band). That is not a peek bug
+    // (the un-peeked view reaches past the window's bottom edge on this run, when Bur bounces back up
+    // and the camera stays down inside its recall band). That is not a peek bug
     // and a peek must not make it worse — which is exactly what `shrinkInto` promises.
     const world = createMvpWorld();
     const shadow = new WorldStreamer(buildMvpCampaign(T), T);
-    const finger = new GuidedFinger();
+    const finger = new OvershootingFinger();
     let snap = world.snapshot();
     let worstDown = -Infinity;
     let worstUp = -Infinity;
@@ -504,7 +529,9 @@ describe('what the shell is told it may draw', () => {
     let deepest = 0;
     let highest = 0;
     for (let i = 0; i < 9000; i++) {
-      const pointer = finger.next(STEP_MS, snap);
+      if (snap.phase === 'dead') world.restart();
+      if (snap.phase === 'station') world.continueDescent();
+      const pointer = finger.next(i, snap);
       shadow.update(snap.bubble.pos.y, snap.bubble.flags.ascensoUntil > snap.timeMs);
       const window = shadow.windowBounds();
       world.setPeek({ x: 270, y: snap.bubble.pos.y + (i % 400 < 200 ? 400 : -400) });
@@ -538,11 +565,13 @@ describe('what the shell is told it may draw', () => {
     // reach is asserted absolutely where it is a rule and relatively where the camera broke it first.
     const world = createMvpWorld();
     const shadow = new WorldStreamer(buildMvpCampaign(T), T);
-    const finger = new GuidedFinger();
+    const finger = new OvershootingFinger();
     let snap = world.snapshot();
     let extra = 0;
     for (let i = 0; i < 9000; i++) {
-      const pointer = finger.next(STEP_MS, snap);
+      if (snap.phase === 'dead') world.restart();
+      if (snap.phase === 'station') world.continueDescent();
+      const pointer = finger.next(i, snap);
       shadow.update(snap.bubble.pos.y, snap.bubble.flags.ascensoUntil > snap.timeMs);
       const window = shadow.windowBounds();
       world.setPeek({ x: 270, y: snap.bubble.pos.y + (i % 400 < 200 ? 400 : -400) });
@@ -556,9 +585,14 @@ describe('what the shell is told it may draw', () => {
       expect(c.peekY, `step ${i}`).toBeLessThanOrEqual(T.PEEK_DOWN_PX + outranAbove + 1e-6);
       extra = Math.max(extra, -c.peekY - T.PEEK_UP_PX, c.peekY - T.PEEK_DOWN_PX);
     }
-    // Not vacuous the other way either: the run really does contain frames where the collapse grants
-    // more than the nominal reach, which is the deviation this test exists to pin rather than forbid.
-    expect(extra).toBeGreaterThan(0);
+    // Not vacuous the other way either. A run used to reach this deviation by itself; the D6 ladders never
+    // outrun the window by that much, so the deviation is pinned on the geometry that produces it: a
+    // camera 300 px past the window's floor, where the collapse hands the finger more than the nominal reach.
+    const outrun = { ...world.snapshot().camera, y: 1000, viewH: 400 };
+    const band = peekBounds(outrun, 500, 1100, T);
+    expect(outrun.y - band.minY).toBeGreaterThan(T.PEEK_UP_PX);
+    expect(band.minY).toBeGreaterThanOrEqual(500);
+    expect(extra).toBeGreaterThanOrEqual(0);
   });
 
 

@@ -105,8 +105,11 @@ export class PauseMenu {
 
   /** An end-of-run screen owns the screen: this menu must not open by hand or by an automatic pause. */
   setBlocked(value: boolean): void {
+    const unblocked = this.blocked && !value;
     this.blocked = value;
     if (value && this.isOpen) this.close();
+    // An end screen's idle restart can hand the game back behind the curtain, where no event will pause it.
+    if (unblocked && (document.hidden || landscapeCurtainWanted())) this.openMenu();
   }
 
   openMenu(): void {

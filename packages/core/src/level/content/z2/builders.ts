@@ -49,15 +49,16 @@ export {
   sideRock,
 } from '../builders';
 export {
-  ENTRY_X_LEFT,
-  ENTRY_X_RIGHT,
-  EXIT_X,
+  ENTRY_LEDGE_Y,
+  EXIT_X_EAST,
+  EXIT_X_WEST,
   LEDGE_INSET,
-  RUNG_Y_4,
-  RUNG_Y_5,
+  LOWER_Y,
+  MID_Y,
   RUNG_Y_STATION,
   SIDE_BAND_L,
   SIDE_BAND_R,
+  UPPER_Y,
   exitRung,
   rung,
 } from '../ladder';
@@ -80,8 +81,8 @@ export function z2Pulpo(id: string, x: number, y: number, w: number, anchorX: nu
 }
 
 /** A whole Z2 chunk ladder: 3–5 rest points, each one a single shot from the one above (§11.5.11). */
-export function ladder(prefix: string, specs: readonly RungSpec[]): Ladder {
-  return ladderIn(Z2, prefix, specs);
+export function ladder(prefix: string, specs: readonly RungSpec[], from: number): Ladder {
+  return ladderIn(Z2, prefix, specs, from);
 }
 
 /** One rung on its own, for the fixtures that place a ledge outside the ladder. */

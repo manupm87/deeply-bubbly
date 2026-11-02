@@ -22,8 +22,27 @@ export interface EntityView {
   destroy(): void;
   /** Whether a glb draws this entity; for `__db` and the alignment audit. */
   readonly usesModel: boolean;
-  /** Bur touched it. A model answers with its own clip, if it has one for that. */
-  react?(contact: 'bounce' | 'rest'): void;
+  /** Bur touched it, or reached it ('moment': a buoy or a station). A model answers with a clip if it has one. */
+  react?(contact: Contact): void;
+}
+
+export type Contact = 'bounce' | 'rest' | 'moment';
+
+/**
+ * A flash that rises at once and dies away on wall clock: a station freezes simulation time the moment
+ * it is reached, and its moment has to play on top of that.
+ */
+function flashClock(ms: number): { start(): void; value(): number } {
+  let from = -Infinity;
+  return {
+    start() {
+      from = performance.now();
+    },
+    value() {
+      const u = (performance.now() - from) / ms;
+      return u >= 1 ? 0 : (1 - u) * (1 - u);
+    },
+  };
 }
 
 export interface ViewDeps {
@@ -149,7 +168,7 @@ function solidView(deps: ViewDeps, entity: Ceiling | Wall): EntityView {
     },
     react(contact) {
       if (contact === 'bounce') model?.play('Bounce', 'Shove');
-      else model?.play('Absorb', 'Bounce');
+      else if (contact === 'rest') model?.play('Absorb', 'Bounce');
     },
     destroy() {
       model?.dispose();
@@ -411,6 +430,9 @@ function pickupView(deps: ViewDeps, entity: Pickup): EntityView {
   };
 }
 
+const BOYA_FLASH_MS = 900;
+const STATION_FLASH_MS = 1500;
+
 /** A boya is a checkpoint LINE across the whole world, with the marker on it (see `apps/web`). */
 function boyaView(deps: ViewDeps, worldY: number): EntityView {
   const worldW = deps.tuning().WORLD_W;
@@ -437,13 +459,23 @@ function boyaView(deps: ViewDeps, worldY: number): EntityView {
     marker.add(head, mast);
   }
   root.add(marker);
+  const flash = flashClock(BOYA_FLASH_MS);
   return {
     root,
     usesModel: model !== null,
     update(_e, timeMs) {
       clips(timeMs);
       if (!model) marker.position.y = Math.sin(timeMs / 700) * 0.2;
-      lineMaterial.opacity = 0.28 + 0.1 * Math.sin(timeMs / 700);
+      const f = flash.value();
+      lineMaterial.opacity = 0.28 + 0.1 * Math.sin(timeMs / 700) + 0.6 * f;
+      line.scale.y = 0.1 + 0.16 * f;
+      // She passed it: it rings and swells for a moment.
+      marker.scale.setScalar(1 + 0.22 * f);
+    },
+    react(contact) {
+      if (contact !== 'moment') return;
+      flash.start();
+      model?.play('Ping');
     },
     destroy() {
       model?.dispose();
@@ -452,8 +484,10 @@ function boyaView(deps: ViewDeps, worldY: number): EntityView {
   };
 }
 
-const STATION_MODEL_Z = -12;
-const STATION_DIM = 0.72;
+const STATION_MODEL_Z = -46;
+/** Pushed back into the fog; this keeps its size on screen: (123 + 46) / 123 on a phone. */
+const STATION_MODEL_SCALE = 1.35;
+const STATION_DIM = 0.9;
 /** Fraction of the band's height that stays solid: a hard bottom edge reads as a UI panel in the water. */
 const STATION_SOLID_FRACTION = 0.45;
 
@@ -479,15 +513,19 @@ function stationView(deps: ViewDeps, worldY: number): EntityView {
   const t = deps.tuning();
   const root = new THREE.Group();
   root.position.set(wx(t.WORLD_W / 2), wy(worldY), 0);
-  const bandMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.16, depthWrite: false });
+  const bandMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.07, depthWrite: false });
   bandMaterial.color.copy(deps.bank.foam.color);
   bandGeometry ??= fadingBandGeometry();
   const band = mesh(bandGeometry, bandMaterial);
-  band.scale.set(wx(t.WORLD_W), t.CHUNK_H * PX, 1);
+  // Wider than the world: its end must never show as the side of a lit box.
+  band.scale.set(wx(t.WORLD_W) * 3, t.CHUNK_H * PX, 1);
   band.position.set(0, -(t.CHUNK_H * PX) / 2, -4);
   root.add(band);
-  const threshold = mesh(GEO.plane, deps.bank.restLine);
-  threshold.scale.set(wx(t.WORLD_W), 0.14, 1);
+  // Soft on purpose: a hard white line across the whole screen would out-shout every ledge's rest line.
+  const thresholdMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.2, depthWrite: false });
+  thresholdMaterial.color.copy(deps.bank.foam.color);
+  const threshold = mesh(GEO.plane, thresholdMaterial);
+  threshold.scale.set(wx(t.WORLD_W) * 3, 0.1, 1);
   threshold.position.z = -3.9;
   root.add(threshold);
   const model = deps.models.create(`station_z${assetZone(worldY)}`, 120, 56, 'none');
@@ -496,17 +534,24 @@ function stationView(deps: ViewDeps, worldY: number): EntityView {
     // Deep behind the play plane, just under the threshold, and dimmed: a place, not a platform. It is
     // nothing Bur can touch, so it must not look like the ledges she can.
     model.object.position.set(0, -(56 * PX) / 2 - 0.4, STATION_MODEL_Z);
+    model.object.scale.setScalar(STATION_MODEL_SCALE);
     root.add(model.object);
     dressing = ownMaterials(model.object);
     for (const own of dressing) (own.material as THREE.MeshLambertMaterial).color.multiplyScalar(STATION_DIM);
   }
   const clips = clipClock(model);
+  const flash = flashClock(STATION_FLASH_MS);
   return {
     root,
     usesModel: model !== null,
     update(_e, timeMs) {
       clips(timeMs);
-      bandMaterial.opacity = 0.14 + 0.04 * Math.sin(timeMs / 900);
+      const f = flash.value();
+      bandMaterial.opacity = 0.07 + 0.02 * Math.sin(timeMs / 900) + 0.3 * f;
+      thresholdMaterial.opacity = 0.2 + 0.7 * f;
+    },
+    react(contact) {
+      if (contact === 'moment') flash.start();
     },
     destroy() {
       model?.dispose();

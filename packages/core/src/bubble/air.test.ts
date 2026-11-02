@@ -5,7 +5,9 @@ import { gainAir, loseAir, resetBounceChain, zoneAirMax } from './air';
 import { createBubble } from './bubbleStep';
 import type { AirLossReason, Bubble, GameEvent, RunState } from '../types';
 
-const t = createTuning();
+// The double jump ships free (DECISIONS-v1.2 D6), but AIR_LAUNCH_COST stays a tuning lever, so the priced
+// branch keeps its contracts here. `bubble/doubleJump.adversarial.test.ts` covers the shipped rule.
+const t = createTuning({ AIR_LAUNCH_COST: 1 });
 const AT = vec(90, 300);
 
 function makeRun(overrides: Partial<RunState> = {}): RunState {

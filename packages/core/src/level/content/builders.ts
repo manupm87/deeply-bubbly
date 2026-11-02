@@ -257,16 +257,17 @@ export function anemona(id: string, centreX: number, ledgeTopY: number, growth: 
 }
 
 /**
- * Terminal lateral drift of a `corriente` band, in px/s (§5 nº 8: "banda horizontal ±90 px/s").
+ * Terminal lateral drift of a `corriente` band, in px/s (§5 nº 8, revised in DECISIONS-v1.2 D6).
  *
- * A `ForceField.vector` is an ACCELERATION (§11.2), so the number the GDD promises is not the number
- * the field carries: `accelForDriftX` (physics/forceFields) owns the `v_term = a / DAMPING_X` identity
- * and turns ±90 px/s into ±27 px/s². Writing 90 straight into `vector.x` would have produced a
- * 300 px/s river — three quarters of a full charge, sideways.
+ * A `ForceField.vector` is an ACCELERATION (§11.2), and `accelForDriftX` (physics/forceFields) owns the
+ * `v_term = a / DAMPING_X` identity that turns this number into the 66 px/s² the band carries. The time
+ * constant of DAMPING_X is 3,3 s and a hop lasts about 2 s, so Bur never gets near this speed: what the
+ * number buys is ≈110 px over a whole flight inside the band, about as far as a hop travels. At the old
+ * ±90 px/s the same flight moved 45 px, and typically 25 in a real band: visible, but never a decision.
  */
-export const CURRENT_DRIFT = 90;
+export const CURRENT_DRIFT = 220;
 
-/** The acceleration that settles at `CURRENT_DRIFT`: 27 px/s². */
+/** The acceleration that settles at `CURRENT_DRIFT`: 66 px/s². */
 export const CURRENT_ACCEL = accelForDriftX(CURRENT_DRIFT, T);
 
 /**

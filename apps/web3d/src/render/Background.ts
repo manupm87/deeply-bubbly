@@ -1,6 +1,6 @@
 /**
  * The water behind the play plane: a vertical gradient glued to the camera in the colours the Atmosphere
- * gives it (GDD §3.2), a line of foam at the surface, and a handful of far rocks that wrap around the
+ * gives it (GDD §3.2), the light above the surface, and a handful of far rocks that wrap around the
  * camera so depth is visible even with no models. One instanced draw call for the rocks. Purely decorative: never a rule.
  */
 import * as THREE from 'three';
@@ -11,9 +11,11 @@ import { GEO } from './materials';
 import { PX, wx, wy } from './Stage';
 
 const FAR_Z = -70;
-const SKY_TOP = 0xfff7d6;
-const SKY_BOTTOM = 0xd6f6f4;
+const SKY_TOP = 0xcdf3ee;
+const SKY_LOW = 0x9fe9e6;
 const SKY_H_PX = 500;
+/** The sky dissolves into the water over this much depth: there is no hard line at the surface. */
+const SKY_FADE_PX = 46;
 const ROCKS = 16;
 /** Design px after which the rock pattern repeats vertically. */
 const ROCK_PERIOD = 900;
@@ -65,32 +67,38 @@ export class Background {
       });
     }
 
-    const surface = new THREE.Mesh(
-      GEO.plane,
-      new THREE.MeshBasicMaterial({ color: ZONE_PALETTES[0].foam, transparent: true, opacity: 0.7, depthWrite: false }),
+    // The air above the surface: the camera opens on it. Light, not white, and with no edge of its own.
+    const skyGeometry = new THREE.PlaneGeometry(1, 1, 1, 2);
+    const top = new THREE.Color(SKY_TOP);
+    const low = new THREE.Color(SKY_LOW);
+    const stops = [
+      [top, 0.9],
+      [low, 0.82],
+      [low, 0],
+    ] as const;
+    const sky = new Float32Array(6 * 4);
+    const heights = skyGeometry.getAttribute('position');
+    stops.forEach(([colour, alpha], row) => {
+      for (let i = 0; i < 2; i++) {
+        sky.set([colour.r, colour.g, colour.b, alpha], (row * 2 + i) * 4);
+        heights.setY(row * 2 + i, row === 0 ? SKY_H_PX * PX : row === 1 ? 0 : -SKY_FADE_PX * PX);
+      }
+    });
+    skyGeometry.setAttribute('color', new THREE.BufferAttribute(sky, 4));
+    const skyMesh = new THREE.Mesh(
+      skyGeometry,
+      new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, fog: false }),
     );
-    surface.scale.set(wx(worldW) + 60, 0.3, 1);
-    surface.position.set(wx(worldW / 2), wy(-1), -3.5);
-    this.root.add(surface);
-
-    // The air above the surface: the camera opens on it, and it hides any backdrop that would stand in
-    // the sky. Solid, so depth does the hiding and nothing has to be culled by hand.
-    const skyGeometry = new THREE.PlaneGeometry(1, 1);
-    const sky = new Float32Array(4 * 3);
-    new THREE.Color(SKY_TOP).toArray(sky, 0);
-    new THREE.Color(SKY_TOP).toArray(sky, 3);
-    new THREE.Color(SKY_BOTTOM).toArray(sky, 6);
-    new THREE.Color(SKY_BOTTOM).toArray(sky, 9);
-    skyGeometry.setAttribute('color', new THREE.BufferAttribute(sky, 3));
-    const skyMesh = new THREE.Mesh(skyGeometry, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
-    skyMesh.scale.set(wx(worldW) + 200, SKY_H_PX * PX, 1);
-    skyMesh.position.set(wx(worldW / 2), wy(-SKY_H_PX / 2), -4);
+    skyMesh.scale.x = wx(worldW) + 200;
+    skyMesh.position.set(wx(worldW / 2), 0, -4);
+    skyMesh.renderOrder = -700;
     this.root.add(skyMesh);
   }
 
-  /** Far rocks are the stand-in for the authored backdrop: a build with models hides them. */
-  setRocksVisible(on: boolean): void {
-    this.rocks.visible = on;
+  /** Gradient and far rocks are the stand-ins for the painted layers and the authored backdrop. */
+  setLayersReady(layers: boolean, backdrop: boolean): void {
+    this.gradient.visible = !layers;
+    this.rocks.visible = !layers && !backdrop;
   }
 
   update(

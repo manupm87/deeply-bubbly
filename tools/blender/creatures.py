@@ -391,9 +391,11 @@ def almeja():
     rng = seeded("almeja_porton")
     p = Z2
     m = Mesh()
-    bones = [Bone("root", (-14, 0, 0)), Bone("upper", (-14, 0, 0), "root"), Bone("lower", (-14, 0, 0), "root")]
+    # All at the valves' real hinge (see _valve): turning about anywhere else slides them past each other.
+    bones = [Bone("root", (-18, 0, 0)), Bone("upper", (-18, 0, 0), "root"), Bone("lower", (-18, 0, 0), "root"), Bone("pearl", (4, -1, 0), "root")]
     m.bone = "root"
     m.ico((-7, 0, 0), (11, 4.5, 4.5), solid(mix(p["jelly"], INK, 0.45)), subdiv=1)
+    m.bone = "pearl"
     m.ico((4, -1, 0), 2.6, lit(mix(WHITE, p["accent"], 0.1), rng, jitter=0.02), subdiv=1)
     light = mix(p["foam"], p["jelly"], 0.4)
     m.bone = "upper"
@@ -402,11 +404,17 @@ def almeja():
     lower = mix(light, p["rock"], 0.22)
     m.prism(_valve(-1, 19.0), -6, 6, _ribs(lower, mix(lower, p["rock"], 0.3), -18, 0, rng), center=(-4, -5))
     m.fit(40, 24, bones)
+    # Closed means the valves' straight edges meet: this is the tilt _valve opened them by, once `fit` has scaled it.
+    shut = 13
     clips = [
-        Clip("Open", 0.5, False).keys("upper", "rot", [(0, -24), (1, 0)]).keys("lower", "rot", [(0, 24), (1, 0)]),
-        Clip("Close", 0.25, False).keys("upper", "rot", [(0, 0), (1, -24)]).keys("lower", "rot", [(0, 0), (1, 24)]),
-        # 0.5 s squeak warning (5 no 10).
-        Clip("Tell", 0.5, False).keys("upper", "rot", [(i / 6.0, -3 if i % 2 else 0) for i in range(7)]),
+        Clip("Open", 0.5, False).keys("upper", "rot", [(0, -shut), (1, 0)]).keys("lower", "rot", [(0, shut), (1, 0)]),
+        Clip("Close", 0.25, False).keys("upper", "rot", [(0, 0), (1, -shut)]).keys("lower", "rot", [(0, 0), (1, shut)]),
+        # 0.5 s warning (5 no 10), and the only one the player gets: half shut, shuddering, the pearl swelling.
+        Clip("Tell", 0.5, False)
+        .keys("upper", "rot", [(0, 0), (0.2, -9), (0.35, -5), (0.5, -10), (0.65, -5), (0.8, -10), (1, -7)])
+        .keys("lower", "rot", [(0, 0), (0.2, 9), (0.35, 5), (0.5, 10), (0.65, 5), (0.8, 10), (1, 7)])
+        .keys("pearl", "sx", [(0, 1), (0.3, 1.55), (0.6, 1.2), (1, 1.6)]).keys("pearl", "sz", [(0, 1), (0.3, 1.55), (0.6, 1.2), (1, 1.6)])
+        .keys("root", "tx", [(0, 0), (0.25, -0.7), (0.5, 0.7), (0.75, -0.7), (1, 0)]),
     ]
     return Asset("almeja_porton", "creature", 2, 40, 24, m, bones, clips, catalogId=10, depth=12, facing="+x", zones=[2],
                  source="design: 5 no 10 has no entity or hitbox in core or content yet; size is provisional")

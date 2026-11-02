@@ -3,13 +3,14 @@
 // Frame time and draw calls on a still world at the start of each station, with and without a 4x CPU
 // throttle, on the given renderer. Needs `vite preview --port 4174` on a fresh build.
 //
-//   node e2e/tools/measure.mjs [--gpu] [--out=dir]
+//   node e2e/tools/measure.mjs [--gpu] [--out=dir] [--port=4174]
 //
 // `workMean` is what our frame costs on the main thread. WebGL submits asynchronously, so GPU time shows
 // up only in `frameMean`, and only when the GPU can't keep up with vsync.
 import { chromium, devices } from '@playwright/test';
 
 const gpu = process.argv.includes('--gpu');
+const port = process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 4174;
 const out = process.argv.find((a) => a.startsWith('--out='))?.split('=')[1];
 const args = gpu
   ? ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist']
@@ -22,7 +23,7 @@ for (const start of [0, 1, 2, 3]) {
   for (const throttle of gpu ? [1, 4] : [1]) {
     const context = await browser.newContext({ ...devices['Pixel 7'] });
     const page = await context.newPage();
-    await page.goto(`http://localhost:4174/?debug=1&start=${start}`);
+    await page.goto(`http://localhost:${port}/?debug=1&start=${start}`);
     await page.waitForFunction(() => window.__db !== undefined);
     await page.evaluate(() => window.__db.models().ready);
     const cdp = await context.newCDPSession(page);

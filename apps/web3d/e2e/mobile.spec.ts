@@ -5,7 +5,7 @@
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { SAVE_AT_STATION_0, bootGame, collectErrors, modelsSettled, seedSave, waitForResting } from './helpers';
+import { SAVE_AT_STATION_0, bootGame, cameraSettled, collectErrors, modelsSettled, seedSave, waitForResting } from './helpers';
 
 const NOTCH_CSS = 47;
 
@@ -94,6 +94,7 @@ test('rotation there and back keeps the HUD clear of the notch and the frame on 
   await page.getByRole('button', { name: 'Seguir', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.minimap')?.checkVisibility() === true);
   await expectHudClean(page, 'after rotation');
+  await cameraSettled(page);
   const frame = await page.evaluate(() => {
     const db = window.__db;
     const cam = db?.world.snapshot().camera;

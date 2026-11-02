@@ -9,11 +9,14 @@
 import type { GameEvent, WorldSnapshot } from '@deeply-bubbly/core';
 import type { GameContext } from '../context';
 import { FxDirector } from '../fx/FxDirector';
+import { reducedMotion } from '../fx/motion';
 import { PointerAdapter } from '../input/PointerAdapter';
 import { AimViews } from '../render/AimViews';
+import { AmbientLife } from '../render/AmbientLife';
 import { Atmosphere } from '../render/Atmosphere';
 import { Background } from '../render/Background';
 import { Backdrop } from '../render/Backdrop';
+import { Parallax } from '../render/Parallax';
 import { DebugOverlay } from '../render/DebugOverlay';
 import { BubbleView } from '../render/BubbleView';
 import { MaterialBank } from '../render/materials';
@@ -28,15 +31,18 @@ export type Route = 'map' | 'run';
 /** A frame longer than this is a stall (tab switch, debugger), not time the presentation should show. */
 const MAX_PRESENTATION_DT_MS = 100;
 const PERF_SAMPLES = 240;
+const RESPAWN_DIP_MS = 420;
 
 export class Shell {
   route: Route = 'map';
   readonly worldView: WorldView;
   readonly bubble: BubbleView;
   readonly fx: FxDirector;
-  private readonly aim: AimViews;
+  readonly aim: AimViews;
   private readonly background: Background;
   private readonly backdrop: Backdrop;
+  private readonly parallax: Parallax;
+  private readonly ambient = new AmbientLife();
   private readonly atmosphere: Atmosphere;
   private overlay: DebugOverlay | null = null;
   private readonly pointer: PointerAdapter;
@@ -44,8 +50,6 @@ export class Shell {
   private map: MapMenu | null = null;
   private paused = false;
   private hitstopUntil = 0;
-  private extraShakePx = 0;
-  private extraShakeUntil = 0;
   private lastFrame = 0;
   /** Frames the loop has presented; lets a test wait for "a frame after this" without a clock. */
   frames = 0;
@@ -64,12 +68,22 @@ export class Shell {
     const bank = new MaterialBank(snapshot.zone);
     this.worldView = new WorldView({ bank, models, tuning: () => ctx.tuning });
     this.bubble = new BubbleView(models, () => ctx.tuning);
-    this.aim = new AimViews(ctx.settings);
+    this.aim = new AimViews(ctx.settings, () => ctx.tuning);
     this.background = new Background(ctx.tuning.WORLD_W);
     this.backdrop = new Backdrop(models, () => ctx.tuning);
     this.atmosphere = new Atmosphere(stage);
+    this.parallax = new Parallax(`${import.meta.env.BASE_URL}backgrounds/`);
     this.fx = new FxDirector(ctx, this.bubble);
-    stage.scene.add(this.background.root, this.backdrop.root, this.atmosphere.rays, this.worldView.root, this.bubble.root, this.fx.particles.mesh, this.aim.root);
+    stage.scene.add(
+      this.background.root,
+      this.parallax.root,
+      this.backdrop.root,
+      this.ambient.mesh,
+      this.worldView.root,
+      this.bubble.root,
+      this.fx.particles.mesh,
+      this.aim.root,
+    );
     stage.resize(ctx.scale);
 
     this.pointer = new PointerAdapter(stage.renderer.domElement, ctx);
@@ -90,10 +104,6 @@ export class Shell {
     ctx.bus.on('hitstop', (ms) => {
       this.hitstopUntil = Math.max(this.hitstopUntil, this.lastFrame + ms);
     });
-    ctx.bus.on('shake', (px, ms) => {
-      this.extraShakePx = px;
-      this.extraShakeUntil = this.lastFrame + ms;
-    });
     ctx.bus.on('gameEvent', (e) => this.runUi?.handleEvent(e));
     ctx.bus.on('scaleChanged', () => {
       stage.resize(ctx.scale);
@@ -112,7 +122,7 @@ export class Shell {
     this.route = 'run';
     this.paused = false;
     this.hitstopUntil = 0;
-    this.extraShakeUntil = 0;
+    this.fx.reset();
     this.stage.setBlur(false);
     this.stage.setVisible(true);
     const snapshot = this.ctx.world.snapshot();
@@ -161,16 +171,19 @@ export class Shell {
     if (this.route !== 'run') return;
 
     const dt = Math.min(delta, MAX_PRESENTATION_DT_MS);
+    this.fx.update(dt);
     this.worldView.sync(snapshot);
     this.bubble.sync(snapshot, dt);
-    this.aim.sync(snapshot, ctx.pointer, dt);
-    this.fx.update(dt);
-    this.placeCamera(snapshot, now);
+    this.aim.sync(snapshot, ctx.pointer, dt, this.fx.camera.zoom);
+    this.placeCamera(snapshot);
     const cam = snapshot.camera;
-    this.atmosphere.update(cam.renderX, cam.renderY, cam.viewW, cam.viewH, snapshot.timeMs / 1000);
-    this.backdrop.update(cam.renderX, cam.renderY, cam.viewW, cam.viewH, snapshot.bubble.pos.x, snapshot.timeMs, dt, this.atmosphere.water.middle);
-    this.background.setRocksVisible(!this.backdrop.active);
-    this.background.update(this.stage.camera, this.stage.distance, cam.renderY, cam.viewW, cam.viewH, this.atmosphere.water);
+    this.atmosphere.update(cam.renderY, cam.viewH);
+    const water = this.atmosphere.water.middle;
+    this.backdrop.update(cam.renderX, cam.renderY, cam.viewW, cam.viewH, snapshot.bubble.pos.x, snapshot.timeMs, dt, water);
+    this.parallax.update(cam.renderX, cam.renderY, cam.viewW, cam.viewH, snapshot.timeMs / 1000, water);
+    this.ambient.update(cam.renderX, cam.renderY, cam.viewW, cam.viewH, snapshot.timeMs / 1000, water);
+    this.background.setLayersReady(this.parallax.ready, this.backdrop.active);
+    this.background.update(this.stage.camera, this.stage.viewDistance, cam.renderY, cam.viewW, cam.viewH, this.atmosphere.water);
     this.overlay?.update(snapshot);
     this.stage.render();
     this.runUi?.update(snapshot, dt);
@@ -208,21 +221,29 @@ export class Shell {
     if (e.type === 'hitstop') this.hitstopUntil = Math.max(this.hitstopUntil, now + e.ms);
     else if (e.type === 'bounce') this.worldView.react(e.contact.bodyId, 'bounce');
     else if (e.type === 'rest') this.worldView.react(e.ceilingId, 'rest');
+    else if (e.type === 'boya') this.worldView.react(e.boyaId, 'moment');
+    else if (e.type === 'stationEnter') this.worldView.react(e.station.id, 'moment');
+    else if (e.type === 'respawn') {
+      // She is somewhere else now, and usually so is the camera: a moment of water instead of a cut.
+      this.stage.dip(`#${this.atmosphere.water.middle.getHexString()}`, RESPAWN_DIP_MS);
+    }
   }
 
   /**
-   * Placed, never computed: `renderX/renderY` already carry core's ratchet, lookahead and peek. Core's
-   * shake channel and the FX layer's bounce shake are never added: whichever asks for more wins.
+   * Placed, never computed: `renderX/renderY` already carry core's ratchet, lookahead and peek. The kick
+   * and zoom go on top, for this frame's picture only. Core's shake channel and the FX layer's bounce
+   * shake are never added: whichever asks for more wins.
    */
-  private placeCamera(snapshot: WorldSnapshot, now: number): void {
+  private placeCamera(snapshot: WorldSnapshot): void {
     const cam = snapshot.camera;
-    let shake = 0;
-    if (!this.ctx.settings.noShake) {
-      const corePx = snapshot.timeMs < cam.shakeUntil ? cam.shakePx : 0;
-      const fxPx = now < this.extraShakeUntil ? this.extraShakePx : 0;
-      const amplitude = Math.max(corePx, fxPx);
-      if (amplitude > 0) shake = (Math.random() * 2 - 1) * amplitude;
+    const juice = this.fx.camera;
+    const fx = juice.shakeOffset();
+    let shakeX = fx.x;
+    let shakeY = fx.y;
+    if (!this.ctx.settings.noShake && !reducedMotion() && snapshot.timeMs < cam.shakeUntil && cam.shakePx > fx.amplitude) {
+      shakeX = (Math.random() * 2 - 1) * cam.shakePx;
+      shakeY = (Math.random() * 2 - 1) * cam.shakePx;
     }
-    this.stage.place(cam.renderX, cam.renderY + shake, cam.viewW, cam.viewH);
+    this.stage.place(cam.renderX + juice.x + shakeX, cam.renderY + juice.y + shakeY, cam.viewW, cam.viewH, juice.zoom);
   }
 }

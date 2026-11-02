@@ -160,6 +160,14 @@ export async function waitForResting(page: Page, timeout = 30_000): Promise<void
   await page.waitForFunction(() => window.__db?.world.snapshot().bubble.state === 'RESTING', undefined, { timeout });
 }
 
+/** Waits out the camera's juice: from here on the picture is exactly where core's camera says. */
+export async function cameraSettled(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const c = (window.__db as unknown as { feel(): { camera: { x: number; y: number; zoom: number; shake: number } } }).feel().camera;
+    return Math.hypot(c.x, c.y) < 0.02 && Math.abs(c.zoom - 1) < 0.0005 && c.shake === 0;
+  });
+}
+
 /** Records every `GameEvent` type the world dispatches from here on. */
 export async function recordEvents(page: Page): Promise<() => Promise<string[]>> {
   await page.evaluate(() => {

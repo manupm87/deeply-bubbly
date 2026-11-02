@@ -21,6 +21,7 @@ import { S } from './ui/strings';
 
 /** Fixed simulation seed: the campaign is authored, not generated, so one seed is enough (§11.7.14). */
 const SEED = 1;
+const TUTORIAL_REST_MS = 600_000;
 
 interface Ports {
   store: KeyValueStore;
@@ -56,12 +57,20 @@ function buildWorld(
   return { world, campaign };
 }
 
+/**
+ * Until the first real hop, a resting ledge is patient: its anti-camping clock would otherwise kick Bur
+ * off while a newcomer is still watching the ghost hand.
+ */
+function withTutorial(t: Tuning, tutorialDone: boolean): Tuning {
+  return tutorialDone ? t : { ...t, REST_MAX_MS: { ...t.REST_MAX_MS, posadero: TUTORIAL_REST_MS } };
+}
+
 function buildContext(ports: Ports, startStation: number): GameContext {
   const save = loadSave(ports.store);
   const settings: Settings = settingsFromSave(save);
   const scale = computeScale(globalThis.innerWidth, globalThis.innerHeight);
   let base: Tuning = DEFAULT_TUNING;
-  const tuning = applySettingsToTuning(base, settings);
+  const tuning = withTutorial(applySettingsToTuning(base, settings), save.tutorialDone);
   const built = buildWorld(tuning, startStation === -2 ? save.unlockedStation : startStation, scale.viewH, ports);
   const bus = new Bus();
   const ctx: GameContext = {
@@ -87,7 +96,7 @@ function buildContext(ports: Ports, startStation: number): GameContext {
     },
   };
   const retune = (): void => {
-    ctx.tuning = applySettingsToTuning(base, ctx.settings);
+    ctx.tuning = withTutorial(applySettingsToTuning(base, ctx.settings), ctx.save.tutorialDone);
     ctx.world.setTuning(ctx.tuning);
     bus.emit('tuningChanged', ctx.tuning);
   };
@@ -171,12 +180,25 @@ function exposeDebugHandle(ctx: GameContext, shell: Shell, stage: Stage, models:
       buttons: debugButtons,
       scenes: (): string[] => shell.scenes(),
       nextShot: () => pickShot(ctx.world.snapshot(), ctx.tuning),
+      /** What the landing marker promises for the pull being held. */
+      landing: () => {
+        const f = shell.aim.forecast;
+        return f && { ceilingId: f.ceiling?.id ?? null, progress: f.progress, hazard: f.hazardAt !== null };
+      },
       /** Core keeps the streamer private; a narrow read behind the same gate as everything here. */
       streamWindow: (): { topY: number; bottomY: number } =>
         (ctx.world as unknown as { streamer: { windowBounds(): { topY: number; bottomY: number } } }).streamer.windowBounds(),
       /** Draw calls and memory of the last frame (WEB3D.md budget: under 150 draw calls). */
       renderInfo: () => stage.info(),
       perf: () => shell.perf(),
+      /** The presentation's own numbers, which no screenshot can show one frame at a time. */
+      feel: () => ({
+        particles: shell.fx.particles.liveCount,
+        camera: { x: shell.fx.camera.x, y: shell.fx.camera.y, zoom: shell.fx.camera.zoom, shake: shell.fx.camera.shakeOffset().amplitude },
+        bubble: shell.bubble.pose(),
+        audio: shell.fx.audio.readMeter(),
+      }),
+      startAudioMeter: () => shell.fx.audio.startMeter(),
       audit: () => shell.worldView.audit(ctx.world.snapshot()),
       /** Where a world point on the play plane is drawn, in css px. */
       project: (x: number, y: number) => stage.project(x, y),

@@ -16,7 +16,9 @@ import type { Vec2 } from '../math/vec';
 import type { ReadonlyPhysicsEnv } from '../physics/forceFields';
 import type { Bubble, Ceiling, GameEvent, PointerInput, RunState, SolidEntity, ZoneIndex } from '../types';
 
-const t = createTuning();
+// The double jump ships free (DECISIONS-v1.2 D6), but AIR_LAUNCH_COST stays a tuning lever, so the priced
+// branch keeps its contracts here. `bubble/doubleJump.adversarial.test.ts` covers the shipped rule.
+const t = createTuning({ AIR_LAUNCH_COST: 1 });
 const STEP_MS = t.FIXED_DT * 1000;
 const POINTER_UP: PointerInput = { down: false, x: 0, y: 0 };
 

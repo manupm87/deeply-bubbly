@@ -153,9 +153,9 @@ describe('the Zone 2 catalogue (§5 nº 6, 7, 8, 9)', () => {
     for (const h of hazards()) expect(h.catalogId === 7).toBe(h.trap === true);
   });
 
-  it('nº 8 Corriente de Arrecife drifts at ±90 px/s, which is ±27 px/s² (v_term = a / DAMPING_X)', () => {
-    expect(CURRENT_DRIFT).toBe(90);
-    expect(CURRENT_ACCEL).toBeCloseTo(27, 10);
+  it('nº 8 Corriente de Arrecife drifts at ±220 px/s, which is ±66 px/s² (v_term = a / DAMPING_X, D6)', () => {
+    expect(CURRENT_DRIFT).toBe(220);
+    expect(CURRENT_ACCEL).toBeCloseTo(66, 10);
     expect(CURRENT_ACCEL / t.DAMPING_X).toBeCloseTo(CURRENT_DRIFT, 10);
     const bands = fields();
     expect(bands.length).toBeGreaterThanOrEqual(8);
@@ -316,11 +316,8 @@ describe('what the zone teaches, flown with the real integrator (§3.3.3, §4.2,
   const key = (l: { power: number; thetaDeg: number }): string => `${l.power}/${l.thetaDeg}`;
 
   it('the tutorial current is not decoration: without it the second rest point does not exist (§3.3.3, §5 nº 8)', () => {
-    // A band is water moving at CURRENT_DRIFT and Bur joins it through the normal horizontal drag, whose
-    // time constant is 1 / DAMPING_X ≈ 3,3 s: over one hop that is a few tens of pixels of extra reach,
-    // so no band can ever be a wall. What 540 px of world let it be instead is a REQUIREMENT: the second
-    // rest point of the tutorial hangs CURRENT_RUNG_INSET px under its own shelf, a 102 px drop and
-    // 155 px of water away, and only the drift carries Bur that last stretch.
+    // The second rest point of the tutorial hangs CURRENT_RUNG_INSET px under its own shelf, and only the
+    // drift carries Bur that last stretch. That is what a band is for: it decides whether a line exists.
     const geo = geometryOf(Z2_TUTORIAL);
     const from = geo.anchors[0]!;
     const to = geo.anchors[1]!;
@@ -436,8 +433,8 @@ describe('the MVP campaign (Z1 + Z2)', () => {
 
   it('shrinks Bur to the Zone 2 radius of §2.6 and nothing else', () => {
     expect(zoneRadius(Z2, DEFAULT_TUNING)).toBeCloseTo(6.44, 10);
-    // D4 recut the reach table: 105 px of drop and 190 px of lateral room in this zone.
+    // D4 recut the drop to 105 px; D6 cut the lateral room to 120 px, which is what a 180 px view can show.
     expect(DEFAULT_TUNING.MAX_HOP_PX[Z2]).toBe(105);
-    expect(DEFAULT_TUNING.MAX_HOP_X_PX[Z2]).toBe(190);
+    expect(DEFAULT_TUNING.MAX_HOP_X_PX[Z2]).toBe(120);
   });
 });

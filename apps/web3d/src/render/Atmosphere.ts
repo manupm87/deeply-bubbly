@@ -5,13 +5,12 @@
  * - Zone colour: each palette's `waterTop → waterBottom` runs along the zone, and consecutive zones share
  *   that colour at their border, so the descent has no seam.
  * - Fog: range starts just behind the play plane. What Bur can touch is never washed; only decoration is.
- * - God rays: Z1's visual trick, one additive quad with a procedural shader, behind everything playable.
- *   They thin out with depth and are gone in Z2's penumbra.
+ * - The god rays are a painted layer now: see `Parallax.ts`.
  */
 import * as THREE from 'three';
 import { ZONES } from '@deeply-bubbly/core';
 import { ZONE_PALETTES } from '../palette';
-import { PX, type Stage } from './Stage';
+import type { Stage } from './Stage';
 
 export interface WaterColors {
   top: THREE.Color;
@@ -45,38 +44,6 @@ const GRADIENT_REACH_PX = 620;
 /** Fog range in Three units behind the play plane: none on the deepest ledge, most of it on the far layer. */
 const FOG_NEAR = 1;
 const FOG_FAR = 78;
-const RAYS_Z = -12;
-const RAYS_MAX = 0.17;
-/** Rays are gone by the middle of Z2. */
-const RAYS_END_PX = 5000;
-
-const raysVertex = /* glsl */ `
-  varying vec2 vWorld;
-  varying float vV;
-  void main() {
-    vec4 world = modelMatrix * vec4(position, 1.0);
-    vWorld = world.xy;
-    vV = uv.y;
-    gl_Position = projectionMatrix * viewMatrix * world;
-  }
-`;
-
-const raysFragment = /* glsl */ `
-  uniform float uTime;
-  uniform float uStrength;
-  uniform vec3 uColor;
-  varying vec2 vWorld;
-  varying float vV;
-  float shaft(float s, float freq, float phase, float speed, float edge) {
-    return smoothstep(edge, 1.0, sin(s * freq + phase + uTime * speed) * 0.5 + 0.5);
-  }
-  void main() {
-    // Slanted away from the sun, which sits up and to the left like the key light.
-    float s = vWorld.x + vWorld.y * 0.42;
-    float r = shaft(s, 0.37, 0.0, 0.11, 0.55) + 0.7 * shaft(s, 0.83, 1.7, -0.08, 0.62) + 0.45 * shaft(s, 1.71, 4.1, 0.15, 0.72);
-    gl_FragColor = vec4(uColor, r * uStrength * (0.25 + 0.75 * vV));
-  }
-`;
 
 function zoneIndexAt(y: number): number {
   let i = 0;
@@ -86,27 +53,11 @@ function zoneIndexAt(y: number): number {
 
 export class Atmosphere {
   readonly water: WaterColors = { top: new THREE.Color(), bottom: new THREE.Color(), middle: new THREE.Color() };
-  readonly rays: THREE.Mesh;
-  /** Current strength of the rays, for `__db` and the tests. */
-  raysStrength = 0;
-  private readonly raysMaterial: THREE.ShaderMaterial;
   private readonly scratch = new THREE.Color();
   private readonly stage: Stage;
 
   constructor(stage: Stage) {
     this.stage = stage;
-    this.raysMaterial = new THREE.ShaderMaterial({
-      vertexShader: raysVertex,
-      fragmentShader: raysFragment,
-      uniforms: { uTime: { value: 0 }, uStrength: { value: 0 }, uColor: { value: new THREE.Color(0xfff6cf) } },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      fog: false,
-    });
-    this.rays = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.raysMaterial);
-    this.rays.frustumCulled = false;
-    this.rays.renderOrder = -500;
   }
 
   /** The water at a depth: top colour of its zone running to the bottom one along the zone. */
@@ -144,8 +95,8 @@ export class Atmosphere {
     sun.color.setHex(p.sunColor).lerp(this.scratch.setHex(q.sunColor), k);
   }
 
-  /** Positions in design px; `timeS` is simulation time, so that a pause freezes the light too. */
-  update(renderX: number, renderY: number, viewW: number, viewH: number, timeS: number): void {
+  /** Positions in design px. */
+  update(renderY: number, viewH: number): void {
     const centre = renderY + viewH / 2;
     const { water, stage } = this;
     this.waterAt(centre - GRADIENT_REACH_PX, water.top);
@@ -155,20 +106,7 @@ export class Atmosphere {
 
     const fog = stage.scene.fog as THREE.Fog;
     fog.color.copy(water.middle);
-    fog.near = stage.distance + FOG_NEAR;
-    fog.far = stage.distance + FOG_FAR;
-
-    const strength = RAYS_MAX * THREE.MathUtils.clamp(1 - centre / RAYS_END_PX, 0, 1) ** 1.4;
-    this.raysStrength = strength;
-    const rays = this.rays;
-    rays.visible = strength > 0.002;
-    if (!rays.visible) return;
-    const uniforms = this.raysMaterial.uniforms;
-    if (uniforms['uTime']) uniforms['uTime'].value = timeS;
-    if (uniforms['uStrength']) uniforms['uStrength'].value = strength;
-    // Overfills the frustum at its depth; it moves with the camera, the shafts stay put in the world.
-    const stretch = ((stage.distance - RAYS_Z) / stage.distance) * 1.04;
-    rays.position.set((renderX + viewW / 2) * PX, -centre * PX, RAYS_Z);
-    rays.scale.set(viewW * PX * stretch, viewH * PX * stretch, 1);
+    fog.near = stage.viewDistance + FOG_NEAR;
+    fog.far = stage.viewDistance + FOG_FAR;
   }
 }

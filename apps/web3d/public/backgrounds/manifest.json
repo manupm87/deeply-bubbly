@@ -30,7 +30,7 @@
    "crossfadeNote": "Fade the zone groups over this many design px centred on the boundary, inside a rest station. z1_water's bottom equals z2_water's top."
   }
  },
- "totalBytes": 1253144,
+ "totalBytes": 447050,
  "layers": [
   {
    "id": "z1_water",
@@ -39,8 +39,8 @@
    "role": "water",
    "order": 0,
    "sizePx": {
-    "w": 1024,
-    "h": 2048
+    "w": 512,
+    "h": 1024
    },
    "tileDesignPx": {
     "w": 360,
@@ -48,7 +48,7 @@
    },
    "parallax": {
     "x": 0.06,
-    "y": 0.08
+    "y": 0.13
    },
    "tiling": {
     "x": "repeat",
@@ -58,7 +58,7 @@
    "opacity": 1.0,
    "alpha": false,
    "anchor": "zoneTop",
-   "bytes": 38418,
+   "bytes": 13998,
    "animation": {
     "kind": "surfaceWobble",
     "maskTopDesignPx": 45,
@@ -75,8 +75,8 @@
    "role": "far",
    "order": 1,
    "sizePx": {
-    "w": 1024,
-    "h": 2048
+    "w": 512,
+    "h": 1024
    },
    "tileDesignPx": {
     "w": 360,
@@ -94,7 +94,7 @@
    "opacity": 1.0,
    "alpha": true,
    "anchor": "zoneTop",
-   "bytes": 203210,
+   "bytes": 75130,
    "fadeIn": {
     "fromLayerY": 70,
     "toLayerY": 230,
@@ -108,8 +108,8 @@
    "role": "mid",
    "order": 2,
    "sizePx": {
-    "w": 2048,
-    "h": 2048
+    "w": 1024,
+    "h": 1024
    },
    "tileDesignPx": {
     "w": 540,
@@ -127,7 +127,7 @@
    "opacity": 1.0,
    "alpha": true,
    "anchor": "zoneTop",
-   "bytes": 230364,
+   "bytes": 75412,
    "fadeIn": {
     "fromLayerY": 50,
     "toLayerY": 180,
@@ -141,8 +141,8 @@
    "role": "near",
    "order": 3,
    "sizePx": {
-    "w": 2048,
-    "h": 2048
+    "w": 1024,
+    "h": 1024
    },
    "tileDesignPx": {
     "w": 540,
@@ -160,7 +160,7 @@
    "opacity": 1.0,
    "alpha": true,
    "anchor": "zoneTop",
-   "bytes": 145940,
+   "bytes": 52888,
    "fadeIn": {
     "fromLayerY": 30,
     "toLayerY": 150,
@@ -174,8 +174,8 @@
    "role": "rays",
    "order": 4,
    "sizePx": {
-    "w": 1024,
-    "h": 1024
+    "w": 512,
+    "h": 512
    },
    "tileDesignPx": {
     "w": 360,
@@ -193,7 +193,7 @@
    "opacity": 1.0,
    "alpha": true,
    "anchor": "viewTop",
-   "bytes": 31734,
+   "bytes": 11340,
    "fit": "stretch the texture's height to the view height; layerY is unused",
    "animation": {
     "kind": "dualScrollPulse",
@@ -217,8 +217,8 @@
    "role": "water",
    "order": 0,
    "sizePx": {
-    "w": 1024,
-    "h": 2048
+    "w": 512,
+    "h": 1024
    },
    "tileDesignPx": {
     "w": 360,
@@ -226,7 +226,7 @@
    },
    "parallax": {
     "x": 0.06,
-    "y": 0.06
+    "y": 0.082
    },
    "tiling": {
     "x": "repeat",
@@ -236,7 +236,7 @@
    "opacity": 1.0,
    "alpha": false,
    "anchor": "zoneTop",
-   "bytes": 22248
+   "bytes": 9488
   },
   {
    "id": "z2_far",
@@ -245,8 +245,8 @@
    "role": "far",
    "order": 1,
    "sizePx": {
-    "w": 1024,
-    "h": 2048
+    "w": 512,
+    "h": 1024
    },
    "tileDesignPx": {
     "w": 360,
@@ -264,7 +264,7 @@
    "opacity": 1.0,
    "alpha": true,
    "anchor": "zoneTop",
-   "bytes": 187932
+   "bytes": 76540
   },
   {
    "id": "z2_mid",
@@ -273,8 +273,8 @@
    "role": "mid",
    "order": 2,
    "sizePx": {
-    "w": 2048,
-    "h": 2048
+    "w": 1024,
+    "h": 1024
    },
    "tileDesignPx": {
     "w": 540,
@@ -292,7 +292,7 @@
    "opacity": 1.0,
    "alpha": true,
    "anchor": "zoneTop",
-   "bytes": 203736
+   "bytes": 67864
   },
   {
    "id": "z2_near",
@@ -301,8 +301,8 @@
    "role": "near",
    "order": 3,
    "sizePx": {
-    "w": 2048,
-    "h": 2048
+    "w": 1024,
+    "h": 1024
    },
    "tileDesignPx": {
     "w": 540,
@@ -320,7 +320,7 @@
    "opacity": 1.0,
    "alpha": true,
    "anchor": "zoneTop",
-   "bytes": 177894
+   "bytes": 59664
   },
   {
    "id": "z2_rays",
@@ -329,8 +329,8 @@
    "role": "rays",
    "order": 4,
    "sizePx": {
-    "w": 1024,
-    "h": 1024
+    "w": 512,
+    "h": 512
    },
    "tileDesignPx": {
     "w": 360,
@@ -348,7 +348,7 @@
    "opacity": 1.0,
    "alpha": true,
    "anchor": "viewTop",
-   "bytes": 11668,
+   "bytes": 4726,
    "fit": "stretch the texture's height to the view height; layerY is unused",
    "animation": {
     "kind": "dualScrollPulse",

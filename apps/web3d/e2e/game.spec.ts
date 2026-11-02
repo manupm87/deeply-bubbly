@@ -9,6 +9,7 @@ import {
   Finger,
   SAVE_AT_STATION_0,
   bootGame,
+  cameraSettled,
   collectErrors,
   modelsSettled,
   pullForNextShot,
@@ -57,6 +58,7 @@ test('the camera frames exactly the design view at renderX/renderY', async ({ pa
   await withoutModels(page);
   await bootGame(page);
   await waitForResting(page);
+  await cameraSettled(page);
   const frame = await page.evaluate(() => {
     const db = window.__db;
     const cam = db?.world.snapshot().camera;
@@ -367,6 +369,7 @@ test('resizing keeps the framing, and a landscape phone gets the curtain and the
   await page.setViewportSize({ width: 360, height: 900 });
   await page.waitForFunction(() => window.innerWidth === 360);
   await page.waitForTimeout(100);
+  await cameraSettled(page);
   const framing = await page.evaluate(() => {
     const db = window.__db;
     const cam = db?.world.snapshot().camera;
