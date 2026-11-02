@@ -1,0 +1,1606 @@
+{
+ "assets": [
+  {
+   "animations": [
+    {
+     "loop": false,
+     "name": "Absorb",
+     "seconds": 0.5
+    },
+    {
+     "loop": true,
+     "name": "Sway",
+     "seconds": 2.4
+    }
+   ],
+   "bytes": 83548,
+   "catalogId": 2,
+   "depth": 16,
+   "file": "alga_cinta.glb",
+   "kind": "creature",
+   "name": "alga_cinta",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: kelpIn() ledge, 40 px in content; wider kelp uses ledge_*_kelp",
+   "tris": 412,
+   "zone": 1,
+   "zones": [
+    1
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": false,
+     "name": "Open",
+     "seconds": 0.5
+    },
+    {
+     "loop": false,
+     "name": "Close",
+     "seconds": 0.25
+    },
+    {
+     "loop": false,
+     "name": "Tell",
+     "seconds": 0.5
+    }
+   ],
+   "bytes": 48988,
+   "catalogId": 10,
+   "depth": 12,
+   "facing": "+x",
+   "file": "almeja_porton.glb",
+   "kind": "creature",
+   "name": "almeja_porton",
+   "size": {
+    "h": 24,
+    "w": 40
+   },
+   "source": "design: 5 no 10 has no entity or hitbox in core or content yet; size is provisional",
+   "tris": 240,
+   "zone": 2,
+   "zones": [
+    2
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Sway",
+     "seconds": 2.2
+    },
+    {
+     "loop": false,
+     "name": "Grab",
+     "seconds": 0.8
+    },
+    {
+     "loop": false,
+     "name": "Vent",
+     "seconds": 0.5
+    }
+   ],
+   "bytes": 80084,
+   "catalogId": 7,
+   "depth": 10,
+   "file": "anemona_pegajosa.glb",
+   "growth": "grows upward; for growth='lip' rotate 180 degrees around Z",
+   "kind": "hazard",
+   "name": "anemona_pegajosa",
+   "size": {
+    "h": 14,
+    "w": 16
+   },
+   "source": "core: ANEMONA_W x ANEMONA_H",
+   "tris": 394,
+   "zone": 2,
+   "zones": [
+    2
+   ]
+  },
+  {
+   "animations": [],
+   "bytes": 103020,
+   "depth": 14,
+   "file": "bd_z1_coral_branch.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z1_coral_branch",
+   "size": {
+    "h": 50,
+    "w": 40
+   },
+   "source": "design: decoration, no collision",
+   "tris": 894,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 64772,
+   "depth": 4,
+   "file": "bd_z1_coral_fan.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z1_coral_fan",
+   "size": {
+    "h": 56,
+    "w": 44
+   },
+   "source": "design: decoration, no collision",
+   "tris": 558,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 92332,
+   "depth": 34,
+   "file": "bd_z1_rock_mound.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z1_rock_mound",
+   "size": {
+    "h": 44,
+    "w": 110
+   },
+   "source": "design: decoration, no collision",
+   "tris": 800,
+   "zone": 1
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Sway",
+     "seconds": 3.0
+    }
+   ],
+   "bytes": 32492,
+   "depth": 14,
+   "file": "bd_z1_seagrass.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z1_seagrass",
+   "size": {
+    "h": 48,
+    "w": 36
+   },
+   "source": "design: decoration, no collision",
+   "tris": 128,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 5684,
+   "depth": 4,
+   "file": "bd_z1_surface_wave.glb",
+   "kind": "backdrop",
+   "layer": "front",
+   "name": "bd_z1_surface_wave",
+   "role": "mid",
+   "size": {
+    "h": 12,
+    "w": 60
+   },
+   "source": "design: decoration, no collision",
+   "tiles": "x",
+   "tris": 40,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 148416,
+   "depth": 44,
+   "file": "bd_z2_brain_coral.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z2_brain_coral",
+   "size": {
+    "h": 40,
+    "w": 56
+   },
+   "source": "design: decoration, no collision",
+   "tris": 1292,
+   "zone": 2
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Sway",
+     "seconds": 4.0
+    }
+   ],
+   "bytes": 55544,
+   "depth": 6,
+   "file": "bd_z2_kelp_tall.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z2_kelp_tall",
+   "size": {
+    "h": 120,
+    "w": 30
+   },
+   "source": "design: decoration, no collision",
+   "tris": 248,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 477176,
+   "depth": 46,
+   "file": "bd_z2_reef_wall.glb",
+   "kind": "backdrop",
+   "layer": "front",
+   "name": "bd_z2_reef_wall",
+   "role": "mid",
+   "size": {
+    "h": 150,
+    "w": 90
+   },
+   "source": "design: decoration, no collision",
+   "tiles": "y",
+   "tris": 4176,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 22516,
+   "depth": 32,
+   "file": "bd_z2_rock_arch.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z2_rock_arch",
+   "size": {
+    "h": 80,
+    "w": 120
+   },
+   "source": "design: decoration, no collision",
+   "tris": 188,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 128380,
+   "depth": 4,
+   "file": "bd_z2_sea_fan.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z2_sea_fan",
+   "size": {
+    "h": 64,
+    "w": 56
+   },
+   "source": "design: decoration, no collision",
+   "tris": 1116,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 29848,
+   "depth": 16,
+   "file": "bd_z2_tube_sponge.glb",
+   "kind": "backdrop",
+   "layer": "back",
+   "name": "bd_z2_tube_sponge",
+   "size": {
+    "h": 56,
+    "w": 40
+   },
+   "source": "design: decoration, no collision",
+   "tris": 252,
+   "zone": 2
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Bob",
+     "seconds": 3.0
+    },
+    {
+     "loop": false,
+     "name": "Ping",
+     "seconds": 0.2
+    }
+   ],
+   "bytes": 93248,
+   "depth": 15,
+   "file": "boya_z1.glb",
+   "kind": "buoy",
+   "name": "boya_z1",
+   "size": {
+    "h": 28,
+    "w": 16
+   },
+   "source": "design: core's Boya only has a worldY; centre it on that line",
+   "tris": 498,
+   "zone": 1
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Bob",
+     "seconds": 3.0
+    },
+    {
+     "loop": false,
+     "name": "Ping",
+     "seconds": 0.2
+    }
+   ],
+   "bytes": 93248,
+   "depth": 15,
+   "file": "boya_z2.glb",
+   "kind": "buoy",
+   "name": "boya_z2",
+   "size": {
+    "h": 28,
+    "w": 16
+   },
+   "source": "design: core's Boya only has a worldY; centre it on that line",
+   "tris": 498,
+   "zone": 2
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Idle",
+     "seconds": 2.0
+    },
+    {
+     "loop": false,
+     "name": "Blink",
+     "seconds": 0.25
+    },
+    {
+     "loop": false,
+     "name": "Stretch",
+     "seconds": 0.3
+    },
+    {
+     "loop": false,
+     "name": "Squash",
+     "seconds": 0.3
+    },
+    {
+     "loop": false,
+     "name": "Hit",
+     "seconds": 0.4
+    }
+   ],
+   "bytes": 164732,
+   "catalogId": null,
+   "depth": 14,
+   "file": "bur.glb",
+   "kind": "player",
+   "name": "bur",
+   "notes": "Aura and the 8 px readability floor (2.6) are the shell's: they depend on the live radius.",
+   "size": {
+    "h": 14,
+    "w": 14
+   },
+   "source": "core: RADIUS_BASE = 7; scale the whole asset by bubble.radius / 7",
+   "tris": 880,
+   "zone": 0
+  },
+  {
+   "animations": [],
+   "bytes": 6168,
+   "catalogId": 8,
+   "depth": 1,
+   "facing": "+x",
+   "file": "corriente_mota.glb",
+   "kind": "field",
+   "name": "corriente_mota",
+   "notes": "Not a collision box: the field's rect comes from core. Mirror on dir = -1.",
+   "size": {
+    "h": 4,
+    "w": 14
+   },
+   "source": "design: one drifting mark; 5 no 8 is drawn as particles and band sizes vary, so the shell instances this",
+   "tris": 44,
+   "zone": 2,
+   "zones": [
+    2
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Idle",
+     "seconds": 2.0
+    },
+    {
+     "loop": false,
+     "name": "Inflate",
+     "seconds": 0.6
+    },
+    {
+     "loop": false,
+     "name": "Deflate",
+     "seconds": 0.8
+    },
+    {
+     "loop": false,
+     "name": "Tell",
+     "seconds": 0.6
+    },
+    {
+     "loop": true,
+     "name": "Laugh",
+     "seconds": 1.2
+    }
+   ],
+   "bytes": 194920,
+   "catalogId": 5,
+   "depth": 42,
+   "file": "don_hinchon.glb",
+   "kind": "boss",
+   "name": "don_hinchon",
+   "size": {
+    "h": 52,
+    "w": 60
+   },
+   "source": "core: z1/boss.ts shape 60 x 52",
+   "tris": 1000,
+   "zone": 1,
+   "zones": [
+    1
+   ]
+  },
+  {
+   "animations": [],
+   "bytes": 21896,
+   "catalogId": 6,
+   "depth": 10,
+   "file": "erizo_coralino.glb",
+   "growth": "grows upward; for growth='lip' rotate 180 degrees around Z",
+   "kind": "hazard",
+   "name": "erizo_coralino",
+   "notes": "No actions on purpose: 5 no 6, 'nunca se mueve'.",
+   "size": {
+    "h": 14,
+    "w": 14
+   },
+   "source": "core: ERIZO_W x ERIZO_H",
+   "tris": 182,
+   "zone": 2,
+   "zones": [
+    2
+   ]
+  },
+  {
+   "animations": [],
+   "bytes": 15692,
+   "depth": 16,
+   "file": "ledge_z1_coral_cap_l.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z1_coral_cap_l",
+   "role": "cap_l",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_coral",
+   "tris": 128,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 15692,
+   "depth": 16,
+   "file": "ledge_z1_coral_cap_r.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z1_coral_cap_r",
+   "role": "cap_r",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_coral",
+   "tris": 128,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 106896,
+   "depth": 16,
+   "file": "ledge_z1_coral_long.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z1_coral_long",
+   "role": "long",
+   "size": {
+    "h": 10,
+    "w": 120
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 928,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 55828,
+   "depth": 16,
+   "file": "ledge_z1_coral_medium.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z1_coral_medium",
+   "role": "medium",
+   "size": {
+    "h": 10,
+    "w": 60
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 480,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 17508,
+   "depth": 16,
+   "file": "ledge_z1_coral_mid.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z1_coral_mid",
+   "role": "mid",
+   "size": {
+    "h": 10,
+    "w": 20
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_coral",
+   "tris": 144,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 36672,
+   "depth": 16,
+   "file": "ledge_z1_coral_short.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z1_coral_short",
+   "role": "short",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 312,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 24812,
+   "depth": 16,
+   "file": "ledge_z1_foam_cap_l.glb",
+   "kind": "ledge",
+   "material": "foam",
+   "name": "ledge_z1_foam_cap_l",
+   "role": "cap_l",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_foam",
+   "tris": 208,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 24812,
+   "depth": 16,
+   "file": "ledge_z1_foam_cap_r.glb",
+   "kind": "ledge",
+   "material": "foam",
+   "name": "ledge_z1_foam_cap_r",
+   "role": "cap_r",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_foam",
+   "tris": 208,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 188976,
+   "depth": 16,
+   "file": "ledge_z1_foam_long.glb",
+   "kind": "ledge",
+   "material": "foam",
+   "name": "ledge_z1_foam_long",
+   "role": "long",
+   "size": {
+    "h": 10,
+    "w": 120
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 1648,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 92304,
+   "depth": 16,
+   "file": "ledge_z1_foam_medium.glb",
+   "kind": "ledge",
+   "material": "foam",
+   "name": "ledge_z1_foam_medium",
+   "role": "medium",
+   "size": {
+    "h": 10,
+    "w": 60
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 800,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 35752,
+   "depth": 16,
+   "file": "ledge_z1_foam_mid.glb",
+   "kind": "ledge",
+   "material": "foam",
+   "name": "ledge_z1_foam_mid",
+   "role": "mid",
+   "size": {
+    "h": 10,
+    "w": 20
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_foam",
+   "tris": 304,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 59472,
+   "depth": 16,
+   "file": "ledge_z1_foam_short.glb",
+   "kind": "ledge",
+   "material": "foam",
+   "name": "ledge_z1_foam_short",
+   "role": "short",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 512,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 13408,
+   "depth": 16,
+   "file": "ledge_z1_kelp_cap_l.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z1_kelp_cap_l",
+   "role": "cap_l",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_kelp",
+   "tris": 108,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 13408,
+   "depth": 16,
+   "file": "ledge_z1_kelp_cap_r.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z1_kelp_cap_r",
+   "role": "cap_r",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_kelp",
+   "tris": 108,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 106896,
+   "depth": 16,
+   "file": "ledge_z1_kelp_long.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z1_kelp_long",
+   "role": "long",
+   "size": {
+    "h": 10,
+    "w": 120
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 928,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 55824,
+   "depth": 16,
+   "file": "ledge_z1_kelp_medium.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z1_kelp_medium",
+   "role": "medium",
+   "size": {
+    "h": 10,
+    "w": 60
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 480,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 19788,
+   "depth": 16,
+   "file": "ledge_z1_kelp_mid.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z1_kelp_mid",
+   "role": "mid",
+   "size": {
+    "h": 10,
+    "w": 20
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_kelp",
+   "tris": 164,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 36668,
+   "depth": 16,
+   "file": "ledge_z1_kelp_short.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z1_kelp_short",
+   "role": "short",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 312,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 6568,
+   "depth": 16,
+   "file": "ledge_z1_rock_cap_l.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z1_rock_cap_l",
+   "role": "cap_l",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_rock",
+   "tris": 48,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 6568,
+   "depth": 16,
+   "file": "ledge_z1_rock_cap_r.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z1_rock_cap_r",
+   "role": "cap_r",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_rock",
+   "tris": 48,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 43052,
+   "depth": 16,
+   "file": "ledge_z1_rock_long.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z1_rock_long",
+   "role": "long",
+   "size": {
+    "h": 10,
+    "w": 120
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 368,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 22984,
+   "depth": 16,
+   "file": "ledge_z1_rock_medium.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z1_rock_medium",
+   "role": "medium",
+   "size": {
+    "h": 10,
+    "w": 60
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 192,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 10208,
+   "depth": 16,
+   "file": "ledge_z1_rock_mid.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z1_rock_mid",
+   "role": "mid",
+   "size": {
+    "h": 10,
+    "w": 20
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z1_rock",
+   "tris": 80,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 15684,
+   "depth": 16,
+   "file": "ledge_z1_rock_short.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z1_rock_short",
+   "role": "short",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 128,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 15692,
+   "depth": 16,
+   "file": "ledge_z2_coral_cap_l.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z2_coral_cap_l",
+   "role": "cap_l",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_coral",
+   "tris": 128,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 15692,
+   "depth": 16,
+   "file": "ledge_z2_coral_cap_r.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z2_coral_cap_r",
+   "role": "cap_r",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_coral",
+   "tris": 128,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 106896,
+   "depth": 16,
+   "file": "ledge_z2_coral_long.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z2_coral_long",
+   "role": "long",
+   "size": {
+    "h": 10,
+    "w": 120
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 928,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 55828,
+   "depth": 16,
+   "file": "ledge_z2_coral_medium.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z2_coral_medium",
+   "role": "medium",
+   "size": {
+    "h": 10,
+    "w": 60
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 480,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 17508,
+   "depth": 16,
+   "file": "ledge_z2_coral_mid.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z2_coral_mid",
+   "role": "mid",
+   "size": {
+    "h": 10,
+    "w": 20
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_coral",
+   "tris": 144,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 36672,
+   "depth": 16,
+   "file": "ledge_z2_coral_short.glb",
+   "kind": "ledge",
+   "material": "coral",
+   "name": "ledge_z2_coral_short",
+   "role": "short",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 312,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 13408,
+   "depth": 16,
+   "file": "ledge_z2_kelp_cap_l.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z2_kelp_cap_l",
+   "role": "cap_l",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_kelp",
+   "tris": 108,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 13408,
+   "depth": 16,
+   "file": "ledge_z2_kelp_cap_r.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z2_kelp_cap_r",
+   "role": "cap_r",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_kelp",
+   "tris": 108,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 106896,
+   "depth": 16,
+   "file": "ledge_z2_kelp_long.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z2_kelp_long",
+   "role": "long",
+   "size": {
+    "h": 10,
+    "w": 120
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 928,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 55828,
+   "depth": 16,
+   "file": "ledge_z2_kelp_medium.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z2_kelp_medium",
+   "role": "medium",
+   "size": {
+    "h": 10,
+    "w": 60
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 480,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 19788,
+   "depth": 16,
+   "file": "ledge_z2_kelp_mid.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z2_kelp_mid",
+   "role": "mid",
+   "size": {
+    "h": 10,
+    "w": 20
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_kelp",
+   "tris": 164,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 36668,
+   "depth": 16,
+   "file": "ledge_z2_kelp_short.glb",
+   "kind": "ledge",
+   "material": "kelp",
+   "name": "ledge_z2_kelp_short",
+   "role": "short",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 312,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 6568,
+   "depth": 16,
+   "file": "ledge_z2_rock_cap_l.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z2_rock_cap_l",
+   "role": "cap_l",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_rock",
+   "tris": 48,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 6568,
+   "depth": 16,
+   "file": "ledge_z2_rock_cap_r.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z2_rock_cap_r",
+   "role": "cap_r",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_rock",
+   "tris": 48,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 43052,
+   "depth": 16,
+   "file": "ledge_z2_rock_long.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z2_rock_long",
+   "role": "long",
+   "size": {
+    "h": 10,
+    "w": 120
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 368,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 22984,
+   "depth": 16,
+   "file": "ledge_z2_rock_medium.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z2_rock_medium",
+   "role": "medium",
+   "size": {
+    "h": 10,
+    "w": 60
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 192,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 10208,
+   "depth": 16,
+   "file": "ledge_z2_rock_mid.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z2_rock_mid",
+   "role": "mid",
+   "size": {
+    "h": 10,
+    "w": 20
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tileset": "ledge_z2_rock",
+   "tris": 80,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 15688,
+   "depth": 16,
+   "file": "ledge_z2_rock_short.glb",
+   "kind": "ledge",
+   "material": "rock",
+   "name": "ledge_z2_rock_short",
+   "role": "short",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: LEDGE_H; widths used by content",
+   "tris": 128,
+   "zone": 2
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Pulse",
+     "seconds": 1.6
+    },
+    {
+     "loop": false,
+     "name": "Bounce",
+     "seconds": 0.45
+    },
+    {
+     "loop": false,
+     "name": "Deflate",
+     "seconds": 0.6
+    }
+   ],
+   "bytes": 150812,
+   "catalogId": 1,
+   "depth": 18,
+   "file": "medusa_farolillo.glb",
+   "kind": "creature",
+   "name": "medusa_farolillo",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: jellyfish() w=40, h=LEDGE_H",
+   "tris": 820,
+   "zone": 1,
+   "zones": [
+    1,
+    2
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Swim",
+     "seconds": 1.6
+    },
+    {
+     "loop": false,
+     "name": "Scatter",
+     "seconds": 0.7
+    }
+   ],
+   "bytes": 566484,
+   "catalogId": 4,
+   "depth": 8,
+   "facing": "+x",
+   "file": "peces_payaso.glb",
+   "kind": "creature",
+   "name": "peces_payaso",
+   "size": {
+    "h": 24,
+    "w": 48
+   },
+   "source": "design: decorative shoal with no core entity (5 no 4); box is not a collision box",
+   "tris": 3168,
+   "zone": 1,
+   "zones": [
+    1
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Bob",
+     "seconds": 1.0
+    }
+   ],
+   "bytes": 94944,
+   "depth": 9,
+   "file": "pickup_aire.glb",
+   "kind": "pickup",
+   "name": "pickup_aire",
+   "pickupType": "aire",
+   "size": {
+    "h": 12,
+    "w": 12
+   },
+   "source": "core: airPocket radius 6",
+   "tris": 520,
+   "zone": 0,
+   "zones": [
+    1,
+    2
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Bob",
+     "seconds": 1.8
+    }
+   ],
+   "bytes": 16108,
+   "depth": 3,
+   "file": "pickup_concha.glb",
+   "kind": "pickup",
+   "name": "pickup_concha",
+   "pickupType": "concha",
+   "size": {
+    "h": 10,
+    "w": 10
+   },
+   "source": "core: shell radius 5",
+   "tris": 72,
+   "zone": 0,
+   "zones": [
+    1,
+    2
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Shine",
+     "seconds": 1.6
+    }
+   ],
+   "bytes": 62716,
+   "depth": 8,
+   "file": "pickup_perla.glb",
+   "kind": "pickup",
+   "name": "pickup_perla",
+   "pickupType": "perla",
+   "size": {
+    "h": 8,
+    "w": 8
+   },
+   "source": "core: pearl radius 4",
+   "tris": 340,
+   "zone": 0,
+   "zones": [
+    1,
+    2
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Idle",
+     "seconds": 3.0
+    },
+    {
+     "loop": false,
+     "name": "Blink",
+     "seconds": 0.4
+    },
+    {
+     "loop": false,
+     "name": "Shove",
+     "seconds": 0.5
+    }
+   ],
+   "bytes": 120632,
+   "catalogId": 9,
+   "depth": 16,
+   "file": "pulpo_camuflado.glb",
+   "kind": "creature",
+   "name": "pulpo_camuflado",
+   "size": {
+    "h": 10,
+    "w": 40
+   },
+   "source": "core: pulpoRung, 40 x LEDGE_H in content",
+   "tris": 632,
+   "zone": 2,
+   "zones": [
+    2
+   ]
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Breathe",
+     "seconds": 3.0
+    }
+   ],
+   "bytes": 200292,
+   "depth": 28,
+   "file": "station_z1.glb",
+   "kind": "station",
+   "name": "station_z1",
+   "size": {
+    "h": 56,
+    "w": 120
+   },
+   "source": "design: dressing for the 240 px station band; core's RestStation has no box",
+   "tris": 1100,
+   "zone": 1
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Breathe",
+     "seconds": 3.0
+    }
+   ],
+   "bytes": 358192,
+   "depth": 28,
+   "file": "station_z2.glb",
+   "kind": "station",
+   "name": "station_z2",
+   "size": {
+    "h": 56,
+    "w": 120
+   },
+   "source": "design: dressing for the 240 px station band; core's RestStation has no box",
+   "tris": 2000,
+   "zone": 2
+  },
+  {
+   "animations": [
+    {
+     "loop": true,
+     "name": "Swim",
+     "seconds": 2.0
+    },
+    {
+     "loop": false,
+     "name": "Tuck",
+     "seconds": 0.4
+    }
+   ],
+   "bytes": 69480,
+   "catalogId": 3,
+   "depth": 20,
+   "facing": "+x",
+   "file": "tortuga_paseante.glb",
+   "kind": "creature",
+   "name": "tortuga_paseante",
+   "size": {
+    "h": 10,
+    "w": 76
+   },
+   "source": "core: TURTLE_W = 76, h=LEDGE_H",
+   "tris": 352,
+   "zone": 1,
+   "zones": [
+    1
+   ]
+  },
+  {
+   "animations": [],
+   "bytes": 6604,
+   "depth": 28,
+   "file": "wall_z1_rock_cap_bottom.glb",
+   "kind": "wall",
+   "material": "rock",
+   "name": "wall_z1_rock_cap_bottom",
+   "role": "cap_bottom",
+   "size": {
+    "h": 15,
+    "w": 44
+   },
+   "source": "core: walls are 44 px wide at any height",
+   "tileset": "wall_z1_rock",
+   "tris": 48,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 6600,
+   "depth": 28,
+   "file": "wall_z1_rock_cap_top.glb",
+   "kind": "wall",
+   "material": "rock",
+   "name": "wall_z1_rock_cap_top",
+   "role": "cap_top",
+   "size": {
+    "h": 15,
+    "w": 44
+   },
+   "source": "core: walls are 44 px wide at any height",
+   "tileset": "wall_z1_rock",
+   "tris": 48,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 10236,
+   "depth": 28,
+   "file": "wall_z1_rock_mid.glb",
+   "kind": "wall",
+   "material": "rock",
+   "name": "wall_z1_rock_mid",
+   "role": "mid",
+   "size": {
+    "h": 30,
+    "w": 44
+   },
+   "source": "core: walls are 44 px wide at any height",
+   "tileset": "wall_z1_rock",
+   "tris": 80,
+   "zone": 1
+  },
+  {
+   "animations": [],
+   "bytes": 24852,
+   "depth": 28,
+   "file": "wall_z2_reef_cap_bottom.glb",
+   "kind": "wall",
+   "material": "reef",
+   "name": "wall_z2_reef_cap_bottom",
+   "role": "cap_bottom",
+   "size": {
+    "h": 15,
+    "w": 44
+   },
+   "source": "core: walls are 44 px wide at any height",
+   "tileset": "wall_z2_reef",
+   "tris": 208,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 24844,
+   "depth": 28,
+   "file": "wall_z2_reef_cap_top.glb",
+   "kind": "wall",
+   "material": "reef",
+   "name": "wall_z2_reef_cap_top",
+   "role": "cap_top",
+   "size": {
+    "h": 15,
+    "w": 44
+   },
+   "source": "core: walls are 44 px wide at any height",
+   "tileset": "wall_z2_reef",
+   "tris": 208,
+   "zone": 2
+  },
+  {
+   "animations": [],
+   "bytes": 37608,
+   "depth": 28,
+   "file": "wall_z2_reef_mid.glb",
+   "kind": "wall",
+   "material": "reef",
+   "name": "wall_z2_reef_mid",
+   "role": "mid",
+   "size": {
+    "h": 30,
+    "w": 44
+   },
+   "source": "core: walls are 44 px wide at any height",
+   "tileset": "wall_z2_reef",
+   "tris": 320,
+   "zone": 2
+  }
+ ],
+ "budgetBytes": 8388608,
+ "origin": "centre of the box; +X right, +Y up, play plane at Z = 0",
+ "tileFormula": "n = max(1, round((L - 2 * cap) / mid)); mid scale along the axis = (L - 2 * cap) / (n * mid)",
+ "tilesets": {
+  "ledge": {
+   "axis": "x",
+   "capW": 10,
+   "midW": 20,
+   "pieces": [
+    "cap_l",
+    "mid",
+    "cap_r"
+   ]
+  },
+  "wall": {
+   "axis": "y",
+   "capH": 15,
+   "midH": 30,
+   "pieces": [
+    "cap_top",
+    "mid",
+    "cap_bottom"
+   ]
+  }
+ },
+ "totalBytes": 5322240,
+ "units": {
+  "threePerDesignPx": 0.1
+ },
+ "version": 1
+}

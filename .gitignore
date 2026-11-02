@@ -10,3 +10,8 @@ coverage/
 apps/web/test-results/
 apps/web/playwright-report/
 apps/web/test-results/
+apps/web3d/test-results/
+apps/web3d/playwright-report/
+__pycache__/
+docs/art/review/*
+!docs/art/review/gameplay_*.png

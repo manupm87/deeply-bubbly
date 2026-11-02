@@ -63,3 +63,23 @@ Node 22 o superior. `gh` (GitHub CLI) autenticado para lanzar el despliegue de P
 ## 7. Siguiente paso: app iOS
 
 Plan completo en `docs/engineering/IOS.md`. Resumen: Capacitor en `apps/mobile` envolviendo la build de `apps/web`; primero instalación gratuita en el iPhone del owner desde Xcode con un Apple ID normal (7 días, solo sus dispositivos); cuenta de desarrollador de pago solo cuando toque TestFlight y App Store.
+
+## 8. Shell 3D (`apps/web3d`, rama `web3d`, 2026-11-02)
+
+Contrato en `docs/engineering/WEB3D.md`. Es un shell Three.js completo sobre el mismo `packages/core`: mapa, zonas 1 y 2, HUD, tirachinas, ojeo, FX y audio. Sin commitear ni publicar; `apps/web` sigue siendo lo publicado. Capturas en `docs/art/review/gameplay_*.png`.
+
+```bash
+pnpm dev:3d                                  # http://localhost:5174
+cd apps/web3d && pnpm exec playwright test   # 31 specs, build propia en el puerto 4174
+```
+
+- Si Playwright no encuentra su navegador (pide el build 1243 y aquí solo está el 1228): `DB_CHROMIUM_PATH=<chrome.exe>` en `apps/web3d`. La config de `apps/web` no admite esa variable, y con Chromium completo sus specs fallan por el 404 de `/favicon.ico`: usar el `chrome-headless-shell`.
+- `apps/web/e2e/screenshots.spec.ts` reescribe capturas versionadas en cada pasada: `git restore apps/web/e2e/__screenshots__` si no se quieren conservar.
+- `apps/web/e2e/peek.spec.ts:88` es intermitente (falló 1 de 5 a solas), aunque la suite entera puede pasar.
+
+Pendiente:
+
+- **Core**: `GameWorld.persist` reescribe el save cargado al crear el mundo y deshace ajustes y tutorial cambiados durante la partida. `web3d` lo esquiva volviendo a guardar en `main.ts`, salvo si se recarga en la pantalla de fin de campaña antes de pulsar "Mapa". `apps/web` sigue con el fallo.
+- **Sin probar**: móvil real, Safari e iOS (incluido reanudar el audio). Los 60 fps del objetivo solo se han medido con la RTX 5090 y CPU ÷4, no en un móvil de gama media.
+- **Para el playtest del owner**: el minimapa tapa la zona superior central (igual que `apps/web`, D5); ojos de `pulpo_camuflado` y bandas de `peces_payaso` retocados a criterio de la revisión; el bloque `bd_z2_reef_wall` aún se ve algo rectangular.
+- `apps/web3d/public/backgrounds` (1,2 MB) se publica en `dist`, pero nada lo usa.

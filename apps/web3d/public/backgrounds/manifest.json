@@ -1,0 +1,369 @@
+{
+ "version": 1,
+ "world": {
+  "widthDesignPx": 540,
+  "viewWidthDesignPx": 180,
+  "maxViewHeightDesignPx": 420
+ },
+ "sampling": "Draw in ascending `order`, all behind the play plane (Z = 0). A view pixel at (vx, vy) design px from the view's top-left samples layerX = vx + camera.x * parallax.x and layerY = vy + (camera.y - zone.worldY[0]) * parallax.y, then u = layerX / tile.w, v = layerY / tile.h, row 0 at the top. camera.x and camera.y are the view's top-left in design px.",
+ "textures": {
+  "colorSpace": "srgb",
+  "premultipliedAlpha": false,
+  "generateMipmaps": true,
+  "note": "Transparent pixels hold bled colour: straight alpha, do not premultiply on load."
+ },
+ "zones": {
+  "1": {
+   "worldY": [
+    0,
+    2880
+   ],
+   "crossfadeDesignPx": 240,
+   "crossfadeNote": "Fade the zone groups over this many design px centred on the boundary, inside a rest station. z1_water's bottom equals z2_water's top."
+  },
+  "2": {
+   "worldY": [
+    2880,
+    7200
+   ],
+   "crossfadeDesignPx": 240,
+   "crossfadeNote": "Fade the zone groups over this many design px centred on the boundary, inside a rest station. z1_water's bottom equals z2_water's top."
+  }
+ },
+ "totalBytes": 1253144,
+ "layers": [
+  {
+   "id": "z1_water",
+   "file": "z1_water.webp",
+   "zone": 1,
+   "role": "water",
+   "order": 0,
+   "sizePx": {
+    "w": 1024,
+    "h": 2048
+   },
+   "tileDesignPx": {
+    "w": 360,
+    "h": 720
+   },
+   "parallax": {
+    "x": 0.06,
+    "y": 0.08
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "clamp"
+   },
+   "blend": "normal",
+   "opacity": 1.0,
+   "alpha": false,
+   "anchor": "zoneTop",
+   "bytes": 38418,
+   "animation": {
+    "kind": "surfaceWobble",
+    "maskTopDesignPx": 45,
+    "amplitudeDesignPx": 1.2,
+    "waveNumberPerDesignPx": 0.05,
+    "radPerS": 1.2,
+    "note": "Optional: offset v by sin(layerX * waveNumber + t * radPerS) * amplitude, masked to the wave band at the top of the texture."
+   }
+  },
+  {
+   "id": "z1_far",
+   "file": "z1_far.webp",
+   "zone": 1,
+   "role": "far",
+   "order": 1,
+   "sizePx": {
+    "w": 1024,
+    "h": 2048
+   },
+   "tileDesignPx": {
+    "w": 360,
+    "h": 720
+   },
+   "parallax": {
+    "x": 0.12,
+    "y": 0.12
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "repeat"
+   },
+   "blend": "normal",
+   "opacity": 1.0,
+   "alpha": true,
+   "anchor": "zoneTop",
+   "bytes": 203210,
+   "fadeIn": {
+    "fromLayerY": 70,
+    "toLayerY": 230,
+    "note": "alpha *= smoothstep(from, to, layerY), so the reef never crosses the sea surface"
+   }
+  },
+  {
+   "id": "z1_mid",
+   "file": "z1_mid.webp",
+   "zone": 1,
+   "role": "mid",
+   "order": 2,
+   "sizePx": {
+    "w": 2048,
+    "h": 2048
+   },
+   "tileDesignPx": {
+    "w": 540,
+    "h": 540
+   },
+   "parallax": {
+    "x": 0.42,
+    "y": 0.42
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "repeat"
+   },
+   "blend": "normal",
+   "opacity": 1.0,
+   "alpha": true,
+   "anchor": "zoneTop",
+   "bytes": 230364,
+   "fadeIn": {
+    "fromLayerY": 50,
+    "toLayerY": 180,
+    "note": "alpha *= smoothstep(from, to, layerY), so the reef never crosses the sea surface"
+   }
+  },
+  {
+   "id": "z1_near",
+   "file": "z1_near.webp",
+   "zone": 1,
+   "role": "near",
+   "order": 3,
+   "sizePx": {
+    "w": 2048,
+    "h": 2048
+   },
+   "tileDesignPx": {
+    "w": 540,
+    "h": 540
+   },
+   "parallax": {
+    "x": 0.72,
+    "y": 0.72
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "repeat"
+   },
+   "blend": "normal",
+   "opacity": 1.0,
+   "alpha": true,
+   "anchor": "zoneTop",
+   "bytes": 145940,
+   "fadeIn": {
+    "fromLayerY": 30,
+    "toLayerY": 150,
+    "note": "alpha *= smoothstep(from, to, layerY), so the reef never crosses the sea surface"
+   }
+  },
+  {
+   "id": "z1_rays",
+   "file": "z1_rays.webp",
+   "zone": 1,
+   "role": "rays",
+   "order": 4,
+   "sizePx": {
+    "w": 1024,
+    "h": 1024
+   },
+   "tileDesignPx": {
+    "w": 360,
+    "h": 420
+   },
+   "parallax": {
+    "x": 0.25,
+    "y": 0.0
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "clamp"
+   },
+   "blend": "additive",
+   "opacity": 1.0,
+   "alpha": true,
+   "anchor": "viewTop",
+   "bytes": 31734,
+   "fit": "stretch the texture's height to the view height; layerY is unused",
+   "animation": {
+    "kind": "dualScrollPulse",
+    "note": "Add two samples of the texture at half strength, each with its own scroll and the second with x scaled, then pulse opacity. Beams cross and breathe and never loop visibly.",
+    "scrollDesignPxPerS": [
+     3.0,
+     -2.0
+    ],
+    "secondCopyScaleX": 0.73,
+    "pulseOpacity": [
+     0.75,
+     1.0
+    ],
+    "pulsePeriodS": 7.0
+   }
+  },
+  {
+   "id": "z2_water",
+   "file": "z2_water.webp",
+   "zone": 2,
+   "role": "water",
+   "order": 0,
+   "sizePx": {
+    "w": 1024,
+    "h": 2048
+   },
+   "tileDesignPx": {
+    "w": 360,
+    "h": 720
+   },
+   "parallax": {
+    "x": 0.06,
+    "y": 0.06
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "clamp"
+   },
+   "blend": "normal",
+   "opacity": 1.0,
+   "alpha": false,
+   "anchor": "zoneTop",
+   "bytes": 22248
+  },
+  {
+   "id": "z2_far",
+   "file": "z2_far.webp",
+   "zone": 2,
+   "role": "far",
+   "order": 1,
+   "sizePx": {
+    "w": 1024,
+    "h": 2048
+   },
+   "tileDesignPx": {
+    "w": 360,
+    "h": 720
+   },
+   "parallax": {
+    "x": 0.15,
+    "y": 0.15
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "repeat"
+   },
+   "blend": "normal",
+   "opacity": 1.0,
+   "alpha": true,
+   "anchor": "zoneTop",
+   "bytes": 187932
+  },
+  {
+   "id": "z2_mid",
+   "file": "z2_mid.webp",
+   "zone": 2,
+   "role": "mid",
+   "order": 2,
+   "sizePx": {
+    "w": 2048,
+    "h": 2048
+   },
+   "tileDesignPx": {
+    "w": 540,
+    "h": 540
+   },
+   "parallax": {
+    "x": 0.45,
+    "y": 0.45
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "repeat"
+   },
+   "blend": "normal",
+   "opacity": 1.0,
+   "alpha": true,
+   "anchor": "zoneTop",
+   "bytes": 203736
+  },
+  {
+   "id": "z2_near",
+   "file": "z2_near.webp",
+   "zone": 2,
+   "role": "near",
+   "order": 3,
+   "sizePx": {
+    "w": 2048,
+    "h": 2048
+   },
+   "tileDesignPx": {
+    "w": 540,
+    "h": 540
+   },
+   "parallax": {
+    "x": 0.85,
+    "y": 0.85
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "repeat"
+   },
+   "blend": "normal",
+   "opacity": 1.0,
+   "alpha": true,
+   "anchor": "zoneTop",
+   "bytes": 177894
+  },
+  {
+   "id": "z2_rays",
+   "file": "z2_rays.webp",
+   "zone": 2,
+   "role": "rays",
+   "order": 4,
+   "sizePx": {
+    "w": 1024,
+    "h": 1024
+   },
+   "tileDesignPx": {
+    "w": 360,
+    "h": 420
+   },
+   "parallax": {
+    "x": 0.25,
+    "y": 0.0
+   },
+   "tiling": {
+    "x": "repeat",
+    "y": "clamp"
+   },
+   "blend": "additive",
+   "opacity": 1.0,
+   "alpha": true,
+   "anchor": "viewTop",
+   "bytes": 11668,
+   "fit": "stretch the texture's height to the view height; layerY is unused",
+   "animation": {
+    "kind": "dualScrollPulse",
+    "note": "Add two samples of the texture at half strength, each with its own scroll and the second with x scaled, then pulse opacity. Beams cross and breathe and never loop visibly.",
+    "scrollDesignPxPerS": [
+     1.6,
+     -1.1
+    ],
+    "secondCopyScaleX": 0.73,
+    "pulseOpacity": [
+     0.75,
+     1.0
+    ],
+    "pulsePeriodS": 9.0
+   }
+  }
+ ]
+}

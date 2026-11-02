@@ -9,6 +9,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "dev": "pnpm --filter @deeply-bubbly/web dev",
+    "dev:3d": "pnpm --filter @deeply-bubbly/web3d dev",
     "build": "turbo run build",
     "test": "turbo run test",
     "test:watch": "pnpm --filter @deeply-bubbly/core test:watch",
