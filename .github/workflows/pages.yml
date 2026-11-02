@@ -1,6 +1,7 @@
 name: Deploy to GitHub Pages
 
-# Publishes `main` at the site root and the PREVIEW_REF branch under /preview/ as a playable preview.
+# Publishes `main` at the site root, the PREVIEW_REF branch under /preview/ as a playable preview,
+# and the WEB3D_REF branch (the Three.js client) under /3d/.
 # The github-pages environment only accepts deploys from main: refresh the preview with
 #   gh workflow run "Deploy to GitHub Pages" --ref main
 on:
@@ -11,6 +12,8 @@ on:
 env:
   # Branch built under /preview/ (the owner's phone playtest of the next version).
   PREVIEW_REF: v1.3
+  # Branch built under /3d/.
+  WEB3D_REF: web3d
 
 permissions:
   contents: read
@@ -33,6 +36,10 @@ jobs:
         with:
           ref: ${{ env.PREVIEW_REF }}
           path: preview
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.WEB3D_REF }}
+          path: web3d
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: main/package.json
@@ -45,12 +52,19 @@ jobs:
       - name: Build preview
         working-directory: preview
         run: pnpm install --frozen-lockfile && pnpm --filter @deeply-bubbly/web build
+      - name: Build web3d
+        working-directory: web3d
+        env:
+          VITE_STORE_PREFIX: '3d:'
+        run: pnpm install --frozen-lockfile && pnpm --filter @deeply-bubbly/web3d build
       - name: Assemble site
         run: |
           mkdir -p site
           cp -r main/apps/web/dist/. site/
           mkdir -p site/preview
           cp -r preview/apps/web/dist/. site/preview/
+          mkdir -p site/3d
+          cp -r web3d/apps/web3d/dist/. site/3d/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
